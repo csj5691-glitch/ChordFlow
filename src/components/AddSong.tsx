@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { X, Search, Plus, Loader2, ExternalLink, Music } from "lucide-react";
+import { X, Search, Plus, Loader2, Music, RefreshCw, Download } from "lucide-react";
 import ChordReference from "./ChordReference";
+import { detectKeyFromContent } from "@/lib/key-detection";
 
 interface AddSongProps {
   onAdd: (song: {
@@ -29,18 +30,66 @@ export default function AddSong({ onAdd, onClose }: AddSongProps) {
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<"search" | "lyrics" | "chords">("search");
   const [showChordRef, setShowChordRef] = useState(false);
-  const [capo, setCapo] = useState(0);
   const [tuning, setTuning] = useState("Standard (EADGBE)");
-  const [key, setKey] = useState("");
+  const [songsterrLoading, setSongsterrLoading] = useState(false);
+  const [songsterrTip, setSongsterrTip] = useState<string | null>(null);
+  const [ugLoading, setUgLoading] = useState(false);
+  const [ugError, setUgError] = useState<string | null>(null);
 
-  const openUltimateGuitar = useCallback(() => {
-    const q = encodeURIComponent(`${artist.trim()} ${title.trim()}`);
-    window.open(`https://www.ultimate-guitar.com/search.php?search_type=title&value=${q}`, "_blank");
+  const fetchSongsterrTuning = useCallback(async () => {
+    if (!artist.trim() || !title.trim()) return;
+    setSongsterrLoading(true);
+    setSongsterrTip(null);
+    try {
+      const res = await fetch(
+        `/api/songsterr?artist=${encodeURIComponent(artist.trim())}&title=${encodeURIComponent(title.trim())}`
+      );
+      const data = await res.json();
+      if (res.ok && data.tuning) {
+        setTuning(data.tuning);
+        setSongsterrTip(
+          `Accordage trouvé sur Songsterr (${data.artist} - ${data.title})`
+        );
+      } else {
+        setSongsterrTip("Aucun accordage trouvé sur Songsterr.");
+      }
+    } catch {
+      setSongsterrTip("Impossible de contacter Songsterr.");
+    } finally {
+      setSongsterrLoading(false);
+    }
   }, [artist, title]);
 
   const insertChord = useCallback((chordName: string) => {
     setContent((prev) => prev + (prev && !prev.endsWith("\n") ? "\n" : "") + chordName + "  ");
   }, []);
+
+  const fetchUgChords = useCallback(async () => {
+    if (!artist.trim() && !title.trim()) return;
+    setUgLoading(true);
+    setUgError(null);
+    try {
+      const res = await fetch(
+        `/api/ug?query=${encodeURIComponent(`${artist.trim()} ${title.trim()}`)}`
+      );
+      const data = await res.json();
+      if (res.ok && data.content) {
+        setArtist(data.artist || artist);
+        setTitle(data.title || title);
+        setContent(data.content);
+        if (data.tuning) {
+          setTuning(data.tuning);
+        }
+        setStep("chords");
+      } else {
+        setUgError(data.error || "Aucun accord trouvé sur Ultimate Guitar.");
+      }
+    } catch {
+      setUgError("Impossible de contacter Ultimate Guitar.");
+    } finally {
+      setUgLoading(false);
+    }
+  }, [artist, title]);
 
   const searchLyrics = useCallback(async () => {
     if (!artist.trim() || !title.trim()) return;
@@ -70,17 +119,18 @@ export default function AddSong({ onAdd, onClose }: AddSongProps) {
 
   const handleSubmit = useCallback(() => {
     if (!artist.trim() || !title.trim()) return;
+    const detectedKey = detectKeyFromContent(content) || undefined;
     onAdd({
       artist: artist.trim(),
       title: title.trim(),
       content: content.trim(),
       officialPlain: plainLyrics.trim(),
       officialSynced: syncedLyrics.trim(),
-      capo: capo > 0 ? capo : undefined,
+      capo: undefined,
       tuning: tuning !== "Standard (EADGBE)" ? tuning : undefined,
-      key: key.trim() || undefined,
+      key: detectedKey,
     });
-  }, [artist, title, content, plainLyrics, syncedLyrics, capo, tuning, key, onAdd]);
+  }, [artist, title, content, plainLyrics, syncedLyrics, tuning, onAdd]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
@@ -135,46 +185,23 @@ export default function AddSong({ onAdd, onClose }: AddSongProps) {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="text-xs text-zinc-400 mb-1 block">Capo (fret)</label>
-              <select
-                value={capo}
-                onChange={(e) => setCapo(parseInt(e.target.value))}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-500/50"
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={fetchSongsterrTuning}
+                disabled={!artist.trim() || !title.trim() || songsterrLoading}
+                className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-amber-400 disabled:text-zinc-600 transition-colors"
               >
-                <option value={0}>Pas de capo</option>
-                {[1,2,3,4,5,6,7,8].map((f) => (
-                  <option key={f} value={f}>Fret {f}</option>
-                ))}
-              </select>
+                {songsterrLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                {songsterrLoading ? "Recherche..." : "Vérifier l'accordage sur Songsterr"}
+              </button>
+              {songsterrTip && <span className="text-[10px] text-emerald-400/80">{songsterrTip}</span>}
             </div>
-            <div>
-              <label className="text-xs text-zinc-400 mb-1 block">Accordage</label>
-              <select
-                value={tuning}
-                onChange={(e) => setTuning(e.target.value)}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-500/50"
-              >
-                <option value="Standard (EADGBE)">Standard (EADGBE)</option>
-                <option value="Half Step Down (D#G#C#F#A#D#)">Half Step Down</option>
-                <option value="Whole Step Down (DGBEAD)">Whole Step Down</option>
-                <option value="Drop D (DADGBE)">Drop D</option>
-                <option value="Open G (DGDGBD)">Open G</option>
-                <option value="Open D (DADF#AD)">Open D</option>
-                <option value="DADGAD">DADGAD</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs text-zinc-400 mb-1 block">Tonalité</label>
-              <input
-                type="text"
-                value={key}
-                onChange={(e) => setKey(e.target.value)}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-500/50"
-                placeholder="ex: Am, G, C#m"
-              />
-            </div>
+            {content.trim() && detectKeyFromContent(content) && (
+              <span className="flex items-center gap-1 text-[10px] text-zinc-500 bg-zinc-800 px-2 py-1 rounded-full">
+                Tonalité détectée : <span className="text-amber-400 font-mono">{detectKeyFromContent(content)}</span>
+              </span>
+            )}
           </div>
 
           {mode === "auto" && step === "search" && (
@@ -188,13 +215,16 @@ export default function AddSong({ onAdd, onClose }: AddSongProps) {
                 {loading ? "Recherche..." : "Chercher les paroles"}
               </button>
               <button
-                onClick={openUltimateGuitar}
-                disabled={!artist.trim() || !title.trim()}
-                className="w-full flex items-center justify-center gap-2 py-2.5 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 text-zinc-300 disabled:text-zinc-600 rounded-xl text-sm font-medium transition-colors border border-zinc-700"
+                onClick={fetchUgChords}
+                disabled={(!artist.trim() && !title.trim()) || ugLoading}
+                className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-800 text-white disabled:text-zinc-500 rounded-xl font-medium transition-colors"
               >
-                <ExternalLink className="w-3.5 h-3.5" />
-                Chercher les accords sur Ultimate Guitar
+                {ugLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                {ugLoading ? "Import depuis UG..." : "Importer les accords depuis Ultimate Guitar"}
               </button>
+              {ugError && (
+                <p className="text-red-400 text-xs text-center">{ugError}</p>
+              )}
             </div>
           )}
 
@@ -280,15 +310,6 @@ export default function AddSong({ onAdd, onClose }: AddSongProps) {
                     <Music className="w-2.5 h-2.5" />
                     {showChordRef ? "Masquer" : "Diagrammes"}
                   </button>
-                  {plainLyrics && (
-                    <button
-                      onClick={openUltimateGuitar}
-                      className="text-[10px] text-zinc-500 hover:text-amber-400 flex items-center gap-1 transition-colors"
-                    >
-                      <ExternalLink className="w-2.5 h-2.5" />
-                      Accords UG
-                    </button>
-                  )}
                 </div>
               </div>
               {showChordRef && (

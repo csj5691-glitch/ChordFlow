@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Search } from "lucide-react";
+import { Search, Download, Loader2 } from "lucide-react";
+import { saveCustomSong, generateSongId } from "@/lib/custom-songs";
 
 export default function SearchBar() {
   const [query, setQuery] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
   const handleSubmit = useCallback(
@@ -17,6 +20,35 @@ export default function SearchBar() {
     },
     [query, router]
   );
+
+  const handleImportFromUg = useCallback(async () => {
+    const q = query.trim();
+    if (!q) return;
+    setImporting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/ug?query=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      if (res.ok && data.content) {
+        saveCustomSong({
+          id: generateSongId(),
+          title: data.title || q,
+          artist: data.artist || "",
+          type: data.type || "Chords",
+          content: data.content,
+          key: data.key,
+          tuning: data.tuning,
+        });
+        router.push("/");
+      } else {
+        setError(data.error || "Aucun accord trouvé sur Ultimate Guitar.");
+      }
+    } catch {
+      setError("Impossible de contacter Ultimate Guitar.");
+    } finally {
+      setImporting(false);
+    }
+  }, [query, router]);
 
   return (
     <form onSubmit={handleSubmit} className="w-full max-w-2xl">
@@ -37,8 +69,26 @@ export default function SearchBar() {
           >
             Chercher
           </button>
+          {query.trim() && (
+            <button
+              type="button"
+              onClick={handleImportFromUg}
+              disabled={importing}
+              className="flex items-center gap-1.5 px-4 py-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 text-white disabled:text-zinc-500 text-sm font-semibold transition-colors"
+            >
+              {importing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              {importing ? "Import..." : "Importer UG"}
+            </button>
+          )}
         </div>
       </div>
+      {error && (
+        <p className="mt-3 text-center text-xs text-red-400">{error}</p>
+      )}
     </form>
   );
 }

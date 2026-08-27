@@ -360,6 +360,15 @@ export default function SongPage({ params }: { params: Promise<{ id: string }> }
               <svg className="w-5 h-5 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
               <span className="text-sm font-medium text-blue-400">Songsterr</span>
             </button>
+            <a
+              href={`https://www.ultimate-guitar.com/search.php?search_type=title&value=${encodeURIComponent(`${song.artist} ${song.title}`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 flex items-center justify-center gap-2 p-4 bg-amber-600/10 border border-amber-600/30 rounded-xl hover:bg-amber-600/20 transition-colors"
+            >
+              <ExternalLink className="w-5 h-5 text-amber-500" />
+              <span className="text-sm font-medium text-amber-500">Ultimate Guitar</span>
+            </a>
             <label className="flex-1 flex items-center justify-center gap-2 p-4 bg-zinc-700/10 border border-zinc-600/30 rounded-xl hover:bg-zinc-700/20 transition-colors cursor-pointer">
               <Upload className="w-5 h-5 text-zinc-400" />
               <span className="text-sm font-medium text-zinc-400">Upload</span>
