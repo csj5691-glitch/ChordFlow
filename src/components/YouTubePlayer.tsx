@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
+import { setCurrentTime } from "@/lib/playback-store";
 
 declare global {
   interface Window {
@@ -11,7 +12,6 @@ declare global {
 
 interface YouTubePlayerProps {
   videoId: string | null;
-  onTimeUpdate?: (time: number) => void;
   onDurationChange?: (duration: number) => void;
   onStateChange?: (state: number) => void;
   onPlayStateChange?: (playing: boolean) => void;
@@ -30,7 +30,6 @@ const PLAYER_STATES = {
 
 export default function YouTubePlayer({
   videoId,
-  onTimeUpdate,
   onDurationChange,
   onStateChange,
   onPlayStateChange,
@@ -115,8 +114,7 @@ export default function YouTubePlayer({
     stopTimer();
     intervalRef.current = setInterval(() => {
       if (playerRef.current && playerRef.current.getCurrentTime) {
-        const time = playerRef.current.getCurrentTime();
-        onTimeUpdate?.(time);
+        setCurrentTime(playerRef.current.getCurrentTime());
 
         const duration = playerRef.current.getDuration();
         if (duration > 0) {
@@ -124,7 +122,7 @@ export default function YouTubePlayer({
         }
       }
     }, 100);
-  }, [onTimeUpdate, onDurationChange]);
+  }, [onDurationChange]);
 
   const stopTimer = useCallback(() => {
     if (intervalRef.current) {

@@ -1,14 +1,21 @@
 "use client";
 
 import { useSearchParams, useRouter } from "next/navigation";
-import { Suspense, useState, useEffect, useCallback } from "react";
+import { Suspense, useState, useEffect, useCallback, useMemo } from "react";
 import SearchBar from "@/components/SearchBar";
 import SongCard from "@/components/SongCard";
 import AddSong from "@/components/AddSong";
 import { searchSongs, MOCK_SEARCH_RESULTS } from "@/lib/mock-data";
 import { getCustomSongs, saveCustomSong, generateSongId } from "@/lib/custom-songs";
+import {
+  loadRepertoireSort,
+  saveRepertoireSort,
+  RepertoireSort,
+  SortField,
+  SortDirection,
+} from "@/lib/repertoire-sort";
 import { SongTab } from "@/lib/types";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, ArrowUpAZ, ArrowDownAZ, ListFilter } from "lucide-react";
 
 function SearchResults({ customSongs }: { customSongs: SongTab[] }) {
   const searchParams = useSearchParams();
@@ -43,10 +50,20 @@ export default function Home() {
   const router = useRouter();
   const [customSongs, setCustomSongs] = useState<SongTab[]>([]);
   const [showAddSong, setShowAddSong] = useState(false);
+  const [sort, setSort] = useState<RepertoireSort>(() => loadRepertoireSort());
 
   useEffect(() => {
     setCustomSongs(getCustomSongs());
   }, []);
+
+  const handleSortChange = useCallback(
+    (field: SortField, direction: SortDirection) => {
+      const next = { field, direction };
+      setSort(next);
+      saveRepertoireSort(next);
+    },
+    []
+  );
 
   const handleAddSong = useCallback((data: {
     artist: string;
@@ -83,6 +100,17 @@ export default function Home() {
     setCustomSongs(getCustomSongs());
   }, []);
 
+  const sortedSongs = useMemo(() => {
+    const copy = [...customSongs];
+    copy.sort((a, b) => {
+      const av = (a[sort.field] || "").toLowerCase();
+      const bv = (b[sort.field] || "").toLowerCase();
+      const cmp = av.localeCompare(bv, undefined, { sensitivity: "base" });
+      return sort.direction === "asc" ? cmp : -cmp;
+    });
+    return copy;
+  }, [customSongs, sort]);
+
   return (
     <div className="flex flex-col items-center min-h-screen">
       <header className="w-full pt-12 pb-8">
@@ -116,9 +144,38 @@ export default function Home() {
                 <Plus className="w-3.5 h-3.5" />
                 Ajouter
               </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() =>
+                    handleSortChange(sort.field, sort.direction === "asc" ? "desc" : "asc")
+                  }
+                  title={sort.direction === "asc" ? "Tri A → Z" : "Tri Z → A"}
+                  className="flex items-center gap-1 text-xs px-2.5 py-1.5 bg-zinc-800 text-zinc-300 rounded-full hover:bg-zinc-700 transition-colors"
+                >
+                  {sort.direction === "asc" ? (
+                    <ArrowUpAZ className="w-3.5 h-3.5" />
+                  ) : (
+                    <ArrowDownAZ className="w-3.5 h-3.5" />
+                  )}
+                  {sort.direction === "asc" ? "A→Z" : "Z→A"}
+                </button>
+                <div className="flex items-center gap-1 text-xs bg-zinc-800 rounded-full px-1 py-0.5">
+                  <ListFilter className="w-3.5 h-3.5 text-zinc-500 ml-1.5" />
+                  <select
+                    value={sort.field}
+                    onChange={(e) =>
+                      handleSortChange(e.target.value as SortField, sort.direction)
+                    }
+                    className="bg-transparent text-zinc-300 focus:outline-none py-1 pr-2 rounded-full cursor-pointer"
+                  >
+                    <option value="title" className="bg-zinc-800">Titre</option>
+                    <option value="artist" className="bg-zinc-800">Artiste</option>
+                  </select>
+                </div>
+              </div>
             </div>
             <div className="flex flex-col gap-2">
-              {customSongs.map((song) => (
+              {sortedSongs.map((song) => (
                 <div
                   key={song.id}
                   className="flex items-center gap-3 p-3 bg-zinc-900/80 border border-zinc-800 rounded-xl hover:border-zinc-700 transition-colors group cursor-pointer"

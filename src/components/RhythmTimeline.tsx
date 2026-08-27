@@ -1,22 +1,22 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useSyncExternalStore } from "react";
+import { subscribeCurrentTime, getCurrentTime } from "@/lib/playback-store";
 
 interface RhythmTimelineProps {
   timestamps: { time: number; chord: string }[];
   duration: number;
-  currentTime: number;
   onSeek?: (time: number) => void;
 }
 
 export default function RhythmTimeline({
   timestamps,
   duration,
-  currentTime,
   onSeek,
 }: RhythmTimelineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
+  const currentTime = useSyncExternalStore(subscribeCurrentTime, getCurrentTime);
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 

@@ -1,17 +1,18 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useSyncExternalStore } from "react";
+import { subscribeCurrentTime, getCurrentTime } from "@/lib/playback-store";
 
 interface WaveformProps {
   audioUrl: string | null;
-  currentTime: number;
   duration: number;
   onSeek?: (time: number) => void;
 }
 
-export default function Waveform({ audioUrl, currentTime, duration, onSeek }: WaveformProps) {
+export default function Waveform({ audioUrl, duration, onSeek }: WaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [bars, setBars] = useState<number[]>([]);
+  const currentTime = useSyncExternalStore(subscribeCurrentTime, getCurrentTime);
 
   useEffect(() => {
     const count = 80;

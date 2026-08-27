@@ -1,11 +1,11 @@
 "use client";
 
-import { useRef, useEffect, useState, useCallback, useMemo } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo, useSyncExternalStore } from "react";
 import { ChordSection } from "@/lib/types";
+import { subscribeCurrentTime, getCurrentTime } from "@/lib/playback-store";
 
 interface ChordDisplayProps {
   sections: ChordSection[];
-  currentTime: number;
   timestamps: { time: number; chord: string; sectionIndex: number; lineIndex: number }[];
   onSeek?: (time: number) => void;
   offset?: number;
@@ -37,7 +37,6 @@ function distributeChordsAcrossText(chords: string[], text: string): { word: str
 
 export default function ChordDisplay({
   sections,
-  currentTime,
   timestamps,
   onSeek,
   offset = 0,
@@ -45,6 +44,7 @@ export default function ChordDisplay({
   onRawEdit,
 }: ChordDisplayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const currentTime = useSyncExternalStore(subscribeCurrentTime, getCurrentTime);
   const [activeLine, setActiveLine] = useState({ sectionIndex: 0, lineIndex: 0 });
   const [editing, setEditing] = useState<{ sIdx: number; lIdx: number; cIdx: number; value: string } | null>(null);
   const [editingLine, setEditingLine] = useState<{ sIdx: number; lIdx: number; value: string } | null>(null);
@@ -149,7 +149,9 @@ export default function ChordDisplay({
   return (
     <div
       ref={containerRef}
-      className="chord-display overflow-y-auto max-h-[60vh] py-4 px-6 rounded-xl bg-zinc-900/50 border border-zinc-700/50"
+      className={`chord-display overflow-y-auto max-h-[60vh] py-4 px-6 rounded-xl bg-zinc-900/50 border border-zinc-700/50 ${
+        textEditorMode ? "flex flex-col" : ""
+      }`}
     >
       {onChordEdit && (
         <div className="flex items-center gap-3 mb-4">
@@ -168,14 +170,7 @@ export default function ChordDisplay({
       )}
       {textEditorMode ? (
         <div className="space-y-3">
-          <textarea
-            value={rawText}
-            onChange={(e) => setRawText(e.target.value)}
-            className="w-full h-[50vh] bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-sm font-mono text-zinc-200 focus:outline-none focus:border-amber-500/50 resize-none leading-relaxed"
-            placeholder={`[Verse 1]\nAm              F\nOn a dark desert highway\nC               G\nCool wind in my hair...`}
-            spellCheck={false}
-          />
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 sticky top-0 z-10 py-2 rounded-lg bg-zinc-900/95 backdrop-blur">
             <button
               onClick={saveTextEditor}
               className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-sm font-medium transition-colors"
@@ -192,6 +187,13 @@ export default function ChordDisplay({
               Accords au-dessus des paroles, sections entre [crochets]
             </span>
           </div>
+          <textarea
+            value={rawText}
+            onChange={(e) => setRawText(e.target.value)}
+            className="w-full h-[44vh] bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-sm font-mono text-zinc-200 focus:outline-none focus:border-amber-500/50 resize-none leading-relaxed"
+            placeholder={`[Verse 1]\nAm              F\nOn a dark desert highway\nC               G\nCool wind in my hair...`}
+            spellCheck={false}
+          />
         </div>
       ) : (
       <div className="space-y-1">

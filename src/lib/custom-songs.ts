@@ -31,6 +31,13 @@ export function deleteCustomSong(id: string): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(songs));
 }
 
+export function updateCustomSong(id: string, patch: Partial<SongTab>): void {
+  const songs = getCustomSongs().map((s) =>
+    s.id === id ? { ...s, ...patch } : s
+  );
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(songs));
+}
+
 export function generateSongId(): string {
   return `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }

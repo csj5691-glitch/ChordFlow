@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useEffect, useMemo, useCallback, useState } from "react";
+import { useRef, useEffect, useMemo, useCallback, useState, useSyncExternalStore } from "react";
+import { subscribeCurrentTime, getCurrentTime } from "@/lib/playback-store";
 import { loadLineChords, saveLineChords, loadLineSpacers, saveLineSpacers, loadExtraChordLines, saveExtraChordLines, ExtraChordLine } from "@/lib/custom-songs";
 import ChordReference from "./ChordReference";
 
@@ -10,7 +11,6 @@ interface SyncedLyricsProps {
   title?: string;
   plainLyrics: string;
   syncedLrc?: string;
-  currentTime: number;
   onSeek?: (time: number) => void;
   offset?: number;
 }
@@ -52,12 +52,12 @@ export default function SyncedLyrics({
   title,
   plainLyrics,
   syncedLrc,
-  currentTime,
   onSeek,
   offset = 0,
 }: SyncedLyricsProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
+  const currentTime = useSyncExternalStore(subscribeCurrentTime, getCurrentTime);
   const [editMode, setEditMode] = useState(false);
   const [lineChords, setLineChords] = useState<Record<number, string[]>>({});
   const [editingLine, setEditingLine] = useState<number | null>(null);

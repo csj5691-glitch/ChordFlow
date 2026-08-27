@@ -6,6 +6,7 @@ import ChordDisplay from "@/components/ChordDisplay";
 import ChordLyricSync from "@/components/ChordLyricSync";
 import RhythmTimeline from "@/components/RhythmTimeline";
 import AudioPlayer from "@/components/AudioPlayer";
+import { setCurrentTime } from "@/lib/playback-store";
 import Waveform from "@/components/Waveform";
 import SyncedLyrics from "@/components/SyncedLyrics";
 import YouTubePlayer from "@/components/YouTubePlayer";
@@ -14,10 +15,51 @@ import SpotifyPlayer from "@/components/SpotifyPlayer";
 import SpotifySearch from "@/components/SpotifySearch";
 import { getSongTab } from "@/lib/mock-data";
 import { parseChordContent, sectionsToContent } from "@/lib/chord-parser";
-import { saveCustomSong, getCustomSong } from "@/lib/custom-songs";
+import { saveCustomSong, getCustomSong, updateCustomSong } from "@/lib/custom-songs";
 import { loadLineOffsets, saveLineOffset, loadGlobalOffset, saveGlobalOffset } from "@/lib/line-offsets";
 import { SongTab } from "@/lib/types";
 import { ArrowLeft, Music, Key, FileText, Music2, Play, Upload, ExternalLink, Wand2, Check } from "lucide-react";
+
+const GUITAR_KEYS = [
+  "C", "G", "D", "A", "E", "F", "B", "Bb", "Eb", "Ab", "Db", "Gb",
+  "C#", "F#", "D#", "G#", "A#", "Cb", "E#", "Fb", "B#",
+  "Am", "Em", "Dm", "Bm", "F#m", "Gm", "Cm", "C#m", "D#m", "Fm", "G#m", "A#m",
+  "Ebm", "Abm", "Dbm", "Gbm", "Bbm",
+];
+
+const GUITAR_TUNINGS = [
+  "Standard (EADGBE)",
+  "E A D G B E",
+  "Drop D (DADGBE)",
+  "D A D G B E",
+  "Dropped D (EBEABE)",
+  "Drop C (CGCFAD)",
+  "C G C F A D",
+  "Open G (DGDGBD)",
+  "D G D G B D",
+  "Open D (DADF#AD)",
+  "D A D F# A D",
+  "Open C (CGCGCE)",
+  "C G C G C E",
+  "Open E (EBEG#BE)",
+  "E B E G# B E",
+  "DADGAD",
+  "D A D G A D",
+  "Half Step Down (E♭ A♭ D♭ G♭ B♭ E♭)",
+  "E♭ A♭ D♭ G♭ B♭ E♭",
+  "Whole Step Down (D G C F A D)",
+  "D G C F A D",
+  "Eb Tuning (E♭ A♭ D♭ G♭ B♭ E♭)",
+  "D Tuning (D G C F A D)",
+  "New Standard (CGDAEB)",
+  "C G D A E B",
+  "7-String Standard (BEADGBE)",
+  "B E A D G B E",
+  "8-String Standard (F#BEADGBE)",
+  "F# B E A D G B E",
+  "Baritone (BEADF#B)",
+  "B E A D F# B",
+];
 
 type ViewMode = "chords" | "lyrics" | "sync";
 type AudioSource = "youtube" | "upload" | "spotify" | null;
@@ -30,7 +72,6 @@ function getStaticSong(id: string): SongTab | null {
 export default function SongPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [seekTo, setSeekTo] = useState<number | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -161,10 +202,6 @@ export default function SongPage({ params }: { params: Promise<{ id: string }> }
     setCurrentTime(time);
   }, []);
 
-  const handleTimeUpdate = useCallback((time: number) => {
-    setCurrentTime(time);
-  }, []);
-
   const handleDurationChange = useCallback((dur: number) => {
     setDuration(dur);
   }, []);
@@ -230,6 +267,36 @@ export default function SongPage({ params }: { params: Promise<{ id: string }> }
       if (existing) {
         saveCustomSong({ ...existing, content: newContent });
       }
+    }
+  }, [id]);
+
+  const handleKeyChange = useCallback((newKey: string) => {
+    setSong((prev) => {
+      if (!prev) return prev;
+      return { ...prev, key: newKey || undefined };
+    });
+    if (id?.startsWith("custom-")) {
+      updateCustomSong(id, { key: newKey || undefined });
+    }
+  }, [id]);
+
+  const handleCapoChange = useCallback((newCapo: number) => {
+    setSong((prev) => {
+      if (!prev) return prev;
+      return { ...prev, capo: newCapo > 0 ? newCapo : undefined };
+    });
+    if (id?.startsWith("custom-")) {
+      updateCustomSong(id, { capo: newCapo > 0 ? newCapo : undefined });
+    }
+  }, [id]);
+
+  const handleTuningChange = useCallback((newTuning: string) => {
+    setSong((prev) => {
+      if (!prev) return prev;
+      return { ...prev, tuning: newTuning.trim() || undefined };
+    });
+    if (id?.startsWith("custom-")) {
+      updateCustomSong(id, { tuning: newTuning.trim() || undefined });
     }
   }, [id]);
 
@@ -308,23 +375,59 @@ export default function SongPage({ params }: { params: Promise<{ id: string }> }
             </button>
           </div>
 
-          <div className="flex items-center gap-3 flex-shrink-0">
-            {song.key && (
-              <span className="flex items-center gap-1 text-xs text-zinc-500 bg-zinc-800 px-2 py-1 rounded-full">
-                <Key className="w-3 h-3" />
-                {song.key}
-              </span>
-            )}
-            {song.capo && song.capo > 0 && (
-              <span className="text-xs text-amber-400 bg-amber-400/10 px-2 py-1 rounded-full font-medium">
-                Capo {song.capo}
-              </span>
-            )}
-            {song.tuning && (
-              <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-1 rounded-full">
-                {song.tuning}
-              </span>
-            )}
+          <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
+            <div className="flex items-center gap-1 text-xs text-zinc-500 bg-zinc-800 px-2 py-1 rounded-full">
+              <Key className="w-3 h-3" />
+              <input
+                list="guitar-keys"
+                value={song.key ?? ""}
+                onChange={(e) => handleKeyChange(e.target.value)}
+                placeholder="Tonalité"
+                className="bg-transparent text-zinc-300 focus:outline-none w-16"
+                title="Tonalité (choisir ou taper)"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+              />
+              <datalist id="guitar-keys">
+                {GUITAR_KEYS.map((k) => (
+                  <option key={k} value={k} />
+                ))}
+              </datalist>
+            </div>
+            <div className="flex items-center gap-1 text-xs text-amber-400 bg-amber-400/10 px-2 py-1 rounded-full font-medium">
+              <Music className="w-3 h-3" />
+              Capo
+              <select
+                value={song.capo ?? 0}
+                onChange={(e) => handleCapoChange(parseInt(e.target.value, 10))}
+                className="bg-transparent text-amber-300 focus:outline-none cursor-pointer"
+                title="Capo"
+              >
+                {Array.from({ length: 13 }, (_, i) => (
+                  <option key={i} value={i} className="bg-zinc-800">{i}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-1 text-xs text-zinc-500 bg-zinc-800 px-2 py-1 rounded-full">
+              <Music className="w-3 h-3" />
+              <input
+                list="guitar-tunings"
+                value={song.tuning ?? ""}
+                onChange={(e) => handleTuningChange(e.target.value)}
+                placeholder="Standard (EADGBE)"
+                className="bg-transparent text-zinc-300 focus:outline-none w-24"
+                title="Accordage (choisir ou taper)"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+              />
+              <datalist id="guitar-tunings">
+                {GUITAR_TUNINGS.map((t) => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
+            </div>
             <span className="flex items-center gap-1 text-xs text-zinc-500 bg-zinc-800 px-2 py-1 rounded-full">
               <Music className="w-3 h-3" />
               {song.type}
@@ -469,7 +572,6 @@ export default function SongPage({ params }: { params: Promise<{ id: string }> }
         {audioSource === "youtube" && youtubeVideoId && (
           <YouTubePlayer
             videoId={youtubeVideoId}
-            onTimeUpdate={handleTimeUpdate}
             onDurationChange={handleDurationChange}
             onPlayStateChange={setIsPlaying}
             seekTo={seekTo}
@@ -484,7 +586,6 @@ export default function SongPage({ params }: { params: Promise<{ id: string }> }
         {audioSource === "upload" && (
           <AudioPlayer
             audioUrl={audioUrl}
-            onTimeUpdate={handleTimeUpdate}
             onDurationChange={handleDurationChange}
             seekTo={seekTo}
           />
@@ -513,7 +614,6 @@ export default function SongPage({ params }: { params: Promise<{ id: string }> }
           <div className="bg-zinc-800/50 rounded-xl border border-zinc-700/50 p-4">
             <Waveform
               audioUrl={audioUrl}
-              currentTime={currentTime}
               duration={duration}
               onSeek={handleSeek}
             />
@@ -524,7 +624,6 @@ export default function SongPage({ params }: { params: Promise<{ id: string }> }
           <RhythmTimeline
             timestamps={timestamps}
             duration={duration}
-            currentTime={currentTime}
             onSeek={handleSeek}
           />
         )}
@@ -532,7 +631,6 @@ export default function SongPage({ params }: { params: Promise<{ id: string }> }
         {viewMode === "chords" ? (
           <ChordDisplay
             sections={sections}
-            currentTime={currentTime}
             timestamps={timestamps}
             onSeek={handleSeek}
             offset={lyricsOffset}
@@ -546,7 +644,6 @@ export default function SongPage({ params }: { params: Promise<{ id: string }> }
             title={song.title}
             plainLyrics={song.officialPlain || ""}
             syncedLrc={song.officialSynced || undefined}
-            currentTime={currentTime}
             onSeek={handleSeek}
             offset={lyricsOffset}
           />
@@ -555,7 +652,6 @@ export default function SongPage({ params }: { params: Promise<{ id: string }> }
             sections={sections}
             syncedLrc={song.officialSynced || undefined}
             plainLyrics={song.officialPlain || ""}
-            currentTime={currentTime}
             onSeek={handleSeek}
             offset={lyricsOffset}
             lineOffsets={perLineOffsets}

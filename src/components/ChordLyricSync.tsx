@@ -1,13 +1,13 @@
 "use client";
 
-import { useRef, useEffect, useMemo, useCallback, useState } from "react";
+import { useRef, useEffect, useMemo, useCallback, useState, useSyncExternalStore } from "react";
 import { ChordSection } from "@/lib/types";
+import { subscribeCurrentTime, getCurrentTime } from "@/lib/playback-store";
 
 interface ChordLyricSyncProps {
   sections: ChordSection[];
   syncedLrc?: string;
   plainLyrics?: string;
-  currentTime: number;
   onSeek?: (time: number) => void;
   offset?: number;
   lineOffsets?: Record<number, number>;
@@ -56,13 +56,13 @@ export default function ChordLyricSync({
   sections,
   syncedLrc,
   plainLyrics,
-  currentTime,
   onSeek,
   offset = 0,
   lineOffsets = {},
   onLineOffsetChange,
 }: ChordLyricSyncProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const currentTime = useSyncExternalStore(subscribeCurrentTime, getCurrentTime);
   const [editMode, setEditMode] = useState(false);
   const [globalShift, setGlobalShift] = useState(0);
 

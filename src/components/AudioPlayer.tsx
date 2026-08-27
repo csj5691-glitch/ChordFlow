@@ -1,17 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
+import { setCurrentTime } from "@/lib/playback-store";
 
 interface AudioPlayerProps {
   audioUrl: string | null;
-  onTimeUpdate?: (time: number) => void;
   onDurationChange?: (duration: number) => void;
   seekTo?: number | null;
 }
 
 export default function AudioPlayer({
   audioUrl,
-  onTimeUpdate,
   onDurationChange,
   seekTo,
 }: AudioPlayerProps) {
@@ -21,11 +20,11 @@ export default function AudioPlayer({
   const animFrameRef = useRef<number>(0);
 
   const tick = useCallback(() => {
-    if (audioRef.current && onTimeUpdate) {
-      onTimeUpdate(audioRef.current.currentTime);
+    if (audioRef.current) {
+      setCurrentTime(audioRef.current.currentTime);
     }
     animFrameRef.current = requestAnimationFrame(tick);
-  }, [onTimeUpdate]);
+  }, []);
 
   useEffect(() => {
     if (isPlaying) {
