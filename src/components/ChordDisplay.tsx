@@ -12,29 +12,6 @@ interface ChordDisplayProps {
   onChordEdit?: (sectionIndex: number, lineIndex: number, chordIndex: number, newChord: string) => void;
   onRawEdit?: (newContent: string) => void;
 }
-
-function distributeChordsAcrossText(chords: string[], text: string): { word: string; chord?: string }[] {
-  if (chords.length === 0) return [{ word: text }];
-  const words = text.split(/(\s+)/);
-  const contentWords = words.filter((w) => w.trim());
-  if (contentWords.length === 0) return [{ word: text, chord: chords[0] }];
-
-  const result: { word: string; chord?: string }[] = [];
-  let chordIdx = 0;
-
-  for (let i = 0; i < words.length; i++) {
-    const w = words[i];
-    if (!w.trim()) {
-      result.push({ word: w });
-      continue;
-    }
-    const chord = chordIdx < chords.length ? chords[chordIdx] : undefined;
-    result.push({ word: w, chord });
-    chordIdx++;
-  }
-  return result;
-}
-
 export default function ChordDisplay({
   sections,
   timestamps,
@@ -45,7 +22,6 @@ export default function ChordDisplay({
 }: ChordDisplayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const currentTime = useSyncExternalStore(subscribeCurrentTime, getCurrentTime);
-  const [activeLine, setActiveLine] = useState({ sectionIndex: 0, lineIndex: 0 });
   const [editing, setEditing] = useState<{ sIdx: number; lIdx: number; cIdx: number; value: string } | null>(null);
   const [editingLine, setEditingLine] = useState<{ sIdx: number; lIdx: number; value: string } | null>(null);
   const [textEditorMode, setTextEditorMode] = useState(false);
@@ -56,7 +32,7 @@ export default function ChordDisplay({
     time: Math.max(0, ts.time + offset),
   })), [timestamps, offset]);
 
-  useEffect(() => {
+  const activeLine = useMemo(() => {
     let closest = adjustedTimestamps[0];
     for (const ts of adjustedTimestamps) {
       if (ts.time <= currentTime) {
@@ -65,12 +41,11 @@ export default function ChordDisplay({
         break;
       }
     }
-    if (closest) {
-      setActiveLine({
-        sectionIndex: closest.sectionIndex,
-        lineIndex: closest.lineIndex,
-      });
-    }
+    if (!closest) return { sectionIndex: 0, lineIndex: 0 };
+    return {
+      sectionIndex: closest.sectionIndex,
+      lineIndex: closest.lineIndex,
+    };
   }, [currentTime, adjustedTimestamps]);
 
   useEffect(() => {

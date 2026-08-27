@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useMemo, useCallback, useState, useSyncExternalStore } from "react";
 import { subscribeCurrentTime, getCurrentTime } from "@/lib/playback-store";
-import { loadLineChords, saveLineChords, loadLineSpacers, saveLineSpacers, loadExtraChordLines, saveExtraChordLines, ExtraChordLine } from "@/lib/custom-songs";
+import { loadLineChords, saveLineChords, loadLineSpacers, loadExtraChordLines, saveExtraChordLines, ExtraChordLine } from "@/lib/custom-songs";
 import ChordReference from "./ChordReference";
 
 interface SyncedLyricsProps {
@@ -59,25 +59,22 @@ export default function SyncedLyrics({
   const activeRef = useRef<HTMLDivElement>(null);
   const currentTime = useSyncExternalStore(subscribeCurrentTime, getCurrentTime);
   const [editMode, setEditMode] = useState(false);
-  const [lineChords, setLineChords] = useState<Record<number, string[]>>({});
+  const [lineChords, setLineChords] = useState<Record<number, string[]>>(
+    () => (songId ? loadLineChords(songId) : {})
+  );
   const [editingLine, setEditingLine] = useState<number | null>(null);
   const [chordInput, setChordInput] = useState("");
   const [showChordRef, setShowChordRef] = useState(false);
-  const [lineSpacers, setLineSpacers] = useState<Record<number, string>>({});
-  const [insertingSpacer, setInsertingSpacer] = useState<number | null>(null);
-  const [spacerLabel, setSpacerLabel] = useState("");
-  const [extraLines, setExtraLines] = useState<ExtraChordLine[]>([]);
+  const lineSpacers = useMemo<Record<number, string>>(
+    () => (songId ? loadLineSpacers(songId) : {}),
+    [songId]
+  );
+  const [extraLines, setExtraLines] = useState<ExtraChordLine[]>(
+    () => (songId ? loadExtraChordLines(songId) : [])
+  );
   const [insertingExtraAt, setInsertingExtraAt] = useState<number | null>(null);
   const [extraChordInput, setExtraChordInput] = useState("");
   const [extraLabelInput, setExtraLabelInput] = useState("");
-
-  useEffect(() => {
-    if (songId) {
-      setLineChords(loadLineChords(songId));
-      setLineSpacers(loadLineSpacers(songId));
-      setExtraLines(loadExtraChordLines(songId));
-    }
-  }, [songId]);
 
   const lrcLines = useMemo(() => {
     if (syncedLrc) {
@@ -156,32 +153,6 @@ export default function SyncedLyrics({
   const insertChord = useCallback((chordName: string) => {
     setChordInput((prev) => prev ? prev + "  " + chordName : chordName);
   }, []);
-
-  const saveSpacer = useCallback(() => {
-    if (insertingSpacer === null || !songId) {
-      setInsertingSpacer(null);
-      return;
-    }
-    const label = spacerLabel.trim() || "· · ·";
-    setLineSpacers((prev) => {
-      const next = { ...prev, [insertingSpacer]: label };
-      saveLineSpacers(songId, insertingSpacer, label);
-      return next;
-    });
-    setInsertingSpacer(null);
-    setSpacerLabel("");
-  }, [insertingSpacer, spacerLabel, songId]);
-
-  const removeSpacer = useCallback((lineIdx: number) => {
-    if (!songId) return;
-    setLineSpacers((prev) => {
-      const next = { ...prev };
-      delete next[lineIdx];
-      saveLineSpacers(songId, lineIdx, "");
-      return next;
-    });
-  }, [songId]);
-
   const hasChords = Object.keys(lineChords).length > 0;
   const hasSpacers = Object.keys(lineSpacers).length > 0;
 
@@ -287,7 +258,6 @@ export default function SyncedLyrics({
               const isPast = activeIndex >= 0 && i < activeIndex;
               const chords = lineChords[i] || [];
               const isEditing = editingLine === i;
-              const isInsertingSpacerHere = insertingSpacer === i;
               const spacerAbove = lineSpacers[i];
 
               return (

@@ -23,14 +23,16 @@ export default function AudioPlayer({
     if (audioRef.current) {
       setCurrentTime(audioRef.current.currentTime);
     }
-    animFrameRef.current = requestAnimationFrame(tick);
   }, []);
 
   useEffect(() => {
-    if (isPlaying) {
-      animFrameRef.current = requestAnimationFrame(tick);
-    }
-    return () => cancelAnimationFrame(animFrameRef.current);
+    if (!isPlaying) return;
+    const step = () => {
+      tick();
+      animFrameRef.current = window.requestAnimationFrame(step);
+    };
+    animFrameRef.current = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(animFrameRef.current);
   }, [isPlaying, tick]);
 
   useEffect(() => {

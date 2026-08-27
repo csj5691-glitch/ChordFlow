@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Search, X, ExternalLink, Link } from "lucide-react";
+import { X, ExternalLink, Link } from "lucide-react";
 
 interface SpotifySearchProps {
   artist: string;

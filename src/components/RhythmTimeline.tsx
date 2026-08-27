@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useState, useSyncExternalStore } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import { subscribeCurrentTime, getCurrentTime } from "@/lib/playback-store";
 
 interface RhythmTimelineProps {

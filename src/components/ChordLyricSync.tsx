@@ -207,7 +207,6 @@ export default function ChordLyricSync({
     [lineOffsets, onLineOffsetChange],
   );
 
-  const hasSync = adjustedLrc.length > 0;
   const hasOffsets = Object.keys(lineOffsets).length > 0;
 
   return (

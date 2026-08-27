@@ -1,12 +1,17 @@
 "use client";
 
 import { useSearchParams, useRouter } from "next/navigation";
-import { Suspense, useState, useEffect, useCallback, useMemo } from "react";
+import { Suspense, useState, useCallback, useMemo } from "react";
 import SearchBar from "@/components/SearchBar";
 import SongCard from "@/components/SongCard";
 import AddSong from "@/components/AddSong";
 import { searchSongs, MOCK_SEARCH_RESULTS } from "@/lib/mock-data";
-import { getCustomSongs, saveCustomSong, generateSongId } from "@/lib/custom-songs";
+import {
+  getCustomSongs,
+  saveCustomSong,
+  deleteCustomSong,
+  generateSongId,
+} from "@/lib/custom-songs";
 import {
   loadRepertoireSort,
   saveRepertoireSort,
@@ -17,7 +22,7 @@ import {
 import { SongTab } from "@/lib/types";
 import { Plus, Trash2, ArrowUpAZ, ArrowDownAZ, ListFilter } from "lucide-react";
 
-function SearchResults({ customSongs }: { customSongs: SongTab[] }) {
+function SearchResults() {
   const searchParams = useSearchParams();
   const query = searchParams.get("q") || "";
   const results = query ? searchSongs(query) : MOCK_SEARCH_RESULTS;
@@ -48,13 +53,9 @@ function SearchResults({ customSongs }: { customSongs: SongTab[] }) {
 
 export default function Home() {
   const router = useRouter();
-  const [customSongs, setCustomSongs] = useState<SongTab[]>([]);
+  const [customSongs, setCustomSongs] = useState<SongTab[]>(() => getCustomSongs());
   const [showAddSong, setShowAddSong] = useState(false);
   const [sort, setSort] = useState<RepertoireSort>(() => loadRepertoireSort());
-
-  useEffect(() => {
-    setCustomSongs(getCustomSongs());
-  }, []);
 
   const handleSortChange = useCallback(
     (field: SortField, direction: SortDirection) => {
@@ -95,7 +96,6 @@ export default function Home() {
   }, [router]);
 
   const handleDeleteSong = useCallback((id: string) => {
-    const { deleteCustomSong } = require("@/lib/custom-songs");
     deleteCustomSong(id);
     setCustomSongs(getCustomSongs());
   }, []);
@@ -232,7 +232,7 @@ export default function Home() {
         <Suspense
           fallback={<div className="mt-8 text-zinc-500">Chargement...</div>}
         >
-          <SearchResults customSongs={customSongs} />
+          <SearchResults />
         </Suspense>
       </main>
 

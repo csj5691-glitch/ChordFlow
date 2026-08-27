@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Search, Play, X, ExternalLink, Link } from "lucide-react";
+import { X, ExternalLink, Link } from "lucide-react";
 
 interface YouTubeSearchProps {
   artist: string;

@@ -1,4 +1,4 @@
-import { ChordLine, ChordSection } from "./types";
+import { ChordSection } from "./types";
 
 const CHORD_REGEX = /^([A-G][#b]?(?:m|min|maj|dim|aug|sus[24]?|add[0-9]+|[0-9]+)?(?:\/[A-G][#b]?)?)\s*$/;
 

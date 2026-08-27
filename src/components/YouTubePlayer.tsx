@@ -3,9 +3,32 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { setCurrentTime } from "@/lib/playback-store";
 
+interface YTPlayerInstance {
+  loadVideoById: (id: string) => void;
+  getDuration?: () => number;
+  getCurrentTime?: () => number;
+  seekTo?: (seconds: number, allowSeekAhead: boolean) => void;
+  getPlayerState?: () => number;
+  pauseVideo: () => void;
+  playVideo: () => void;
+}
+
+interface YTPlayerOptions {
+  videoId: string;
+  width: string;
+  height: string;
+  playerVars: Record<string, unknown>;
+  events: {
+    onReady: () => void;
+    onStateChange: (event: { data: number }) => void;
+  };
+}
+
 declare global {
   interface Window {
-    YT: any;
+    YT: {
+      Player: new (element: HTMLElement, options: YTPlayerOptions) => YTPlayerInstance;
+    };
     onYouTubeIframeAPIReady: () => void;
   }
 }
@@ -37,10 +60,40 @@ export default function YouTubePlayer({
   playToggle,
 }: YouTubePlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<any>(null);
+  const playerRef = useRef<YTPlayerInstance | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+
+  const stopTimer = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }, []);
+
+  const startTimer = useCallback(() => {
+    stopTimer();
+    intervalRef.current = setInterval(() => {
+      if (playerRef.current && playerRef.current.getCurrentTime) {
+        setCurrentTime(playerRef.current.getCurrentTime());
+
+        const duration = playerRef.current?.getDuration?.() ?? 0;
+        if (duration > 0) {
+          onDurationChange?.(duration);
+        }
+      }
+    }, 100);
+  }, [onDurationChange, stopTimer]);
+
+  const togglePlay = useCallback(() => {
+    if (!playerRef.current) return;
+    const state = playerRef.current.getPlayerState?.();
+    if (state === PLAYER_STATES.PLAYING) {
+      playerRef.current.pauseVideo();
+    } else {
+      playerRef.current.playVideo();
+    }
+  }, []);
 
   useEffect(() => {
     if (!document.getElementById("youtube-api-script")) {
@@ -78,12 +131,11 @@ export default function YouTubePlayer({
         },
         events: {
           onReady: () => {
-            setIsReady(true);
             if (onDurationChange && playerRef.current?.getDuration) {
               onDurationChange(playerRef.current.getDuration());
             }
           },
-          onStateChange: (event: any) => {
+          onStateChange: (event: { data: number }) => {
             const state = event.data;
             setIsPlaying(state === PLAYER_STATES.PLAYING);
             onStateChange?.(state);
@@ -110,27 +162,6 @@ export default function YouTubePlayer({
     };
   }, [videoId]);
 
-  const startTimer = useCallback(() => {
-    stopTimer();
-    intervalRef.current = setInterval(() => {
-      if (playerRef.current && playerRef.current.getCurrentTime) {
-        setCurrentTime(playerRef.current.getCurrentTime());
-
-        const duration = playerRef.current.getDuration();
-        if (duration > 0) {
-          onDurationChange?.(duration);
-        }
-      }
-    }, 100);
-  }, [onDurationChange]);
-
-  const stopTimer = useCallback(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  }, []);
-
   useEffect(() => {
     if (seekTo !== null && seekTo !== undefined && playerRef.current?.seekTo) {
       playerRef.current.seekTo(seekTo, true);
@@ -141,17 +172,7 @@ export default function YouTubePlayer({
     if (playToggle !== undefined && playToggle > 0) {
       togglePlay();
     }
-  }, [playToggle]);
-
-  const togglePlay = useCallback(() => {
-    if (!playerRef.current) return;
-    const state = playerRef.current.getPlayerState?.();
-    if (state === PLAYER_STATES.PLAYING) {
-      playerRef.current.pauseVideo();
-    } else {
-      playerRef.current.playVideo();
-    }
-  }, []);
+  }, [playToggle, togglePlay]);
 
   if (!videoId) {
     return null;

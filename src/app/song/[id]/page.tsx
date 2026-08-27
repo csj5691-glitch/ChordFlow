@@ -18,7 +18,7 @@ import { parseChordContent, sectionsToContent } from "@/lib/chord-parser";
 import { saveCustomSong, getCustomSong, updateCustomSong } from "@/lib/custom-songs";
 import { loadLineOffsets, saveLineOffset, loadGlobalOffset, saveGlobalOffset } from "@/lib/line-offsets";
 import { SongTab } from "@/lib/types";
-import { ArrowLeft, Music, Key, FileText, Music2, Play, Upload, ExternalLink, Wand2, Check } from "lucide-react";
+import { ArrowLeft, Music, Key, FileText, Music2, Upload, ExternalLink, Wand2, Check } from "lucide-react";
 
 const GUITAR_KEYS = [
   "C", "G", "D", "A", "E", "F", "B", "Bb", "Eb", "Ab", "Db", "Gb",
@@ -69,8 +69,9 @@ function getStaticSong(id: string): SongTab | null {
   return getSongTab(id);
 }
 
-export default function SongPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+type SongViewProps = { id: string };
+
+function SongView({ id }: SongViewProps) {
   const router = useRouter();
   const [duration, setDuration] = useState(0);
   const [seekTo, setSeekTo] = useState<number | null>(null);
@@ -81,35 +82,26 @@ export default function SongPage({ params }: { params: Promise<{ id: string }> }
   const [showYoutubeSearch, setShowYoutubeSearch] = useState(false);
   const [showSpotifySearch, setShowSpotifySearch] = useState(false);
   const [spotifyTrackUrl, setSpotifyTrackUrl] = useState<string | null>(null);
-  const [lyricsOffset, setLyricsOffset] = useState(0);
-  const [savedOffset, setSavedOffset] = useState(0);
+  const [lyricsOffset, setLyricsOffset] = useState(() =>
+    id ? loadGlobalOffset(id) : 0
+  );
+  const [savedOffset, setSavedOffset] = useState(() =>
+    id ? loadGlobalOffset(id) : 0
+  );
   const [isPlaying, setIsPlaying] = useState(false);
   const [playToggle, setPlayToggle] = useState(0);
-  const [perLineOffsets, setPerLineOffsets] = useState<Record<number, number>>({});
+  const [perLineOffsets, setPerLineOffsets] = useState<Record<number, number>>(
+    () => (id ? loadLineOffsets(id) : {})
+  );
 
-  const [song, setSong] = useState<SongTab | null>(() => getStaticSong(id));
-  const [clientLoaded, setClientLoaded] = useState(!id.startsWith("custom-"));
-  const [editableContent, setEditableContent] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (id.startsWith("custom-")) {
-      const loaded = getCustomSong(id);
-      setSong(loaded);
-      if (loaded) setEditableContent(loaded.content);
-      setClientLoaded(true);
-    } else {
-      setEditableContent(song?.content ?? null);
-    }
-  }, [id]);
-
-  useEffect(() => {
-    if (id) setPerLineOffsets(loadLineOffsets(id));
-    if (id) {
-      const loaded = loadGlobalOffset(id);
-      setLyricsOffset(loaded);
-      setSavedOffset(loaded);
-    }
-  }, [id]);
+  const [song, setSong] = useState<SongTab | null>(() => {
+    if (id.startsWith("custom-")) return getCustomSong(id);
+    return getStaticSong(id);
+  });
+  const [editableContent, setEditableContent] = useState<string | null>(() => {
+    if (id.startsWith("custom-")) return getCustomSong(id)?.content ?? null;
+    return getStaticSong(id)?.content ?? null;
+  });
 
   const sections = useMemo(() => {
     if (!song) return [];
@@ -299,14 +291,6 @@ export default function SongPage({ params }: { params: Promise<{ id: string }> }
       updateCustomSong(id, { tuning: newTuning.trim() || undefined });
     }
   }, [id]);
-
-  if (!clientLoaded) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <p className="text-zinc-500 text-lg">Chargement...</p>
-      </div>
-    );
-  }
 
   if (!song) {
     return (
@@ -613,7 +597,6 @@ export default function SongPage({ params }: { params: Promise<{ id: string }> }
         {audioSource && audioUrl && duration > 0 && (
           <div className="bg-zinc-800/50 rounded-xl border border-zinc-700/50 p-4">
             <Waveform
-              audioUrl={audioUrl}
               duration={duration}
               onSeek={handleSeek}
             />
@@ -679,4 +662,13 @@ export default function SongPage({ params }: { params: Promise<{ id: string }> }
       )}
     </div>
   );
+}
+
+export default function SongPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = use(params);
+  return <SongView key={id} id={id} />;
 }
