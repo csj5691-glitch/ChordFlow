@@ -122,10 +122,8 @@ export default function YouTubePlayer({
         playerVars: {
           autoplay: 0,
           controls: 1,
-          modestbranding: 1,
           rel: 0,
-          showinfo: 0,
-          fs: 0,
+          fs: 1,
           iv_load_policy: 3,
           origin: window.location.origin,
         },
