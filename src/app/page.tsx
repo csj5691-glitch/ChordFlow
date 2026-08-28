@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams, useRouter } from "next/navigation";
-import { Suspense, useState, useCallback, useMemo } from "react";
+import { Suspense, useState, useCallback, useMemo, useSyncExternalStore } from "react";
 import SearchBar from "@/components/SearchBar";
 import SongCard from "@/components/SongCard";
 import AddSong from "@/components/AddSong";
@@ -51,16 +51,37 @@ function SearchResults() {
   );
 }
 
+function useHydrated(): boolean {
+  return useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
+}
+
 export default function Home() {
   const router = useRouter();
-  const [customSongs, setCustomSongs] = useState<SongTab[]>(() => getCustomSongs());
+  const hydrated = useHydrated();
+  const [editedSongs, setEditedSongs] = useState<SongTab[] | null>(null);
   const [showAddSong, setShowAddSong] = useState(false);
-  const [sort, setSort] = useState<RepertoireSort>(() => loadRepertoireSort());
+  const [editedSort, setEditedSort] = useState<RepertoireSort | null>(null);
+
+  const customSongs = useMemo<SongTab[]>(
+    () => (hydrated ? (editedSongs ?? getCustomSongs()) : []),
+    [hydrated, editedSongs]
+  );
+  const sort: RepertoireSort = useMemo(
+    () =>
+      hydrated
+        ? (editedSort ?? loadRepertoireSort())
+        : { field: "title", direction: "asc" },
+    [hydrated, editedSort]
+  );
 
   const handleSortChange = useCallback(
     (field: SortField, direction: SortDirection) => {
       const next = { field, direction };
-      setSort(next);
+      setEditedSort(next);
       saveRepertoireSort(next);
     },
     []
@@ -90,14 +111,14 @@ export default function Home() {
       key: data.key,
     };
     saveCustomSong(song);
-    setCustomSongs(getCustomSongs());
+    setEditedSongs(getCustomSongs());
     setShowAddSong(false);
     router.push(`/song/${id}`);
   }, [router]);
 
   const handleDeleteSong = useCallback((id: string) => {
     deleteCustomSong(id);
-    setCustomSongs(getCustomSongs());
+    setEditedSongs(getCustomSongs());
   }, []);
 
   const sortedSongs = useMemo(() => {

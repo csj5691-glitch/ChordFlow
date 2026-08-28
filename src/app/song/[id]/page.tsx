@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useCallback, useMemo, useEffect } from "react";
+import { use, useState, useCallback, useMemo, useEffect, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import ChordDisplay from "@/components/ChordDisplay";
 import ChordLyricSync from "@/components/ChordLyricSync";
@@ -69,6 +69,14 @@ function getStaticSong(id: string): SongTab | null {
   return getSongTab(id);
 }
 
+function useHydrated(): boolean {
+  return useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
+}
+
 type SongViewProps = { id: string };
 
 function SongView({ id }: SongViewProps) {
@@ -94,14 +102,21 @@ function SongView({ id }: SongViewProps) {
     () => (id ? loadLineOffsets(id) : {})
   );
 
-  const [song, setSong] = useState<SongTab | null>(() => {
-    if (id.startsWith("custom-")) return getCustomSong(id);
-    return getStaticSong(id);
-  });
-  const [editableContent, setEditableContent] = useState<string | null>(() => {
-    if (id.startsWith("custom-")) return getCustomSong(id)?.content ?? null;
-    return getStaticSong(id)?.content ?? null;
-  });
+  const isCustom = id.startsWith("custom-");
+  const hydrated = useHydrated();
+
+  const baseSong = useMemo<SongTab | null>(
+    () => (isCustom ? null : getStaticSong(id)),
+    [isCustom, id]
+  );
+  const [editedSong, setEditedSong] = useState<SongTab | null>(null);
+
+  const song = hydrated
+    ? (editedSong ?? (isCustom ? getCustomSong(id) : null) ?? baseSong)
+    : baseSong;
+  const [editableContent, setEditableContent] = useState<string | null>(() =>
+    isCustom ? null : getStaticSong(id)?.content ?? null
+  );
 
   const sections = useMemo(() => {
     if (!song) return [];
@@ -263,34 +278,37 @@ function SongView({ id }: SongViewProps) {
   }, [id]);
 
   const handleKeyChange = useCallback((newKey: string) => {
-    setSong((prev) => {
-      if (!prev) return prev;
-      return { ...prev, key: newKey || undefined };
+    setEditedSong((prev) => {
+      const current = prev ?? song;
+      if (!current) return prev;
+      return { ...current, key: newKey || undefined };
     });
     if (id?.startsWith("custom-")) {
       updateCustomSong(id, { key: newKey || undefined });
     }
-  }, [id]);
+  }, [id, song]);
 
   const handleCapoChange = useCallback((newCapo: number) => {
-    setSong((prev) => {
-      if (!prev) return prev;
-      return { ...prev, capo: newCapo > 0 ? newCapo : undefined };
+    setEditedSong((prev) => {
+      const current = prev ?? song;
+      if (!current) return prev;
+      return { ...current, capo: newCapo > 0 ? newCapo : undefined };
     });
     if (id?.startsWith("custom-")) {
       updateCustomSong(id, { capo: newCapo > 0 ? newCapo : undefined });
     }
-  }, [id]);
+  }, [id, song]);
 
   const handleTuningChange = useCallback((newTuning: string) => {
-    setSong((prev) => {
-      if (!prev) return prev;
-      return { ...prev, tuning: newTuning.trim() || undefined };
+    setEditedSong((prev) => {
+      const current = prev ?? song;
+      if (!current) return prev;
+      return { ...current, tuning: newTuning.trim() || undefined };
     });
     if (id?.startsWith("custom-")) {
       updateCustomSong(id, { tuning: newTuning.trim() || undefined });
     }
-  }, [id]);
+  }, [id, song]);
 
   if (!song) {
     return (
