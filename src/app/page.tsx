@@ -8,12 +8,8 @@ import SearchBar from "@/components/SearchBar";
 import SongCard from "@/components/SongCard";
 import AddSong from "@/components/AddSong";
 import { searchSongs, MOCK_SEARCH_RESULTS } from "@/lib/mock-data";
-import {
-  getCustomSongs,
-  saveCustomSong,
-  deleteCustomSong,
-  generateSongId,
-} from "@/lib/custom-songs";
+import { generateSongId } from "@/lib/custom-songs";
+import { useSharedSongs } from "@/lib/use-shared-songs";
 import {
   loadRepertoireSort,
   saveRepertoireSort,
@@ -64,15 +60,11 @@ function useHydrated(): boolean {
 export default function Home() {
   const router = useRouter();
   const hydrated = useHydrated();
-  const [editedSongs, setEditedSongs] = useState<SongTab[] | null>(null);
+  const { songs: customSongs, importing, upsertSong, removeSong, importLocal } = useSharedSongs();
   const [showAddSong, setShowAddSong] = useState(false);
   const [editingSong, setEditingSong] = useState<SongTab | null>(null);
   const [editedSort, setEditedSort] = useState<RepertoireSort | null>(null);
 
-  const customSongs = useMemo<SongTab[]>(
-    () => (hydrated ? (editedSongs ?? getCustomSongs()) : []),
-    [hydrated, editedSongs]
-  );
   const sort: RepertoireSort = useMemo(
     () =>
       hydrated
@@ -114,19 +106,17 @@ export default function Home() {
       tuning: data.tuning,
       key: data.key,
     };
-    saveCustomSong(song);
-    setEditedSongs(getCustomSongs());
+    upsertSong(song);
     setShowAddSong(false);
     setEditingSong(null);
     if (!data.id) {
       router.push(`/song/${id}`);
     }
-  }, [router]);
+  }, [router, upsertSong]);
 
   const handleDeleteSong = useCallback((id: string) => {
-    deleteCustomSong(id);
-    setEditedSongs(getCustomSongs());
-  }, []);
+    removeSong(id);
+  }, [removeSong]);
 
   const sortedSongs = useMemo(() => {
     const copy = [...customSongs];
@@ -171,6 +161,14 @@ export default function Home() {
               >
                 <Plus className="w-3.5 h-3.5" />
                 Ajouter
+              </button>
+              <button
+                onClick={() => importLocal()}
+                disabled={importing}
+                title="Copier mon répertoire local actuel vers le répertoire commun partagé"
+                className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-emerald-600 text-white rounded-full hover:bg-emerald-500 transition-colors disabled:opacity-50"
+              >
+                {importing ? "Import..." : "Importer mon répertoire"}
               </button>
               <div className="flex items-center gap-1.5">
                 <button
@@ -259,6 +257,16 @@ export default function Home() {
             >
               <Plus className="w-5 h-5 text-zinc-500" />
               <span className="text-zinc-400 text-sm">Ajouter ma première chanson</span>
+            </button>
+            <button
+              onClick={() => importLocal()}
+              disabled={importing}
+              className="w-full mt-3 flex items-center justify-center gap-2 p-4 border-2 border-dashed border-emerald-700/60 rounded-xl hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-colors disabled:opacity-50"
+            >
+              {importing ? "Import..." : "Importer mon répertoire local"}
+              <span className="text-zinc-500 text-xs ml-1">
+                (copier ici mes chansons ajoutées sur cet appareil)
+              </span>
             </button>
           </div>
         )}
