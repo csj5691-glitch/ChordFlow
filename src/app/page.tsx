@@ -20,7 +20,7 @@ import {
   SortDirection,
 } from "@/lib/repertoire-sort";
 import { SongTab } from "@/lib/types";
-import { Plus, Trash2, ArrowUpAZ, ArrowDownAZ, ListFilter } from "lucide-react";
+import { Plus, Trash2, Pencil, ArrowUpAZ, ArrowDownAZ, ListFilter } from "lucide-react";
 
 function SearchResults() {
   const searchParams = useSearchParams();
@@ -64,6 +64,7 @@ export default function Home() {
   const hydrated = useHydrated();
   const [editedSongs, setEditedSongs] = useState<SongTab[] | null>(null);
   const [showAddSong, setShowAddSong] = useState(false);
+  const [editingSong, setEditingSong] = useState<SongTab | null>(null);
   const [editedSort, setEditedSort] = useState<RepertoireSort | null>(null);
 
   const customSongs = useMemo<SongTab[]>(
@@ -88,6 +89,7 @@ export default function Home() {
   );
 
   const handleAddSong = useCallback((data: {
+    id?: string;
     artist: string;
     title: string;
     content: string;
@@ -97,7 +99,7 @@ export default function Home() {
     tuning?: string;
     key?: string;
   }) => {
-    const id = generateSongId();
+    const id = data.id ?? generateSongId();
     const song: SongTab = {
       id,
       title: data.title,
@@ -113,7 +115,10 @@ export default function Home() {
     saveCustomSong(song);
     setEditedSongs(getCustomSongs());
     setShowAddSong(false);
-    router.push(`/song/${id}`);
+    setEditingSong(null);
+    if (!data.id) {
+      router.push(`/song/${id}`);
+    }
   }, [router]);
 
   const handleDeleteSong = useCallback((id: string) => {
@@ -226,6 +231,12 @@ export default function Home() {
                       </span>
                     )}
                     <button
+                      onClick={(e) => { e.stopPropagation(); setEditingSong(song); }}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-zinc-800 rounded-lg transition-all"
+                    >
+                      <Pencil className="w-3.5 h-3.5 text-zinc-500 hover:text-amber-400" />
+                    </button>
+                    <button
                       onClick={(e) => { e.stopPropagation(); handleDeleteSong(song.id); }}
                       className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-zinc-800 rounded-lg transition-all"
                     >
@@ -257,8 +268,22 @@ export default function Home() {
         </Suspense>
       </main>
 
-      {showAddSong && (
-        <AddSong onAdd={handleAddSong} onClose={() => setShowAddSong(false)} />
+      {(showAddSong || editingSong) && (
+        <AddSong
+          initial={editingSong ? {
+            id: editingSong.id,
+            artist: editingSong.artist,
+            title: editingSong.title,
+            content: editingSong.content,
+            officialPlain: editingSong.officialPlain ?? "",
+            officialSynced: editingSong.officialSynced ?? "",
+            capo: editingSong.capo,
+            tuning: editingSong.tuning,
+            key: editingSong.key,
+          } : undefined}
+          onAdd={handleAddSong}
+          onClose={() => { setShowAddSong(false); setEditingSong(null); }}
+        />
       )}
     </div>
   );

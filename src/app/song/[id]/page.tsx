@@ -13,12 +13,14 @@ import YouTubePlayer from "@/components/YouTubePlayer";
 import YouTubeSearch from "@/components/YouTubeSearch";
 import SpotifyPlayer from "@/components/SpotifyPlayer";
 import SpotifySearch from "@/components/SpotifySearch";
+import AddSong from "@/components/AddSong";
 import { getSongTab } from "@/lib/mock-data";
 import { parseChordContent, sectionsToContent } from "@/lib/chord-parser";
+import { detectKeyFromContent } from "@/lib/key-detection";
 import { saveCustomSong, getCustomSong, updateCustomSong } from "@/lib/custom-songs";
 import { loadLineOffsets, saveLineOffset, loadGlobalOffset, saveGlobalOffset } from "@/lib/line-offsets";
 import { SongTab } from "@/lib/types";
-import { ArrowLeft, Music, Key, FileText, Music2, Upload, ExternalLink, Wand2, Check } from "lucide-react";
+import { ArrowLeft, Music, Key, FileText, Music2, Upload, ExternalLink, Wand2, Check, Pencil } from "lucide-react";
 
 const GUITAR_KEYS = [
   "C", "G", "D", "A", "E", "F", "B", "Bb", "Eb", "Ab", "Db", "Gb",
@@ -90,6 +92,7 @@ function SongView({ id }: SongViewProps) {
   const [showYoutubeSearch, setShowYoutubeSearch] = useState(false);
   const [showSpotifySearch, setShowSpotifySearch] = useState(false);
   const [youtubeError, setYoutubeError] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const [spotifyTrackUrl, setSpotifyTrackUrl] = useState<string | null>(null);
   const [lyricsOffset, setLyricsOffset] = useState(() =>
     id ? loadGlobalOffset(id) : 0
@@ -315,6 +318,39 @@ function SongView({ id }: SongViewProps) {
     }
   }, [id, song]);
 
+  const handleSaveEdit = useCallback((data: {
+    id?: string;
+    artist: string;
+    title: string;
+    content: string;
+    officialPlain: string;
+    officialSynced: string;
+    capo?: number;
+    tuning?: string;
+    key?: string;
+  }) => {
+    if (!id?.startsWith("custom-")) return;
+    const base = editedSong ?? song;
+    if (!base) return;
+    const detectedKey = data.key || detectKeyFromContent(data.content) || undefined;
+    const updated: SongTab = {
+      ...base,
+      id,
+      title: data.title,
+      artist: data.artist,
+      content: data.content,
+      officialPlain: data.officialPlain,
+      officialSynced: data.officialSynced,
+      capo: data.capo,
+      tuning: data.tuning,
+      key: detectedKey,
+    };
+    saveCustomSong(updated);
+    setEditedSong(updated);
+    setEditableContent(data.content);
+    setShowEdit(false);
+  }, [id, song, editedSong]);
+
   if (!song) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
@@ -439,6 +475,16 @@ function SongView({ id }: SongViewProps) {
               <Music className="w-3 h-3" />
               {song.type}
             </span>
+            {isCustom && (
+              <button
+                onClick={() => setShowEdit(true)}
+                title="Modifier cette chanson"
+                className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full text-zinc-300 bg-zinc-800 hover:bg-zinc-700 transition-colors"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                Modifier
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -703,6 +749,24 @@ function SongView({ id }: SongViewProps) {
           title={song.title}
           onSelect={handleSpotifySelect}
           onClose={() => setShowSpotifySearch(false)}
+        />
+      )}
+
+      {showEdit && (
+        <AddSong
+          initial={{
+            id,
+            artist: song.artist,
+            title: song.title,
+            content: song.content,
+            officialPlain: song.officialPlain ?? "",
+            officialSynced: song.officialSynced ?? "",
+            capo: song.capo,
+            tuning: song.tuning,
+            key: song.key,
+          }}
+          onAdd={handleSaveEdit}
+          onClose={() => setShowEdit(false)}
         />
       )}
     </div>

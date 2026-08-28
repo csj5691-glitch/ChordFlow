@@ -6,7 +6,19 @@ import ChordReference from "./ChordReference";
 import { detectKeyFromContent } from "@/lib/key-detection";
 
 interface AddSongProps {
+  initial?: {
+    id: string;
+    artist: string;
+    title: string;
+    content: string;
+    officialPlain: string;
+    officialSynced: string;
+    capo?: number;
+    tuning?: string;
+    key?: string;
+  };
   onAdd: (song: {
+    id?: string;
     artist: string;
     title: string;
     content: string;
@@ -19,19 +31,19 @@ interface AddSongProps {
   onClose: () => void;
 }
 
-export default function AddSong({ onAdd, onClose }: AddSongProps) {
+export default function AddSong({ initial, onAdd, onClose }: AddSongProps) {
   const [mode, setMode] = useState<"auto" | "manual">("auto");
-  const [artist, setArtist] = useState("");
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-  const [plainLyrics, setPlainLyrics] = useState("");
-  const [syncedLyrics, setSyncedLyrics] = useState("");
+  const [artist, setArtist] = useState(initial?.artist ?? "");
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [content, setContent] = useState(initial?.content ?? "");
+  const [plainLyrics, setPlainLyrics] = useState(initial?.officialPlain ?? "");
+  const [syncedLyrics, setSyncedLyrics] = useState(initial?.officialSynced ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState<"search" | "lyrics" | "chords">("search");
+  const [step, setStep] = useState<"search" | "lyrics" | "chords">(initial ? "chords" : "search");
   const [showChordRef, setShowChordRef] = useState(false);
-  const [tuning, setTuning] = useState("Standard (EADGBE)");
-  const [capo, setCapo] = useState<number | null>(null);
+  const [tuning, setTuning] = useState(initial?.tuning ?? "Standard (EADGBE)");
+  const [capo, setCapo] = useState<number | null>(initial?.capo ?? null);
   const [songsterrLoading, setSongsterrLoading] = useState(false);
   const [songsterrTip, setSongsterrTip] = useState<string | null>(null);
   const [ugLoading, setUgLoading] = useState(false);
@@ -124,7 +136,8 @@ export default function AddSong({ onAdd, onClose }: AddSongProps) {
   const handleSubmit = useCallback(() => {
     if (!artist.trim() || !title.trim()) return;
     const detectedKey = detectKeyFromContent(content) || undefined;
-      onAdd({
+    onAdd({
+      id: initial?.id,
       artist: artist.trim(),
       title: title.trim(),
       content: content.trim(),
@@ -134,13 +147,15 @@ export default function AddSong({ onAdd, onClose }: AddSongProps) {
       tuning: tuning !== "Standard (EADGBE)" ? tuning : undefined,
       key: detectedKey,
     });
-  }, [artist, title, content, plainLyrics, syncedLyrics, tuning, capo, onAdd]);
+  }, [initial, artist, title, content, plainLyrics, syncedLyrics, tuning, capo, onAdd]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
       <div className="bg-zinc-900 border border-zinc-700 rounded-2xl w-full max-w-2xl mx-4 overflow-hidden shadow-2xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-4 border-b border-zinc-800">
-          <h3 className="text-lg font-bold text-white">Ajouter une chanson</h3>
+          <h3 className="text-lg font-bold text-white">
+            {initial ? "Modifier la chanson" : "Ajouter une chanson"}
+          </h3>
           <button onClick={onClose} className="p-1 hover:bg-zinc-800 rounded-lg transition-colors">
             <X className="w-5 h-5 text-zinc-400" />
           </button>
@@ -366,7 +381,7 @@ export default function AddSong({ onAdd, onClose }: AddSongProps) {
             className="flex items-center gap-2 px-5 py-2 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-700 text-black disabled:text-zinc-500 rounded-lg font-medium text-sm transition-colors"
           >
             <Plus className="w-4 h-4" />
-            Ajouter
+            {initial ? "Enregistrer" : "Ajouter"}
           </button>
         </div>
       </div>
