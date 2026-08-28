@@ -31,6 +31,7 @@ export interface UgTabData {
   content: string;
   tonality?: string;
   tuningLabel?: string;
+  capo?: number;
   type: string;
   url: string;
 }
@@ -163,6 +164,7 @@ export async function fetchUgTab(tabUrl: string): Promise<UgTabData> {
     .join(", ");
 
   const tuning = record(meta["tuning"]);
+  const rawCapo = meta["capo"];
 
   return {
     title: typeof header["name"] === "string" ? (header["name"] as string) : "",
@@ -174,6 +176,7 @@ export async function fetchUgTab(tabUrl: string): Promise<UgTabData> {
     tuningLabel: normalizeTuningValue(
       typeof tuning["value"] === "string" ? (tuning["value"] as string) : undefined
     ),
+    capo: typeof rawCapo === "number" && rawCapo > 0 ? rawCapo : undefined,
     type: typeof header["type"] === "string" ? (header["type"] as string) : "Chords",
     url: tabUrl,
   };

@@ -31,6 +31,7 @@ export default function AddSong({ onAdd, onClose }: AddSongProps) {
   const [step, setStep] = useState<"search" | "lyrics" | "chords">("search");
   const [showChordRef, setShowChordRef] = useState(false);
   const [tuning, setTuning] = useState("Standard (EADGBE)");
+  const [capo, setCapo] = useState<number | null>(null);
   const [songsterrLoading, setSongsterrLoading] = useState(false);
   const [songsterrTip, setSongsterrTip] = useState<string | null>(null);
   const [ugLoading, setUgLoading] = useState(false);
@@ -80,6 +81,9 @@ export default function AddSong({ onAdd, onClose }: AddSongProps) {
         if (data.tuning) {
           setTuning(data.tuning);
         }
+        if (typeof data.capo === "number") {
+          setCapo(data.capo);
+        }
         setStep("chords");
       } else {
         setUgError(data.error || "Aucun accord trouvé sur Ultimate Guitar.");
@@ -120,17 +124,17 @@ export default function AddSong({ onAdd, onClose }: AddSongProps) {
   const handleSubmit = useCallback(() => {
     if (!artist.trim() || !title.trim()) return;
     const detectedKey = detectKeyFromContent(content) || undefined;
-    onAdd({
+      onAdd({
       artist: artist.trim(),
       title: title.trim(),
       content: content.trim(),
       officialPlain: plainLyrics.trim(),
       officialSynced: syncedLyrics.trim(),
-      capo: undefined,
+      capo: capo ?? undefined,
       tuning: tuning !== "Standard (EADGBE)" ? tuning : undefined,
       key: detectedKey,
     });
-  }, [artist, title, content, plainLyrics, syncedLyrics, tuning, onAdd]);
+  }, [artist, title, content, plainLyrics, syncedLyrics, tuning, capo, onAdd]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
@@ -203,6 +207,34 @@ export default function AddSong({ onAdd, onClose }: AddSongProps) {
               </span>
             )}
           </div>
+
+          {(capo !== null || tuning !== "Standard (EADGBE)") && (
+            <div className="flex flex-wrap items-center gap-3 bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2">
+              <label className="flex items-center gap-2 text-xs text-zinc-400">
+                <span>Capo</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={12}
+                  value={capo ?? 0}
+                  onChange={(e) =>
+                    setCapo(e.target.value === "" ? null : Math.max(0, Number(e.target.value)))
+                  }
+                  className="w-14 bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-amber-500/50"
+                />
+                <span>fret</span>
+              </label>
+              <label className="flex items-center gap-2 text-xs text-zinc-400">
+                <span>Accordage</span>
+                <input
+                  type="text"
+                  value={tuning}
+                  onChange={(e) => setTuning(e.target.value)}
+                  className="bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-amber-500/50"
+                />
+              </label>
+            </div>
+          )}
 
           {mode === "auto" && (
             <div className="space-y-2">

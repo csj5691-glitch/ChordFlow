@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
       content: tab.content,
       key: tab.tonality,
       tuning: tab.tuningLabel && !isDefaultTuning(tab.tuningLabel) ? tab.tuningLabel : undefined,
+      capo: tab.capo,
       type: tab.type,
       url: tab.url,
       source: "ultimate-guitar",
