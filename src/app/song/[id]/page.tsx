@@ -19,8 +19,8 @@ import AddSong from "@/components/AddSong";
 import { getSongTab } from "@/lib/mock-data";
 import { parseChordContent, sectionsToContent } from "@/lib/chord-parser";
 import { detectKeyFromContent } from "@/lib/key-detection";
-import { saveCustomSong, getCustomSong, updateCustomSong } from "@/lib/custom-songs";
 import { loadLineOffsets, saveLineOffset, loadGlobalOffset, saveGlobalOffset } from "@/lib/line-offsets";
+import { useSharedSong } from "@/lib/use-shared-song";
 import { SongTab } from "@/lib/types";
 import { ArrowLeft, Music, Key, FileText, Music2, Upload, ExternalLink, Wand2, Check, Pencil } from "lucide-react";
 
@@ -116,9 +116,10 @@ function SongView({ id }: SongViewProps) {
     [isCustom, id]
   );
   const [editedSong, setEditedSong] = useState<SongTab | null>(null);
+  const { current: sharedSong, upsert } = useSharedSong(id);
 
   const song = hydrated
-    ? (editedSong ?? (isCustom ? getCustomSong(id) : null) ?? baseSong)
+    ? (editedSong ?? (isCustom ? sharedSong : null) ?? baseSong)
     : baseSong;
   const [editableContent, setEditableContent] = useState<string | null>(() =>
     isCustom ? null : getStaticSong(id)?.content ?? null
@@ -269,56 +270,56 @@ function SongView({ id }: SongViewProps) {
     });
     const newContent = sectionsToContent(updated);
     setEditableContent(newContent);
-    if (id?.startsWith("custom-")) {
-      const existing = getCustomSong(id);
-      if (existing) {
-        saveCustomSong({ ...existing, content: newContent });
-      }
+    if (id?.startsWith("custom-") && song) {
+      upsert({ ...song, content: newContent });
     }
-  }, [sections, id]);
+  }, [sections, id, song, upsert]);
 
   const handleRawEdit = useCallback((newContent: string) => {
     setEditableContent(newContent);
-    if (id?.startsWith("custom-")) {
-      const existing = getCustomSong(id);
-      if (existing) {
-        saveCustomSong({ ...existing, content: newContent });
-      }
+    if (id?.startsWith("custom-") && song) {
+      upsert({ ...song, content: newContent });
     }
-  }, [id]);
+  }, [id, song, upsert]);
 
-  const handleKeyChange = useCallback((newKey: string) => {
-    setEditedSong((prev) => {
-      const current = prev ?? song;
-      if (!current) return prev;
-      return { ...current, key: newKey || undefined };
-    });
-    if (id?.startsWith("custom-")) {
-      updateCustomSong(id, { key: newKey || undefined });
-    }
-  }, [id, song]);
+  const handleKeyChange = useCallback(
+    (newKey: string) => {
+      setEditedSong((prev) => {
+        const base = prev ?? song;
+        if (!base) return prev;
+        const updated = { ...base, key: newKey || undefined };
+        if (id?.startsWith("custom-")) upsert(updated);
+        return updated;
+      });
+    },
+    [id, song, upsert]
+  );
 
-  const handleCapoChange = useCallback((newCapo: number) => {
-    setEditedSong((prev) => {
-      const current = prev ?? song;
-      if (!current) return prev;
-      return { ...current, capo: newCapo > 0 ? newCapo : undefined };
-    });
-    if (id?.startsWith("custom-")) {
-      updateCustomSong(id, { capo: newCapo > 0 ? newCapo : undefined });
-    }
-  }, [id, song]);
+  const handleCapoChange = useCallback(
+    (newCapo: number) => {
+      setEditedSong((prev) => {
+        const base = prev ?? song;
+        if (!base) return prev;
+        const updated = { ...base, capo: newCapo > 0 ? newCapo : undefined };
+        if (id?.startsWith("custom-")) upsert(updated);
+        return updated;
+      });
+    },
+    [id, song, upsert]
+  );
 
-  const handleTuningChange = useCallback((newTuning: string) => {
-    setEditedSong((prev) => {
-      const current = prev ?? song;
-      if (!current) return prev;
-      return { ...current, tuning: newTuning.trim() || undefined };
-    });
-    if (id?.startsWith("custom-")) {
-      updateCustomSong(id, { tuning: newTuning.trim() || undefined });
-    }
-  }, [id, song]);
+  const handleTuningChange = useCallback(
+    (newTuning: string) => {
+      setEditedSong((prev) => {
+        const base = prev ?? song;
+        if (!base) return prev;
+        const updated = { ...base, tuning: newTuning.trim() || undefined };
+        if (id?.startsWith("custom-")) upsert(updated);
+        return updated;
+      });
+    },
+    [id, song, upsert]
+  );
 
   const handleSaveEdit = useCallback((data: {
     id?: string;
@@ -347,11 +348,11 @@ function SongView({ id }: SongViewProps) {
       tuning: data.tuning,
       key: detectedKey,
     };
-    saveCustomSong(updated);
+    upsert(updated);
     setEditedSong(updated);
     setEditableContent(data.content);
     setShowEdit(false);
-  }, [id, song, editedSong]);
+  }, [id, song, editedSong, upsert]);
 
   if (!song) {
     return (
