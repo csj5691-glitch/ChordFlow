@@ -179,7 +179,11 @@ src/
 
 ## 📄 Licence
 
-Projet privé. Tous droits réservés.
+Copyright (c) 2026 Claude St-Jean. Tous droits réservés. Projet privé.
+
+Ce projet est distribué sous une licence **privée / tous droits réservés**. Aucune
+partie du logiciel ne peut être copiée, reproduite, distribuée ou adaptée sans
+autorisation écrite préalable. Voir le fichier [LICENSE](LICENSE) pour plus de détails.
 
 ## 🤝 Contribution
 

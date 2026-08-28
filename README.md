@@ -179,7 +179,11 @@ src/
 
 ## 📄 License
 
-Private project. All rights reserved.
+Copyright (c) 2026 Claude St-Jean. All rights reserved. Private project.
+
+This project is distributed under a **private / all-rights-reserved** license. No part
+of the software may be copied, reproduced, distributed or adapted without prior
+written permission. See the [LICENSE](LICENSE) file for details.
 
 ## 🤝 Contributing
 
