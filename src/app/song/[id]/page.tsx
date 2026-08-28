@@ -89,6 +89,7 @@ function SongView({ id }: SongViewProps) {
   const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null);
   const [showYoutubeSearch, setShowYoutubeSearch] = useState(false);
   const [showSpotifySearch, setShowSpotifySearch] = useState(false);
+  const [youtubeError, setYoutubeError] = useState(false);
   const [spotifyTrackUrl, setSpotifyTrackUrl] = useState<string | null>(null);
   const [lyricsOffset, setLyricsOffset] = useState(() =>
     id ? loadGlobalOffset(id) : 0
@@ -218,6 +219,10 @@ function SongView({ id }: SongViewProps) {
     setAudioSource("youtube");
     setAudioUrl(null);
     setShowYoutubeSearch(false);
+  }, []);
+
+  const handleYoutubePlaybackError = useCallback(() => {
+    setYoutubeError(true);
   }, []);
 
   const handleSpotifySelect = useCallback((trackUrl: string) => {
@@ -576,9 +581,31 @@ function SongView({ id }: SongViewProps) {
             videoId={youtubeVideoId}
             onDurationChange={handleDurationChange}
             onPlayStateChange={setIsPlaying}
+            onPlaybackError={handleYoutubePlaybackError}
             seekTo={seekTo}
             playToggle={playToggle}
           />
+        )}
+
+        {audioSource === "youtube" && youtubeError && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+            <p className="text-sm text-amber-200 font-medium mb-1">
+              Cette vidéo ne peut pas être lue sur YouTube
+            </p>
+            <p className="text-sm text-zinc-400 mb-3">
+              L&apos;embarquement est bloqué par le propriétaire ou la vidéo est indisponible.
+              Écoutez le morceau sur Spotify (paroles affichées en statique).
+            </p>
+            <button
+              onClick={() => {
+                setShowSpotifySearch(true);
+                setYoutubeError(false);
+              }}
+              className="inline-flex items-center gap-2 rounded-lg bg-green-500 hover:bg-green-400 px-3 py-1.5 text-sm font-medium text-black transition-colors"
+            >
+              Écouter sur Spotify
+            </button>
+          </div>
         )}
 
         {audioSource === "spotify" && spotifyTrackUrl && (

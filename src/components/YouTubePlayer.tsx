@@ -21,6 +21,7 @@ interface YTPlayerOptions {
   events: {
     onReady: () => void;
     onStateChange: (event: { data: number }) => void;
+    onError: (event: { data: number }) => void;
   };
 }
 
@@ -38,6 +39,7 @@ interface YouTubePlayerProps {
   onDurationChange?: (duration: number) => void;
   onStateChange?: (state: number) => void;
   onPlayStateChange?: (playing: boolean) => void;
+  onPlaybackError?: (code: number) => void;
   seekTo?: number | null;
   playToggle?: number;
 }
@@ -56,6 +58,7 @@ export default function YouTubePlayer({
   onDurationChange,
   onStateChange,
   onPlayStateChange,
+  onPlaybackError,
   seekTo,
   playToggle,
 }: YouTubePlayerProps) {
@@ -144,6 +147,9 @@ export default function YouTubePlayer({
             } else {
               stopTimer();
             }
+          },
+          onError: (event: { data: number }) => {
+            onPlaybackError?.(event.data);
           },
         },
       });
