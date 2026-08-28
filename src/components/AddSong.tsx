@@ -204,7 +204,7 @@ export default function AddSong({ onAdd, onClose }: AddSongProps) {
             )}
           </div>
 
-          {mode === "auto" && step === "search" && (
+          {mode === "auto" && (
             <div className="space-y-2">
               <button
                 onClick={searchLyrics}
