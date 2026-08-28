@@ -11,6 +11,7 @@ interface YTPlayerInstance {
   getPlayerState?: () => number;
   pauseVideo: () => void;
   playVideo: () => void;
+  destroy: () => void;
 }
 
 interface YTPlayerOptions {
@@ -110,11 +111,6 @@ export default function YouTubePlayer({
   useEffect(() => {
     if (!containerRef.current || !videoId) return;
 
-    if (playerRef.current) {
-      playerRef.current.loadVideoById(videoId);
-      return;
-    }
-
     const createPlayer = () => {
       if (!containerRef.current) return;
 
@@ -163,6 +159,15 @@ export default function YouTubePlayer({
 
     return () => {
       stopTimer();
+      if (playerRef.current) {
+        try {
+          playerRef.current.destroy();
+        } catch {
+          // ignore failures while tearing down
+        }
+        playerRef.current = null;
+      }
+      window.onYouTubeIframeAPIReady = () => {};
     };
   }, [videoId]);
 
