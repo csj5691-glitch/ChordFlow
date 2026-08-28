@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Claude St-Jean. All rights reserved.
+
 export type SortField = "title" | "artist";
 export type SortDirection = "asc" | "desc";
 

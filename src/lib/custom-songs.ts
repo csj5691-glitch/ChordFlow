@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Claude St-Jean. All rights reserved.
+
 import { SongTab } from "./types";
 
 const STORAGE_KEY = "chordflow-custom-songs";

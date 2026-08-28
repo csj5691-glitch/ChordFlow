@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Claude St-Jean. All rights reserved.
+
 import { NextRequest } from "next/server";
 
 const MIDI_TO_NOTE = [

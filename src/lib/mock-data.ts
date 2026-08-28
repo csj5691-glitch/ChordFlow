@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Claude St-Jean. All rights reserved.
+
 import { SongResult, SongTab } from "./types";
 import { getCustomSong } from "./custom-songs";
 

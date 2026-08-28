@@ -1,4 +1,6 @@
 "use client";
+// Copyright (c) 2026 Claude St-Jean. All rights reserved.
+
 
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useState, useCallback, useMemo, useSyncExternalStore } from "react";

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Claude St-Jean. All rights reserved.
+
 export type ChordQuality =
   | "Maj"
   | "Min"

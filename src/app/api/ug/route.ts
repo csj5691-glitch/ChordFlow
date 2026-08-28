@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Claude St-Jean. All rights reserved.
+
 import { NextRequest } from "next/server";
 import { searchUg, fetchUgTab, isDefaultTuning } from "@/lib/ug-scraper";
 

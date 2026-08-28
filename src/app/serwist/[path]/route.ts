@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Claude St-Jean. All rights reserved.
+
 import { spawnSync } from "node:child_process";
 import { createSerwistRoute } from "@serwist/turbopack";
 

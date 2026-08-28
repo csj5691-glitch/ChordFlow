@@ -1,4 +1,6 @@
 "use client";
+// Copyright (c) 2026 Claude St-Jean. All rights reserved.
+
 
 import { useRef, useEffect, useMemo, useCallback, useState, useSyncExternalStore } from "react";
 import { ChordSection } from "@/lib/types";

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Claude St-Jean. All rights reserved.
+
 const STORAGE_KEY = "chordflow-line-offsets";
 
 export type LineOffsets = Record<number, number>;

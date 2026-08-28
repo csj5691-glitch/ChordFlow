@@ -1,4 +1,6 @@
 "use client";
+// Copyright (c) 2026 Claude St-Jean. All rights reserved.
+
 
 import { use, useState, useCallback, useMemo, useEffect, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";

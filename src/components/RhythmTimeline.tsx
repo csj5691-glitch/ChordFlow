@@ -1,4 +1,6 @@
 "use client";
+// Copyright (c) 2026 Claude St-Jean. All rights reserved.
+
 
 import { useRef, useState, useSyncExternalStore } from "react";
 import { subscribeCurrentTime, getCurrentTime } from "@/lib/playback-store";

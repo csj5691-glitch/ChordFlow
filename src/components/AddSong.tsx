@@ -1,4 +1,6 @@
 "use client";
+// Copyright (c) 2026 Claude St-Jean. All rights reserved.
+
 
 import { useState, useCallback } from "react";
 import { X, Search, Plus, Loader2, Music, RefreshCw, Download } from "lucide-react";

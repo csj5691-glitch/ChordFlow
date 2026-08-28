@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Claude St-Jean. All rights reserved.
+
 import { parseChordContent } from "./chord-parser";
 
 const MAJOR_SCALE = [0, 2, 4, 5, 7, 9, 11];

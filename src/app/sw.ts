@@ -1,5 +1,7 @@
 /// <reference lib="esnext" />
 /// <reference lib="webworker" />
+// Copyright (c) 2026 Claude St-Jean. All rights reserved.
+
 import { defaultCache } from "@serwist/turbopack/worker";
 import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
 import { Serwist } from "serwist";
