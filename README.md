@@ -20,16 +20,19 @@ The interface is in French, but everything you need to run and document the proj
 - **Built-in sample library** — a few classics are included offline (Wonderwall, Stairway to Heaven, Hotel California, Let It Be, Nothing Else Matters) with chords, plain lyrics and synced (LRC) lyrics.
 - **Search bar** — quickly filter the library by artist or title.
 - **Import from Ultimate Guitar** — type a song (e.g. `Wonderwall, Oasis`) and import the chord chart directly from Ultimate Guitar into your repertoire.
-- **Personal repertoire** — save your own songs (stored locally in your browser via `localStorage`), each showing badges for detected key, capo and synced lyrics. Add, open or delete them as you wish.
+- **Personal repertoire** — save your own songs (stored locally in your browser via `localStorage`), each showing badges for detected key, capo and synced lyrics. Add, open, **edit** (pencil button ✏️ reopens the mini-form pre-filled) or delete them as you wish.
 
 ### Adding a song (wizard)
 Two paths to add a song to your repertoire:
 - **Auto mode** — search and import:
   - Lyrics from **LRCLIB** (with a fallback to **Lyrics.ovh**).
   - Chord charts from **Ultimate Guitar**.
-  - Guitar tuning from **Songsterr**.
+  - Guitar tuning from **Songsterr** or from Ultimate Guitar.
+  - The **capo fret** (when there is one) detected automatically on Ultimate Guitar import.
   - Automatic **key/tonality detection** from the chords.
+  - The “Search lyrics” and “Import chords” buttons stay visible at every step, so you can fetch either one at any time.
 - **Manual mode** — type the artist/title, paste plain lyrics and optional synchronized LRC lyrics, and paste your own chord chart.
+- The form also opens in **edit mode** pre-filled to modify an existing song; its **capo** and **tuning** fields are editable.
 
 ### The song workspace
 - **Three view modes** (toggle in the header):
@@ -37,6 +40,7 @@ Two paths to add a song to your repertoire:
   - **Paroles (Lyrics)** — a karaoke-style panel that highlights and centers the current lyric line; you can also add chords line by line, insert section dividers and extra chord lines.
   - **Sync** — a fused view keeping chords and timed lyrics aligned on a single timeline.
 - **Audio sources** (when none is set): **YouTube**, **Spotify**, local **upload**, plus quick links to **Songsterr** and **Ultimate Guitar** for the current song.
+- **Automatic fallback** — if a YouTube video cannot play (embedding blocked or unavailable), the app automatically offers a “Listen on Spotify” button as a complement.
 - **Seek controls** — click a lyric line, a chord, the **waveform** (for uploaded audio) or the **rhythm timeline** (chord markers) to jump the playback to that moment.
 - **Timing offset** — fine-tune the synchronization with `-5 / -1 / +1 / +5 s` buttons, a slider, an auto-detection button, and a per-song persistent save/reset.
 - **Per-line sync fine-tuning** — adjust individual lines or auto-align them while the song plays.
@@ -45,6 +49,12 @@ Two paths to add a song to your repertoire:
 - **Inline chord editing** — retype any chord directly in the chart.
 - **Text editor** — rewrite the whole sheet in plain text (sections in `[brackets]`, chords above lyrics).
 - **Chord reference** — an interactive fretboard diagram finder (root + quality) to look up and insert chord names while editing.
+
+### Progressive Web App (PWA)
+ChordFlow is an **installable, offline-capable PWA** (powered by [Serwist](https://serwist.pages.dev)):
+- **Installable** — add the app to your home screen / desktop from the browser.
+- **Offline** — once visited, the app and its service worker let you use it without a connection (cached pages).
+- **Manifest** — app icons and navigation handled by the Web App manifest.
 
 ---
 
@@ -130,6 +140,7 @@ npm run lint     # run ESLint
 - [Tailwind CSS](https://tailwindcss.com) 4 — styling
 - [wavesurfer.js](https://wavesurfer-js.org) — waveform rendering for uploaded audio
 - [lucide-react](https://lucide.dev) — icons
+- [Serwist](https://serwist.pages.dev) — service worker / PWA (offline)
 
 ---
 

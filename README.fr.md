@@ -20,16 +20,19 @@ L'interface du site est en français. Tout ce qu'il faut pour installer et docum
 - **Bibliothèque d'exemples intégrée** — quelques classiques disponibles hors ligne (Wonderwall, Stairway to Heaven, Hotel California, Let It Be, Nothing Else Matters) avec accords, paroles simples et paroles synchronisées (LRC).
 - **Barre de recherche** — filtre rapidement la bibliothèque par artiste ou par titre.
 - **Import depuis Ultimate Guitar** — saisissez un morceau (ex. `Wonderwall, Oasis`) et importez la grille d'accords directement depuis Ultimate Guitar dans votre répertoire.
-- **Répertoire personnel** — enregistrez vos propres chansons (stockées localement dans le navigateur via `localStorage`), chacune affichant des badges pour la tonalité détectée, le capo et les paroles synchronisées. Ajoutez, ouvrez ou supprimez vos morceaux comme vous le souhaitez.
+- **Répertoire personnel** — enregistrez vos propres chansons (stockées localement dans le navigateur via `localStorage`), chacune affichant des badges pour la tonalité détectée, le capo et les paroles synchronisées. Ajoutez, ouvrez, **modifiez** (bouton crayon ✏️ : le mini-formulaire se rouvre pré-rempli) ou supprimez vos morceaux comme vous le souhaitez.
 
 ### Ajouter une chanson (assistant)
 Deux parcours pour ajouter une chanson à votre répertoire :
 - **Mode auto** — recherche et import :
   - Les **paroles** depuis **LRCLIB** (avec repli sur **Lyrics.ovh**).
   - Les **grilles d'accords** depuis **Ultimate Guitar**.
-  - L'**accordage guitare** depuis **Songsterr**.
+  - L'**accordage guitare** depuis **Songsterr** ou depuis Ultimate Guitar.
+  - Le **fret du capo** (s'il y en a un) détecté automatiquement lors de l'import Ultimate Guitar.
   - La **détection automatique de la tonalité** à partir des accords.
+  - Les boutons « Chercher les paroles » et « Importer les accords » restent visibles à toutes les étapes, pour récupérer l'un ou l'autre à tout moment.
 - **Mode manuel** — saisissez l'artiste/le titre, collez les paroles simples et éventuellement les paroles synchronisées LRC, et collez votre propre grille d'accords.
+- Le formulaire s'ouvre aussi en **mode édition** pré-rempli pour modifier une chanson existante ; les champs **capo** et **accordage** y sont éditables.
 
 ### L'espace de travail d'une chanson
 - **Trois vues** (bascule dans l'en-tête) :
@@ -37,6 +40,7 @@ Deux parcours pour ajouter une chanson à votre répertoire :
   - **Paroles** — un panneau style karaoké qui surligne et centre la ligne de paroles courante ; vous pouvez aussi y ajouter des accords ligne par ligne, insérer des séparateurs de sections et des lignes d'accords supplémentaires.
   - **Sync** — une vue fusionnée qui garde accords et paroles minutés alignés sur une seule timeline.
 - **Sources audio** (quand aucune n'est définie) : **YouTube**, **Spotify**, **import local** (upload), ainsi que des liens rapides vers **Songsterr** et **Ultimate Guitar** pour le morceau courant.
+- **Bascule automatique** — si une vidéo YouTube ne peut pas être lue (embarquement bloqué ou indisponible), l'application propose automatiquement un bouton « Écouter sur Spotify » en complément.
 - **Contrôles de recherche (seek)** — cliquez sur une ligne de paroles, un accord, la **forme d'onde** (pour l'audio importé) ou la **timeline rythmique** (repères d'accords) pour déplacer la lecture à cet instant.
 - **Décalage temporel** — ajustez la synchronisation avec les boutons `-5 / -1 / +1 / +5 s`, un curseur, un bouton de détection automatique, et une sauvegarde/réinitialisation persistante par chanson.
 - **Réglage fin par ligne** — ajustez chaque ligne individuellement ou alignez-les automatiquement pendant la lecture.
@@ -45,6 +49,12 @@ Deux parcours pour ajouter une chanson à votre répertoire :
 - **Édition d'accord en ligne** — retapez n'importe quel accord directement dans la grille.
 - **Éditeur de texte** — réécrivez toute la grille en texte brut (sections entre `[crochets]`, accords au-dessus des paroles).
 - **Référence d'accords** — un chercheur interactif de diagrammes (fondamentale + qualité) pour consulter et insérer des accords pendant l'édition.
+
+### Progressive Web App (PWA)
+ChordFlow est une **PWA installable et utilisable hors ligne** (via [Serwist](https://serwist.pages.dev)) :
+- **Installable** — ajoutez l'application à votre écran d'accueil / bureau depuis le navigateur.
+- **Hors ligne** — une fois visitée, l'application et son service worker permettent de l'utiliser sans connexion (pages mises en cache).
+- **Manifest** — icônes et navigation applicative gérées par le manifest Web App.
 
 ---
 
@@ -130,6 +140,7 @@ npm run lint     # exécute ESLint
 - [Tailwind CSS](https://tailwindcss.com) 4 — styles
 - [wavesurfer.js](https://wavesurfer-js.org) — rendu de la forme d'onde pour l'audio importé
 - [lucide-react](https://lucide.dev) — icônes
+- [Serwist](https://serwist.pages.dev) — service worker / PWA (hors ligne)
 
 ---
 
