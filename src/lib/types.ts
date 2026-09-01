@@ -33,6 +33,7 @@ export interface SongTab {
   tuning?: string;
   officialPlain?: string;
   officialSynced?: string;
+  youtubeId?: string;
 }
 
 export interface SyncedLyricLine {

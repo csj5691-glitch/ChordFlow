@@ -68,6 +68,8 @@ export default function YouTubePlayer({
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayerInstance | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pendingToggleRef = useRef(false);
+  const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
 
   const stopTimer = useCallback(() => {
@@ -92,14 +94,19 @@ export default function YouTubePlayer({
   }, [onDurationChange, stopTimer]);
 
   const togglePlay = useCallback(() => {
-    if (!playerRef.current) return;
-    const state = playerRef.current.getPlayerState?.();
-    if (state === PLAYER_STATES.PLAYING) {
-      playerRef.current.pauseVideo();
-    } else {
-      playerRef.current.playVideo();
+    const player = playerRef.current;
+    if (!player) return;
+    if (!isReady) {
+      pendingToggleRef.current = true;
+      return;
     }
-  }, []);
+    const state = player.getPlayerState?.();
+    if (state === PLAYER_STATES.PLAYING) {
+      player.pauseVideo();
+    } else {
+      player.playVideo();
+    }
+  }, [isReady]);
 
   useEffect(() => {
     if (!document.getElementById("youtube-api-script")) {
@@ -130,6 +137,16 @@ export default function YouTubePlayer({
         },
         events: {
           onReady: () => {
+            setIsReady(true);
+            if (pendingToggleRef.current) {
+              pendingToggleRef.current = false;
+              const state = playerRef.current?.getPlayerState?.();
+              if (state === PLAYER_STATES.PLAYING) {
+                playerRef.current?.pauseVideo();
+              } else {
+                playerRef.current?.playVideo();
+              }
+            }
             if (onDurationChange && playerRef.current?.getDuration) {
               onDurationChange(playerRef.current.getDuration());
             }
@@ -169,6 +186,8 @@ export default function YouTubePlayer({
         }
         playerRef.current = null;
       }
+      setIsReady(false);
+      pendingToggleRef.current = false;
       window.onYouTubeIframeAPIReady = () => {};
     };
   }, [videoId]);
