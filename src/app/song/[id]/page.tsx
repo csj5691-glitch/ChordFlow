@@ -574,34 +574,34 @@ function SongView({ id }: SongViewProps) {
           <div className="flex items-center gap-3 p-3 bg-zinc-800/30 rounded-xl border border-zinc-700/30">
             <span className="text-xs text-zinc-500 flex-shrink-0">Décalage :</span>
             <button
-              onClick={() => setLyricsOffset((o) => Math.max(-30, o - 5))}
+              onClick={() => setLyricsOffset((o) => Math.max(-120, o - 5))}
               className="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
             >
               -5
             </button>
             <button
-              onClick={() => setLyricsOffset((o) => Math.max(-30, o - 1))}
+              onClick={() => setLyricsOffset((o) => Math.max(-120, o - 1))}
               className="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
             >
               -1
             </button>
             <input
               type="range"
-              min={-30}
-              max={30}
+              min={-120}
+              max={120}
               step={0.1}
               value={lyricsOffset}
               onChange={(e) => setLyricsOffset(parseFloat(e.target.value))}
               className="flex-1 h-1 accent-amber-500 cursor-pointer"
             />
             <button
-              onClick={() => setLyricsOffset((o) => Math.min(30, o + 1))}
+              onClick={() => setLyricsOffset((o) => Math.min(120, o + 1))}
               className="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
             >
               +1
             </button>
             <button
-              onClick={() => setLyricsOffset((o) => Math.min(30, o + 5))}
+              onClick={() => setLyricsOffset((o) => Math.min(120, o + 5))}
               className="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
             >
               +5
