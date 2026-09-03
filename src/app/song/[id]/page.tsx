@@ -15,6 +15,7 @@ import YouTubePlayer from "@/components/YouTubePlayer";
 import YouTubeSearch from "@/components/YouTubeSearch";
 import SpotifyPlayer from "@/components/SpotifyPlayer";
 import SpotifySearch from "@/components/SpotifySearch";
+import DualTrackPlayer from "@/components/DualTrackPlayer";
 import AddSong from "@/components/AddSong";
 import { getSongTab } from "@/lib/mock-data";
 import { parseChordContent, sectionsToContent } from "@/lib/chord-parser";
@@ -91,6 +92,7 @@ function SongView({ id }: SongViewProps) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("chords");
   const [audioSource, setAudioSource] = useState<AudioSource>(null);
+  const [dualTrack, setDualTrack] = useState(false);
   const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(() =>
     id ? loadYouTubeId(id) : null
   );
@@ -208,6 +210,7 @@ function SongView({ id }: SongViewProps) {
       const url = (e as CustomEvent).detail;
       setAudioUrl(url);
       setAudioSource("upload");
+      setDualTrack(false);
       setYoutubeVideoId(null);
     };
     window.addEventListener("audio-upload", handler);
@@ -227,6 +230,7 @@ function SongView({ id }: SongViewProps) {
     (videoId: string) => {
       setYoutubeVideoId(videoId);
       setAudioSource("youtube");
+      setDualTrack(false);
       setAudioUrl(null);
       setShowYoutubeSearch(false);
       if (id) saveYouTubeId(id, videoId);
@@ -244,6 +248,7 @@ function SongView({ id }: SongViewProps) {
   const handleSpotifySelect = useCallback((trackUrl: string) => {
     setSpotifyTrackUrl(trackUrl);
     setAudioSource("spotify");
+    setDualTrack(false);
     setAudioUrl(null);
     setYoutubeVideoId(null);
     setShowSpotifySearch(false);
@@ -563,11 +568,32 @@ function SongView({ id }: SongViewProps) {
                     const url = URL.createObjectURL(file);
                     setAudioUrl(url);
                     setAudioSource("upload");
+                    setDualTrack(false);
                   }
                 }}
               />
             </label>
+            <button
+              onClick={() => {
+                setDualTrack(true);
+                setAudioSource(null);
+                setShowYoutubeSearch(false);
+                setShowSpotifySearch(false);
+              }}
+              className="flex-1 flex items-center justify-center gap-2 p-4 bg-purple-600/10 border border-purple-600/30 rounded-xl hover:bg-purple-600/20 transition-colors"
+            >
+              <Music2 className="w-5 h-5 text-purple-400" />
+              <span className="text-sm font-medium text-purple-400">2 pistes</span>
+            </button>
           </div>
+        )}
+
+        {dualTrack && (
+          <DualTrackPlayer
+            songId={id}
+            onDurationChange={handleDurationChange}
+            seekTo={seekTo}
+          />
         )}
 
         {audioSource && (
