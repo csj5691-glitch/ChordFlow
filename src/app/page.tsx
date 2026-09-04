@@ -163,7 +163,7 @@ function RepertoireRow({
 export default function Home() {
   const router = useRouter();
   const hydrated = useHydrated();
-  const { songs: customSongs, importing, upsertSong, removeSong, importLocal } = useSharedSongs();
+  const { songs: customSongs, importing, importError, upsertSong, removeSong, importLocal } = useSharedSongs();
   const [showAddSong, setShowAddSong] = useState(false);
   const [editingSong, setEditingSong] = useState<SongTab | null>(null);
   const [editedSort, setEditedSort] = useState<RepertoireSort | null>(null);
@@ -319,6 +319,9 @@ export default function Home() {
                 </div>
               </div>
             </div>
+            {importError && (
+              <p className="text-red-400 text-xs mb-4">{importError}</p>
+            )}
             <div className="flex flex-col gap-2">
               {sortedSongs.map((song) => (
                 <RepertoireRow
@@ -345,13 +348,16 @@ export default function Home() {
             <button
               onClick={() => importLocal()}
               disabled={importing}
-              className="w-full mt-3 flex items-center justify-center gap-2 p-4 border-2 border-dashed border-emerald-700/60 rounded-xl hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-colors disabled:opacity-50"
+              className="w-full mt-3 flex items-center justify-center gap-2 p-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow-lg shadow-emerald-900/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {importing ? "Import..." : "Importer mon répertoire local"}
-              <span className="text-zinc-500 text-xs ml-1">
+              <span className="text-emerald-100/90 text-xs ml-1">
                 (copier ici mes chansons ajoutées sur cet appareil)
               </span>
             </button>
+            {importError && (
+              <p className="text-red-400 text-xs mt-2">{importError}</p>
+            )}
           </div>
         )}
           </HideOnSearch>

@@ -10,27 +10,52 @@ import {
   importAllLocalSongs,
 } from "./supabase";
 import { SongTab } from "./types";
+import { getCustomSongs as getLocalSongs } from "./custom-songs";
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Délai dépassé")), ms);
+    p.then((v) => {
+      clearTimeout(timer);
+      resolve(v);
+    }).catch((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+  });
+}
 
 export function useSharedSongs() {
   const [songs, setSongs] = useState<SongTab[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [syncing, setSyncing] = useState(true);
   const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  const loadFromAnywhere = useCallback(async (): Promise<SongTab[]> => {
+    try {
+      return await withTimeout(loadSharedSongs(), 8000);
+    } catch {
+      return getLocalSongs();
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
-    const list = await loadSharedSongs();
+    const list = await loadFromAnywhere();
     setSongs((prev) => (JSON.stringify(prev) === JSON.stringify(list) ? prev : list));
     setSyncing(false);
-  }, []);
+  }, [loadFromAnywhere]);
 
   useEffect(() => {
     let active = true;
     let channel: RealtimeChannel | null = null;
 
-    loadSharedSongs()
+    loadFromAnywhere()
       .then((list) => {
         if (!active) return;
-        setSongs(list);
+        setSongs((prev) =>
+          JSON.stringify(prev) === JSON.stringify(list) ? prev : list
+        );
         setLoaded(true);
         setSyncing(false);
       })
@@ -93,17 +118,25 @@ export function useSharedSongs() {
 
   const importLocal = useCallback(async () => {
     setImporting(true);
+    setImportError(null);
     try {
-      const count = await importAllLocalSongs();
-      await refresh();
+      const count = await withTimeout(importAllLocalSongs(), 20000);
+      await withTimeout(refresh(), 20000);
       return count;
+    } catch (e) {
+      setImportError(
+        e instanceof Error && e.message === "Délai dépassé"
+          ? "Import trop lent pour joindre Supabase. Réessayez."
+          : "Erreur pendant l'import."
+      );
+      return 0;
     } finally {
       setImporting(false);
     }
   }, [refresh]);
 
   return useMemo(
-    () => ({ songs, loaded, syncing, importing, upsertSong, removeSong, importLocal }),
-    [songs, loaded, syncing, importing, upsertSong, removeSong, importLocal]
+    () => ({ songs, loaded, syncing, importing, importError, upsertSong, removeSong, importLocal }),
+    [songs, loaded, syncing, importing, importError, upsertSong, removeSong, importLocal]
   );
 }
