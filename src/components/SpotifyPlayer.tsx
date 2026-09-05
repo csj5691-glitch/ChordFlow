@@ -190,15 +190,22 @@ export default function SpotifyPlayer({
     intervalRef.current = setInterval(pollPosition, 250);
   }, [pollPosition, stopTimer]);
 
-  const waitDevice = useCallback((): Promise<string> =>
-    new Promise((resolve) => {
-      const dev = deviceIdRef.current;
-      if (dev) {
-        resolve(dev);
-        return;
-      }
-      readyQueueRef.current.push(resolve);
-    }), []);
+  const waitDevice = useCallback(
+    (): Promise<string> =>
+      new Promise((resolve) => {
+        const dev = deviceIdRef.current;
+        if (dev) {
+          resolve(dev);
+          return;
+        }
+        const timer = setTimeout(() => resolve(""), 8000);
+        readyQueueRef.current.push((id: string) => {
+          clearTimeout(timer);
+          resolve(id);
+        });
+      }),
+    []
+  );
 
   const buildPlayer = useCallback(() => {
     const player = new window.Spotify!.Player({
@@ -448,6 +455,22 @@ export default function SpotifyPlayer({
           return false;
         }
         if (err.status === 404) {
+          console.warn(
+            "[ChordFlow] relais 404 → périphérique inconnu, ré-enregistrement du SDK"
+          );
+          deviceIdRef.current = null;
+          const player = playerRef.current;
+          try {
+            await player?.disconnect();
+          } catch {
+            // ignorer
+          }
+          try {
+            await player?.connect();
+          } catch {
+            // ignorer
+          }
+          deviceId = await waitDevice();
           await sleep(1500);
           continue;
         }
