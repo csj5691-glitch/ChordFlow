@@ -50,27 +50,31 @@ export async function POST(req: NextRequest) {
     console.error(
       `[spotify-play] transfer ${transfer.status} -> ${txt.slice(0, 200)}`
     );
-  } else {
-    await new Promise((r) => setTimeout(r, 300));
-    const play = await fetch(
-      `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`,
-      {
-        method: "PUT",
-        headers,
-        body: playBody,
-        cache: "no-store",
-      }
+    return Response.json(
+      { ok: false, status: transfer.status, error: txt.slice(0, 200) },
+      { status: transfer.status }
     );
-    if (play.status !== 204 && play.status !== 200) {
-      const txt = await play.text();
-      console.error(
-        `[spotify-play] play ${play.status} -> ${txt.slice(0, 200)}`
-      );
-      return Response.json(
-        { ok: false, status: play.status, error: txt.slice(0, 200) },
-        { status: play.status }
-      );
+  }
+
+  await new Promise((r) => setTimeout(r, 300));
+  const play = await fetch(
+    `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`,
+    {
+      method: "PUT",
+      headers,
+      body: playBody,
+      cache: "no-store",
     }
+  );
+  if (play.status !== 204 && play.status !== 200) {
+    const txt = await play.text();
+    console.error(
+      `[spotify-play] play ${play.status} -> ${txt.slice(0, 200)}`
+    );
+    return Response.json(
+      { ok: false, status: play.status, error: txt.slice(0, 200) },
+      { status: play.status }
+    );
   }
 
   return Response.json({ ok: true });

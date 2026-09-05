@@ -499,6 +499,28 @@ export default function SpotifyPlayer({
     return `${m}:${sec.toString().padStart(2, "0")}`;
   };
 
+  const posZeroWarnedRef = useRef(false);
+
+  useEffect(() => {
+    if (!ready) {
+      posZeroWarnedRef.current = false;
+      return;
+    }
+    if (posZeroWarnedRef.current) return;
+    const t = setTimeout(() => {
+      if (posZeroWarnedRef.current) return;
+      if (getCurrentTime() === 0 && !document.hidden) {
+        posZeroWarnedRef.current = true;
+        console.warn(
+          "⚠️ Aucune position de lecture : le device Web SDK n'obtient pas de flux audio. " +
+            "C'est presque toujours une extension (Stands/AdBlock) ou un pare-feu qui bloque le " +
+            "WebSocket vers Spotify. Testez avec les extensions désactivées."
+        );
+      }
+    }, 5_000);
+    return () => clearTimeout(t);
+  }, [ready]);
+
   if (!trackUri) {
     return (
       <div className="p-4 bg-zinc-800/50 rounded-xl border border-zinc-700/50 text-center text-zinc-500 text-sm">
