@@ -103,6 +103,9 @@ export default function SpotifyPlayer({
   const playbackErrorRef = useRef(onPlaybackError);
   const durationRef = useRef(onDurationChange);
   const durationStateRef = useRef(0);
+  const clockPosRef = useRef(0);
+  const clockRunAtRef = useRef(0);
+  const clockRunningRef = useRef(false);
   const playStateRef = useRef(onPlayStateChange);
   playbackErrorRef.current = onPlaybackError;
   durationRef.current = onDurationChange;
@@ -113,6 +116,24 @@ export default function SpotifyPlayer({
   }, []);
 
   const reportPlaying = useCallback((p: boolean) => {
+    const wasRunning = clockRunningRef.current;
+    const now = Date.now();
+    if (p) {
+      if (!wasRunning) {
+        clockPosRef.current = getCurrentTime();
+        clockRunAtRef.current = now;
+        clockRunningRef.current = true;
+      }
+    } else {
+      if (wasRunning) {
+        const elapsed = (now - clockRunAtRef.current) / 1000;
+        clockPosRef.current = isFinite(elapsed)
+          ? clockPosRef.current + elapsed
+          : clockPosRef.current;
+        clockRunningRef.current = false;
+        setCurrentTime(clockPosRef.current);
+      }
+    }
     setPlaying(p);
     playStateRef.current?.(p);
   }, []);
@@ -147,8 +168,16 @@ export default function SpotifyPlayer({
       }
       durationRef.current?.(newDuration);
       const posMs = rawPos;
-      if (isFinite(posMs)) {
+      if (isFinite(posMs) && posMs > 0) {
+        clockPosRef.current = posMs / 1000;
+        clockRunAtRef.current = Date.now();
         setCurrentTime(posMs / 1000);
+      } else if (clockRunningRef.current && !state.paused) {
+        const est =
+          clockPosRef.current + (Date.now() - clockRunAtRef.current) / 1000;
+        const cap = durationStateRef.current;
+        const clamped = isFinite(cap) && cap > 0 && est > cap ? cap : est;
+        if (isFinite(clamped) && clamped >= 0) setCurrentTime(clamped);
       }
       reportPlaying(!state.paused);
     } catch {
@@ -407,6 +436,10 @@ export default function SpotifyPlayer({
 
         const err = await play(deviceId);
         if (!err) {
+          clockPosRef.current = 0;
+          clockRunAtRef.current = Date.now();
+          clockRunningRef.current = true;
+          setCurrentTime(0);
           playedUriRef.current = uri;
           return true;
         }
@@ -474,6 +507,8 @@ export default function SpotifyPlayer({
 
   useEffect(() => {
     if (seekTo === null || seekTo === undefined) return;
+    clockPosRef.current = seekTo;
+    if (clockRunningRef.current) clockRunAtRef.current = Date.now();
     playerRef.current?.seek(seekTo * 1000).catch(() => {});
   }, [seekTo]);
 
@@ -521,6 +556,8 @@ export default function SpotifyPlayer({
     if (width <= 0) return;
     const ratio = Math.min(1, Math.max(0, (e.clientX - e.currentTarget.getBoundingClientRect().left) / width));
     const target = ratio * (durationStateRef.current || 0);
+    clockPosRef.current = target;
+    if (clockRunningRef.current) clockRunAtRef.current = Date.now();
     setCurrentTime(target);
     playerRef.current?.seek(target * 1000).catch(() => {});
   };
