@@ -319,28 +319,6 @@ export default function SpotifyPlayer({
     };
   }, [loggedIn, buildPlayer, retry, reportError, stopTimer]);
 
-  const reconnect = useCallback(async (): Promise<string> => {
-    if (playerRef.current) {
-      try {
-        playerRef.current.disconnect();
-      } catch {
-        // ignorer
-      }
-    }
-    playerRef.current = null;
-    deviceIdRef.current = null;
-    setReady(false);
-    const player = buildPlayer();
-    playerRef.current = player;
-    try {
-      const ok = await player.connect();
-      if (!ok) return "";
-    } catch {
-      return "";
-    }
-    return waitDevice();
-  }, [buildPlayer, waitDevice]);
-
   const startPlayback = useCallback(
     async (uri: string, url: string): Promise<boolean> => {
       const token = await getValidToken();
@@ -349,33 +327,32 @@ export default function SpotifyPlayer({
         return false;
       }
       const parsedUri = extractSpotifyUri(url);
-      const body =
-        parsedUri?.type === "track"
-          ? JSON.stringify({ uris: [uri] })
-          : JSON.stringify({
-              context_uri: uri,
-              offset: { position: 0 },
-            });
-      const headers = {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      };
-
-      const transfer = async (deviceId: string) =>
-        fetch(`https://api.spotify.com/v1/me/player`, {
-          method: "PUT",
-          headers,
-          body: JSON.stringify({ device_ids: [deviceId], play: false }),
-        });
-
-      const play = async (deviceId: string) =>
-        fetch(
-          `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`,
-          { method: "PUT", headers, body }
-        );
-
       const sleep = (ms: number) =>
         new Promise((r) => setTimeout(r, ms));
+
+      // Lecture via le relais serveur (les fetch browser directs vers
+      // api.spotify.com sont bloqués par les extensions sur certaines
+      // machines ; le relais passe, comme pour la recherche).
+      const play = async (deviceId: string) => {
+        try {
+          const res = await fetch("/api/spotify-play", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token, deviceId, uri, parsedUri }),
+          });
+          if (res.ok) return null;
+          let status = res.status;
+          try {
+            const data = await res.json();
+            if (data && typeof data.status === "number") status = data.status;
+          } catch {
+            // ignorer
+          }
+          return { status };
+        } catch {
+          return { status: -1 };
+        }
+      };
 
       for (let attempt = 0; attempt < 3; attempt++) {
         let deviceId = deviceIdRef.current;
@@ -386,12 +363,15 @@ export default function SpotifyPlayer({
             reportError("spotify-no-player");
             return false;
           }
+          let ok = false;
           try {
-            await player.connect();
+            ok = await player.connect();
           } catch {
             // continue, waitDevice gérera
           }
-          deviceId = await waitDevice();
+          if (ok) {
+            deviceId = await waitDevice();
+          }
           if (!deviceId) {
             await sleep(1000);
             continue;
@@ -404,66 +384,33 @@ export default function SpotifyPlayer({
           // continuer
         }
 
-        let t: Response | null = null;
-        try {
-          t = await transfer(deviceId);
-        } catch {
-          t = null;
+        await sleep(300);
+
+        const err = await play(deviceId);
+        if (!err) {
+          playedUriRef.current = uri;
+          return true;
         }
-        if (t && (t.status === 401 || t.status === 403)) {
+        if (err.status === 401 || err.status === 403) {
           setLoggedIn(false);
           return false;
         }
-        if (t && t.status === 404) {
-          await reconnect();
+        if (err.status === 404) {
+          await sleep(1500);
           continue;
         }
-        if (t && !t.ok) {
-          const txt = await t.text();
-          reportError(`spotify-transfer-${t.status}:${txt.slice(0, 120)}`);
-        }
-
-        await sleep(500);
-
-        let res: Response | null = null;
-        for (let p = 0; p < 2; p++) {
-          try {
-            res = await play(deviceId);
-          } catch {
-            res = null;
-          }
-          if (res && (res.ok || res.status === 204)) {
-            playedUriRef.current = uri;
-            return true;
-          }
-          if (res && res.status === 404) break;
-          if (res && (res.status === 401 || res.status === 403)) {
-            setLoggedIn(false);
-            return false;
-          }
-          await sleep(1000);
-        }
-
-        if (res && res.status === 404) {
-          const newDev = await reconnect();
-          if (newDev) {
-            await sleep(500);
-          }
-          continue;
-        }
-        if (res) {
-          const txt = await res.text();
-          reportError(`spotify-play-${res.status}:${txt.slice(0, 120)}`);
+        if (err.status > 0) {
+          reportError(`spotify-play-server:${err.status}`);
         } else {
           reportError("spotify-play-network");
         }
         return false;
       }
 
-      reportError("spotify-play-404:périphérique introuvable après 3 tentatives");
+      reportError("spotify-play-404:périphérique non prêt après 3 tentatives");
       return false;
     },
-    [reportError, waitDevice, reconnect]
+    [reportError, waitDevice]
   );
 
   useEffect(() => {
