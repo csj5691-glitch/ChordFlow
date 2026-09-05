@@ -1,8 +1,12 @@
 "use client";
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { setCurrentTime } from "@/lib/playback-store";
+import { useEffect, useMemo, useRef, useState, useCallback, useSyncExternalStore } from "react";
+import {
+  setCurrentTime,
+  subscribeCurrentTime,
+  getCurrentTime,
+} from "@/lib/playback-store";
 import {
   authorize,
   clearToken,
@@ -80,10 +84,12 @@ export default function SpotifyPlayer({
     ? `spotify:${parsed.type}:${parsed.id}`
     : null;
 
+  const currentPos = useSyncExternalStore(subscribeCurrentTime, getCurrentTime);
   const [loggedIn, setLoggedIn] = useState(false);
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [trackName, setTrackName] = useState<string | null>(null);
+  const [duration, setDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const playerRef = useRef<SpotifyPlayerInstance | null>(null);
@@ -94,6 +100,7 @@ export default function SpotifyPlayer({
   const readyQueueRef = useRef<Array<(deviceId: string) => void>>([]);
   const playbackErrorRef = useRef(onPlaybackError);
   const durationRef = useRef(onDurationChange);
+  const durationStateRef = useRef(0);
   const playStateRef = useRef(onPlayStateChange);
   playbackErrorRef.current = onPlaybackError;
   durationRef.current = onDurationChange;
@@ -121,9 +128,13 @@ export default function SpotifyPlayer({
     try {
       const state = await player.getCurrentState();
       if (!state) return;
+      const newDuration = state.duration_ms / 1000;
+      if (newDuration > 0 && newDuration !== durationStateRef.current) {
+        durationStateRef.current = newDuration;
+        setDuration(newDuration);
+      }
+      durationRef.current?.(newDuration);
       setCurrentTime(state.position_ms / 1000);
-      const duration = state.duration_ms / 1000;
-      if (duration > 0) durationRef.current?.(duration);
       reportPlaying(!state.paused);
     } catch {
       // ignorer, prochaine itération
@@ -438,6 +449,22 @@ export default function SpotifyPlayer({
     authorize(window.location.pathname);
   };
 
+  const handleSeekBar = (e: React.MouseEvent<HTMLDivElement>) => {
+    const width = e.currentTarget.clientWidth;
+    if (width <= 0) return;
+    const ratio = Math.min(1, Math.max(0, (e.clientX - e.currentTarget.getBoundingClientRect().left) / width));
+    const target = ratio * (durationStateRef.current || 0);
+    setCurrentTime(target);
+    playerRef.current?.seek(target * 1000).catch(() => {});
+  };
+
+  const fmtTime = (s: number): string => {
+    const total = Math.max(0, Math.floor(s));
+    const m = Math.floor(total / 60);
+    const sec = total % 60;
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  };
+
   if (!trackUri) {
     return (
       <div className="p-4 bg-zinc-800/50 rounded-xl border border-zinc-700/50 text-center text-zinc-500 text-sm">
@@ -508,6 +535,27 @@ export default function SpotifyPlayer({
           </svg>
           Connecter mon compte Spotify
         </button>
+      )}
+
+      {ready && duration > 0 && (
+        <div className="px-3 pb-2">
+          <div
+            onClick={handleSeekBar}
+            className="h-1.5 rounded-full bg-zinc-700 cursor-pointer overflow-hidden"
+            title="Cliquer pour avancer / reculer"
+          >
+            <div
+              className="h-full bg-green-500 rounded-full"
+              style={{ width: `${Math.min(100, (currentPos / duration) * 100)}%` }}
+            />
+          </div>
+          <div className="mt-1 flex items-center justify-between text-xs font-mono text-zinc-400">
+            <span>{fmtTime(currentPos)}</span>
+            <span className="text-zinc-500">
+              -{fmtTime(duration - currentPos)}
+            </span>
+          </div>
+        </div>
       )}
 
       {error && (
