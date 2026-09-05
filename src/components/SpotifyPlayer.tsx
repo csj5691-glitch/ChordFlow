@@ -91,6 +91,7 @@ export default function SpotifyPlayer({
   const playedUriRef = useRef<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const readyQueueRef = useRef<Array<(deviceId: string) => void>>([]);
   const playbackErrorRef = useRef(onPlaybackError);
   const durationRef = useRef(onDurationChange);
   const playStateRef = useRef(onPlayStateChange);
@@ -130,6 +131,74 @@ export default function SpotifyPlayer({
     }, 250);
   }, [stopTimer]);
 
+  const waitDevice = useCallback((): Promise<string> =>
+    new Promise((resolve) => {
+      const dev = deviceIdRef.current;
+      if (dev) {
+        resolve(dev);
+        return;
+      }
+      readyQueueRef.current.push(resolve);
+    }), []);
+
+  const buildPlayer = useCallback(() => {
+    const player = new window.Spotify!.Player({
+      name: "ChordFlow",
+      getOAuthToken: async (cb: (token: string) => void) => {
+        const token = await getValidToken();
+        cb(token ?? "");
+      },
+      volume: 0.7,
+    });
+
+    const sdkErrors: Array<[string, string]> = [
+      ["initialization_error", "Erreur d'initialisation du SDK"],
+      ["authentication_error", "Erreur d'authentification (jeton invalide ou scopes)"],
+      ["account_error", "Compte Spotify sans abonnement Premium"],
+      ["playback_error", "Erreur de lecture Spotify"],
+    ];
+    for (const [evt, label] of sdkErrors) {
+      player.addListener(evt, (d) => {
+        const msg = (d as { message?: string })?.message ?? "";
+        console.error(`Spotify SDK ${evt}:`, msg || "(aucun message)");
+        setError(`${label}${msg ? ` : ${msg}` : ""}.`);
+        reportError(`spotify-sdk-${evt}`);
+      });
+    }
+
+    player.addListener("ready", (data) => {
+      const dev = (data as { device_id: string }).device_id;
+      deviceIdRef.current = dev;
+      setError(null);
+      setReady(true);
+      if (watchdogRef.current) clearTimeout(watchdogRef.current);
+      const q = readyQueueRef.current;
+      readyQueueRef.current = [];
+      for (const resolve of q) resolve(dev);
+    });
+
+    player.addListener("player_state_changed", (data) => {
+      const state = data as unknown as SpotifyPlaybackState | null;
+      if (!state) return;
+      const track = state.track_window?.current_track;
+      if (track) setTrackName(track.name);
+      const isPlaying = !state.paused;
+      reportPlaying(isPlaying);
+      if (isPlaying) {
+        startTimer();
+      } else {
+        stopTimer();
+      }
+    });
+
+    player.addListener("not_ready", () => {
+      deviceIdRef.current = null;
+      setReady(false);
+    });
+
+    return player;
+  }, [reportError, reportPlaying, startTimer, stopTimer]);
+
   useEffect(() => {
     setLoggedIn(isLoggedIn());
   }, []);
@@ -147,61 +216,8 @@ export default function SpotifyPlayer({
 
     const createPlayer = () => {
       if (disposed) return;
-      const player = new window.Spotify!.Player({
-        name: "ChordFlow",
-        getOAuthToken: async (cb: (token: string) => void) => {
-          const token = await getValidToken();
-          cb(token ?? "");
-        },
-        volume: 0.7,
-      });
+      const player = buildPlayer();
       playerRef.current = player;
-
-      const sdkErrors: Array<[string, string]> = [
-        ["initialization_error", "Erreur d'initialisation du SDK"],
-        ["authentication_error", "Erreur d'authentification (jeton invalide ou scopes)"],
-        ["account_error", "Compte Spotify sans abonnement Premium"],
-        ["playback_error", "Erreur de lecture Spotify"],
-      ];
-      for (const [evt, label] of sdkErrors) {
-        player.addListener(evt, (d) => {
-          if (disposed) return;
-          const msg = (d as { message?: string })?.message ?? "";
-          console.error(`Spotify SDK ${evt}:`, msg || "(aucun message)");
-          setError(`${label}${msg ? ` : ${msg}` : ""}.`);
-          reportError(`spotify-sdk-${evt}`);
-        });
-      }
-
-      player.addListener("ready", (data) => {
-        if (disposed) return;
-        deviceIdRef.current = (data as { device_id: string }).device_id;
-        setError(null);
-        setReady(true);
-        if (watchdogRef.current) clearTimeout(watchdogRef.current);
-      });
-
-      player.addListener("player_state_changed", (data) => {
-        if (disposed) return;
-        const state = data as unknown as SpotifyPlaybackState | null;
-        if (!state) return;
-        const track = state.track_window?.current_track;
-        if (track) setTrackName(track.name);
-        const isPlaying = !state.paused;
-        reportPlaying(isPlaying);
-        if (isPlaying) {
-          startTimer();
-        } else {
-          stopTimer();
-        }
-      });
-
-      player.addListener("not_ready", () => {
-        if (disposed) return;
-        deviceIdRef.current = null;
-        setReady(false);
-      });
-
       player.connect().catch(() => {
         if (!disposed) {
           setError("Impossible de connecter le lecteur Spotify.");
@@ -237,20 +253,32 @@ export default function SpotifyPlayer({
       }
       window.onSpotifyWebPlaybackSDKReady = undefined;
     };
-  }, [loggedIn, reportError, startTimer, stopTimer]);
+  }, [loggedIn, buildPlayer, reportError, stopTimer]);
+
+  const reconnect = useCallback(async (): Promise<string> => {
+    if (playerRef.current) {
+      try {
+        playerRef.current.disconnect();
+      } catch {
+        // ignorer
+      }
+    }
+    playerRef.current = null;
+    deviceIdRef.current = null;
+    setReady(false);
+    const player = buildPlayer();
+    playerRef.current = player;
+    try {
+      const ok = await player.connect();
+      if (!ok) return "";
+    } catch {
+      return "";
+    }
+    return waitDevice();
+  }, [buildPlayer, waitDevice]);
 
   const startPlayback = useCallback(
     async (uri: string, url: string): Promise<boolean> => {
-      const player = playerRef.current;
-      const deviceId = deviceIdRef.current;
-      if (!player || !deviceId) return false;
-
-      try {
-        await player.activateElement();
-      } catch {
-        // l'activation peut échouer en mode automatique, on continue
-      }
-
       const token = await getValidToken();
       if (!token) {
         setLoggedIn(false);
@@ -269,53 +297,109 @@ export default function SpotifyPlayer({
         "Content-Type": "application/json",
       };
 
-      const transfer = async () =>
+      const transfer = async (deviceId: string) =>
         fetch(`https://api.spotify.com/v1/me/player`, {
           method: "PUT",
           headers,
           body: JSON.stringify({ device_ids: [deviceId], play: false }),
         });
 
-      const play = async () =>
+      const play = async (deviceId: string) =>
         fetch(
           `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`,
           { method: "PUT", headers, body }
         );
 
-      let t = await transfer().catch(() => null);
-      if (t && !t.ok && t.status !== 404) {
-        const text = await t.text();
-        if (t.status === 401 || t.status === 403) {
+      const sleep = (ms: number) =>
+        new Promise((r) => setTimeout(r, ms));
+
+      for (let attempt = 0; attempt < 3; attempt++) {
+        let deviceId = deviceIdRef.current;
+
+        if (!deviceId) {
+          const player = playerRef.current;
+          if (!player) {
+            reportError("spotify-no-player");
+            return false;
+          }
+          try {
+            await player.connect();
+          } catch {
+            // continue, waitDevice gérera
+          }
+          deviceId = await waitDevice();
+          if (!deviceId) {
+            await sleep(1000);
+            continue;
+          }
+        }
+
+        try {
+          await playerRef.current?.activateElement();
+        } catch {
+          // continuer
+        }
+
+        let t: Response | null = null;
+        try {
+          t = await transfer(deviceId);
+        } catch {
+          t = null;
+        }
+        if (t && (t.status === 401 || t.status === 403)) {
           setLoggedIn(false);
           return false;
         }
-        reportError(`spotify-transfer-${t.status}:${text.slice(0, 120)}`);
-      }
+        if (t && t.status === 404) {
+          await reconnect();
+          continue;
+        }
+        if (t && !t.ok) {
+          const txt = await t.text();
+          reportError(`spotify-transfer-${t.status}:${txt.slice(0, 120)}`);
+        }
 
-      await new Promise((r) => setTimeout(r, 500));
+        await sleep(500);
 
-      let res = await play().catch(() => null);
-      if ((!res || !(res.ok || res.status === 204)) && deviceIdRef.current) {
-        await new Promise((r) => setTimeout(r, 1000));
-        res = await play().catch(() => null);
-      }
-      if (!res) {
-        reportError("spotify-play-network");
+        let res: Response | null = null;
+        for (let p = 0; p < 2; p++) {
+          try {
+            res = await play(deviceId);
+          } catch {
+            res = null;
+          }
+          if (res && (res.ok || res.status === 204)) {
+            playedUriRef.current = uri;
+            return true;
+          }
+          if (res && res.status === 404) break;
+          if (res && (res.status === 401 || res.status === 403)) {
+            setLoggedIn(false);
+            return false;
+          }
+          await sleep(1000);
+        }
+
+        if (res && res.status === 404) {
+          const newDev = await reconnect();
+          if (newDev) {
+            await sleep(500);
+          }
+          continue;
+        }
+        if (res) {
+          const txt = await res.text();
+          reportError(`spotify-play-${res.status}:${txt.slice(0, 120)}`);
+        } else {
+          reportError("spotify-play-network");
+        }
         return false;
       }
-      if (res.ok || res.status === 204) {
-        playedUriRef.current = uri;
-        return true;
-      }
-      if (res.status === 401 || res.status === 403) {
-        setLoggedIn(false);
-      } else {
-        const text = await res.text();
-        reportError(`spotify-play-${res.status}:${text.slice(0, 120)}`);
-      }
+
+      reportError("spotify-play-404:périphérique introuvable après 3 tentatives");
       return false;
     },
-    [reportError]
+    [reportError, waitDevice, reconnect]
   );
 
   useEffect(() => {
