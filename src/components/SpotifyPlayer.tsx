@@ -224,8 +224,20 @@ export default function SpotifyPlayer({
 
     player.addListener("player_state_changed", (data) => {
       const state = data as unknown as SpotifyPlaybackState | null;
-      if (!state) return;
+      if (!state) {
+        console.log("[ChordFlow] player_state_changed → null (aucun état)");
+        return;
+      }
       const track = state.track_window?.current_track;
+      console.log(
+        "[ChordFlow] state →",
+        JSON.stringify({
+          pos: state.position_ms,
+          dur: state.duration_ms,
+          paused: state.paused,
+          piste: track?.name ?? null,
+        })
+      );
       if (track) setTrackName(track.name);
       reportPlaying(!state.paused);
     });
