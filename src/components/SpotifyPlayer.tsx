@@ -115,21 +115,25 @@ export default function SpotifyPlayer({
     }
   }, []);
 
+  const pollPosition = useCallback(async () => {
+    const player = playerRef.current;
+    if (!player) return;
+    try {
+      const state = await player.getCurrentState();
+      if (!state) return;
+      setCurrentTime(state.position_ms / 1000);
+      const duration = state.duration_ms / 1000;
+      if (duration > 0) durationRef.current?.(duration);
+      reportPlaying(!state.paused);
+    } catch {
+      // ignorer, prochaine itération
+    }
+  }, [reportPlaying]);
+
   const startTimer = useCallback(() => {
     stopTimer();
-    intervalRef.current = setInterval(async () => {
-      if (!playerRef.current) return;
-      try {
-        const state = await playerRef.current.getCurrentState();
-        if (!state) return;
-        setCurrentTime(state.position_ms / 1000);
-        const duration = state.duration_ms / 1000;
-        if (duration > 0) durationRef.current?.(duration);
-      } catch {
-        // ignorer, prochaine itération
-      }
-    }, 250);
-  }, [stopTimer]);
+    intervalRef.current = setInterval(pollPosition, 250);
+  }, [pollPosition, stopTimer]);
 
   const waitDevice = useCallback((): Promise<string> =>
     new Promise((resolve) => {
@@ -171,6 +175,7 @@ export default function SpotifyPlayer({
       deviceIdRef.current = dev;
       setError(null);
       setReady(true);
+      startTimer();
       if (watchdogRef.current) clearTimeout(watchdogRef.current);
       const q = readyQueueRef.current;
       readyQueueRef.current = [];
@@ -182,13 +187,7 @@ export default function SpotifyPlayer({
       if (!state) return;
       const track = state.track_window?.current_track;
       if (track) setTrackName(track.name);
-      const isPlaying = !state.paused;
-      reportPlaying(isPlaying);
-      if (isPlaying) {
-        startTimer();
-      } else {
-        stopTimer();
-      }
+      reportPlaying(!state.paused);
     });
 
     player.addListener("not_ready", () => {
