@@ -321,6 +321,7 @@ export default function SpotifyPlayer({
 
   const startPlayback = useCallback(
     async (uri: string, url: string): Promise<boolean> => {
+      console.log("[ChordFlow] startPlayback appelé uri =", uri);
       const token = await getValidToken();
       if (!token) {
         setLoggedIn(false);
@@ -334,13 +335,17 @@ export default function SpotifyPlayer({
       // api.spotify.com sont bloqués par les extensions sur certaines
       // machines ; le relais passe, comme pour la recherche).
       const play = async (deviceId: string) => {
+        console.log("[ChordFlow] appel relais /api/spotify-play device =", deviceId);
         try {
           const res = await fetch("/api/spotify-play", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ token, deviceId, uri, parsedUri }),
           });
-          if (res.ok) return null;
+          if (res.ok) {
+            console.log("[ChordFlow] relais → OK");
+            return null;
+          }
           let status = res.status;
           try {
             const data = await res.json();
@@ -348,8 +353,10 @@ export default function SpotifyPlayer({
           } catch {
             // ignorer
           }
+          console.log("[ChordFlow] relais → échec status =", status);
           return { status };
         } catch {
+          console.warn("[ChordFlow] relais → exception réseau");
           return { status: -1 };
         }
       };
@@ -460,15 +467,23 @@ export default function SpotifyPlayer({
 
   const togglePlay = useCallback(async () => {
     const player = playerRef.current;
-    if (!player) return;
+    if (!trackUri || !player) return;
     const state = await player.getCurrentState().catch(() => null);
-    if (state && state.paused) {
-      await player.resume().catch(() => {});
-    } else if (state && !state.paused) {
+
+    if (state && !state.paused && (state.position_ms ?? 0) > 0) {
+      console.log("[ChordFlow] togglePlay → pause (lecture réelle)");
       await player.pause().catch(() => {});
-    } else if (deviceIdRef.current) {
-      startPlayback(trackUri ?? "", trackUrl);
+      return;
     }
+
+    if (state && state.paused && state.track_window?.current_track) {
+      console.log("[ChordFlow] togglePlay → resume (piste en pause)");
+      await player.resume().catch(() => {});
+      return;
+    }
+
+    console.log("[ChordFlow] togglePlay → démarrage via relais serveur");
+    await startPlayback(trackUri, trackUrl);
   }, [startPlayback, trackUri, trackUrl]);
 
   useEffect(() => {
