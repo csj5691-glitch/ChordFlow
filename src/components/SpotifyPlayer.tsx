@@ -513,8 +513,24 @@ export default function SpotifyPlayer({
     );
   }
 
+  useEffect(() => {
+    console.log(
+      "[SpotifyPlayer diag] ready =",
+      ready,
+      "| duration =",
+      duration,
+      "| pos =",
+      currentPos.toFixed(1),
+      "| playing =",
+      playing,
+      "| device =",
+      deviceIdRef.current ? "oui" : "non"
+    );
+  });
+
   return (
     <div className="rounded-xl overflow-hidden border border-zinc-700/50 bg-zinc-800/80">
+
       <div className="flex items-center gap-3 p-3">
         <button
           onClick={() => {
