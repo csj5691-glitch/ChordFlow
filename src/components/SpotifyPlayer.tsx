@@ -164,8 +164,11 @@ export default function SpotifyPlayer({
         try {
           const token = await getValidToken();
           if (!token) {
+            console.warn("SDK : aucun jeton valide (expiré/non rafraîchissable)");
             setLoggedIn(false);
             reportError("spotify-auth-token-manquant");
+          } else {
+            console.log("SDK : jeton fourni");
           }
           cb(token ?? "");
         } catch (err) {
@@ -195,6 +198,7 @@ export default function SpotifyPlayer({
     player.addListener("ready", (data) => {
       const dev = (data as { device_id: string }).device_id;
       deviceIdRef.current = dev;
+      console.log("Spotify ready → device_id:", dev);
       setError(null);
       setReady(true);
       startTimer();
@@ -213,6 +217,7 @@ export default function SpotifyPlayer({
     });
 
     player.addListener("not_ready", () => {
+      console.warn("Spotify not_ready (périphérique indisponible)");
       deviceIdRef.current = null;
       setReady(false);
     });
