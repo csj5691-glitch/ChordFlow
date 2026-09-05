@@ -70,17 +70,32 @@ export default function SpotifySearch({
     setLoading(true);
     setSearchError(null);
     try {
-      const res = await fetch(
-        `https://api.spotify.com/v1/search?q=${encodeURIComponent(q)}&type=track&limit=12`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const res = await fetch("/api/spotify-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, q }),
+      });
       if (res.status === 401 || res.status === 403) {
         setLoggedIn(false);
         setSearchError("Session Spotify expirée. Reconnectez-vous.");
         return;
       }
       if (!res.ok) {
-        setSearchError(`Erreur de recherche Spotify (${res.status}).`);
+        let detail = "";
+        try {
+          const text = await res.text();
+          try {
+            const err = JSON.parse(text);
+            detail = err?.error?.message ?? JSON.stringify(err);
+          } catch {
+            detail = text ? `corps non-JSON : ${text.slice(0, 200)}` : "corps vide";
+          }
+        } catch {
+          // aucun corps lisible
+        }
+        setSearchError(
+          `Erreur de recherche Spotify (${res.status})${detail ? ` : ${detail}` : ""}.`
+        );
         return;
       }
       const data = await res.json();

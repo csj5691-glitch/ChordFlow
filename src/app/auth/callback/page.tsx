@@ -5,7 +5,6 @@ import { Suspense, useEffect, useState } from "react";
 import {
   decodeState,
   exchangeCode,
-  getAppOrigin,
   getReturnPath,
   getValidToken,
 } from "@/lib/spotify-auth";
@@ -19,12 +18,11 @@ function CallbackBody() {
     const error = params.get("error");
     const decoded = decodeState(params.get("state"));
     const returnPath = decoded?.r ?? getReturnPath() ?? "/";
-    const target = `${getAppOrigin()}${returnPath}`;
 
     const finish = (ms: number) => {
       window.sessionStorage.removeItem("chordflow-spotify-return");
       setTimeout(() => {
-        window.location.assign(target);
+        window.location.assign(`${window.location.origin}${returnPath}`);
       }, ms);
     };
 
@@ -37,6 +35,14 @@ function CallbackBody() {
     if (!code) {
       setStatus("Aucun code d'autorisation reçu.");
       finish(1500);
+      return;
+    }
+
+    if (window.location.hostname === "127.0.0.1") {
+      const port = window.location.port || "3000";
+      window.location.replace(
+        `http://localhost:${port}/auth/callback?${params.toString()}`
+      );
       return;
     }
 

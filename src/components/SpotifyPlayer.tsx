@@ -57,14 +57,14 @@ interface SpotifyPlayerProps {
 
 const SDK_SCRIPT_ID = "spotify-playback-sdk";
 
-function ensureSdkScript(): void {
-  if (!document.getElementById(SDK_SCRIPT_ID)) {
-    const tag = document.createElement("script");
-    tag.id = SDK_SCRIPT_ID;
-    tag.src = "https://sdk.scdn.co/spotify-player.js";
-    tag.async = true;
-    document.head.appendChild(tag);
-  }
+function ensureSdkScript(onError?: () => void): void {
+  if (document.getElementById(SDK_SCRIPT_ID)) return;
+  const tag = document.createElement("script");
+  tag.id = SDK_SCRIPT_ID;
+  tag.src = "https://sdk.scdn.co/spotify-player.js";
+  tag.async = true;
+  tag.onerror = () => onError?.();
+  document.head.appendChild(tag);
 }
 
 export default function SpotifyPlayer({
@@ -90,15 +90,22 @@ export default function SpotifyPlayer({
   const deviceIdRef = useRef<string | null>(null);
   const playedUriRef = useRef<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const tokenRef = useRef<string | null>(null);
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playbackErrorRef = useRef(onPlaybackError);
+  const durationRef = useRef(onDurationChange);
+  const playStateRef = useRef(onPlayStateChange);
+  playbackErrorRef.current = onPlaybackError;
+  durationRef.current = onDurationChange;
+  playStateRef.current = onPlayStateChange;
 
-  const reportPlaying = useCallback(
-    (p: boolean) => {
-      setPlaying(p);
-      onPlayStateChange?.(p);
-    },
-    [onPlayStateChange]
-  );
+  const reportError = useCallback((code: string) => {
+    playbackErrorRef.current?.(code);
+  }, []);
+
+  const reportPlaying = useCallback((p: boolean) => {
+    setPlaying(p);
+    playStateRef.current?.(p);
+  }, []);
 
   const stopTimer = useCallback(() => {
     if (intervalRef.current) {
@@ -116,22 +123,27 @@ export default function SpotifyPlayer({
         if (!state) return;
         setCurrentTime(state.position_ms / 1000);
         const duration = state.duration_ms / 1000;
-        if (duration > 0) onDurationChange?.(duration);
+        if (duration > 0) durationRef.current?.(duration);
       } catch {
         // ignorer, prochaine itération
       }
     }, 250);
-  }, [onDurationChange, stopTimer]);
+  }, [stopTimer]);
 
   useEffect(() => {
     setLoggedIn(isLoggedIn());
   }, []);
 
   useEffect(() => {
-    if (!loggedIn || !trackUri) return;
+    if (!loggedIn) return;
     let disposed = false;
 
-    ensureSdkScript();
+    ensureSdkScript(() => {
+      if (!disposed) {
+        setError("Impossible de charger le SDK Spotify (réseau ou bloqueur ?).");
+        reportError("spotify-sdk-load-failed");
+      }
+    });
 
     const createPlayer = () => {
       if (disposed) return;
@@ -139,22 +151,38 @@ export default function SpotifyPlayer({
         name: "ChordFlow",
         getOAuthToken: async (cb: (token: string) => void) => {
           const token = await getValidToken();
-          tokenRef.current = token;
           cb(token ?? "");
         },
         volume: 0.7,
       });
       playerRef.current = player;
 
-      player.addListener("ready", (data) => {
-        deviceIdRef.current = (data as { device_id: string }).device_id;
-        setReady(true);
-        player.activateElement().then(() => {
-          playedUriRef.current = null;
+      const sdkErrors: Array<[string, string]> = [
+        ["initialization_error", "Erreur d'initialisation du SDK"],
+        ["authentication_error", "Erreur d'authentification (jeton invalide ou scopes)"],
+        ["account_error", "Compte Spotify sans abonnement Premium"],
+        ["playback_error", "Erreur de lecture Spotify"],
+      ];
+      for (const [evt, label] of sdkErrors) {
+        player.addListener(evt, (d) => {
+          if (disposed) return;
+          const msg = (d as { message?: string })?.message ?? "";
+          console.error(`Spotify SDK ${evt}:`, msg || "(aucun message)");
+          setError(`${label}${msg ? ` : ${msg}` : ""}.`);
+          reportError(`spotify-sdk-${evt}`);
         });
+      }
+
+      player.addListener("ready", (data) => {
+        if (disposed) return;
+        deviceIdRef.current = (data as { device_id: string }).device_id;
+        setError(null);
+        setReady(true);
+        if (watchdogRef.current) clearTimeout(watchdogRef.current);
       });
 
       player.addListener("player_state_changed", (data) => {
+        if (disposed) return;
         const state = data as unknown as SpotifyPlaybackState | null;
         if (!state) return;
         const track = state.track_window?.current_track;
@@ -169,6 +197,7 @@ export default function SpotifyPlayer({
       });
 
       player.addListener("not_ready", () => {
+        if (disposed) return;
         deviceIdRef.current = null;
         setReady(false);
       });
@@ -176,7 +205,7 @@ export default function SpotifyPlayer({
       player.connect().catch(() => {
         if (!disposed) {
           setError("Impossible de connecter le lecteur Spotify.");
-          onPlaybackError?.("spotify-connect-failed");
+          reportError("spotify-connect-failed");
         }
       });
     };
@@ -187,9 +216,17 @@ export default function SpotifyPlayer({
       window.onSpotifyWebPlaybackSDKReady = createPlayer;
     }
 
+    watchdogRef.current = setTimeout(() => {
+      if (!disposed && !deviceIdRef.current) {
+        setError("Le lecteur ne se connecte pas (WebSocket Spotify bloqué ?). Réessayez.");
+        reportError("spotify-connect-timeout");
+      }
+    }, 20_000);
+
     return () => {
       disposed = true;
       stopTimer();
+      if (watchdogRef.current) clearTimeout(watchdogRef.current);
       if (playerRef.current) {
         try {
           playerRef.current.disconnect();
@@ -200,48 +237,94 @@ export default function SpotifyPlayer({
       }
       window.onSpotifyWebPlaybackSDKReady = undefined;
     };
-  }, [loggedIn, trackUri, onPlaybackError, reportPlaying, startTimer, stopTimer]);
+  }, [loggedIn, reportError, startTimer, stopTimer]);
 
-  useEffect(() => {
-    if (!deviceIdRef.current || !trackUri) return;
-    if (playedUriRef.current === trackUri) return;
-    const deviceId = deviceIdRef.current;
+  const startPlayback = useCallback(
+    async (uri: string, url: string): Promise<boolean> => {
+      const player = playerRef.current;
+      const deviceId = deviceIdRef.current;
+      if (!player || !deviceId) return false;
 
-    (async () => {
+      try {
+        await player.activateElement();
+      } catch {
+        // l'activation peut échouer en mode automatique, on continue
+      }
+
       const token = await getValidToken();
       if (!token) {
         setLoggedIn(false);
-        return;
+        return false;
       }
-      const parsedUri = extractSpotifyUri(trackUrl);
+      const parsedUri = extractSpotifyUri(url);
       const body =
         parsedUri?.type === "track"
-          ? JSON.stringify({ uris: [trackUri] })
+          ? JSON.stringify({ uris: [uri] })
           : JSON.stringify({
-              context_uri: trackUri,
+              context_uri: uri,
               offset: { position: 0 },
             });
-      const res = await fetch(
-        `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`,
-        {
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      };
+
+      const transfer = async () =>
+        fetch(`https://api.spotify.com/v1/me/player`, {
           method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body,
+          headers,
+          body: JSON.stringify({ device_ids: [deviceId], play: false }),
+        });
+
+      const play = async () =>
+        fetch(
+          `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`,
+          { method: "PUT", headers, body }
+        );
+
+      let t = await transfer().catch(() => null);
+      if (t && !t.ok && t.status !== 404) {
+        const text = await t.text();
+        if (t.status === 401 || t.status === 403) {
+          setLoggedIn(false);
+          return false;
         }
-      );
+        reportError(`spotify-transfer-${t.status}:${text.slice(0, 120)}`);
+      }
+
+      await new Promise((r) => setTimeout(r, 500));
+
+      let res = await play().catch(() => null);
+      if ((!res || !(res.ok || res.status === 204)) && deviceIdRef.current) {
+        await new Promise((r) => setTimeout(r, 1000));
+        res = await play().catch(() => null);
+      }
+      if (!res) {
+        reportError("spotify-play-network");
+        return false;
+      }
       if (res.ok || res.status === 204) {
-        playedUriRef.current = trackUri;
-      } else if (res.status === 403 || res.status === 401) {
+        playedUriRef.current = uri;
+        return true;
+      }
+      if (res.status === 401 || res.status === 403) {
         setLoggedIn(false);
       } else {
         const text = await res.text();
-        onPlaybackError?.(`spotify-play-${res.status}:${text.slice(0, 120)}`);
+        reportError(`spotify-play-${res.status}:${text.slice(0, 120)}`);
       }
-    })();
-  }, [deviceIdRef, trackUri, trackUrl, onPlaybackError]);
+      return false;
+    },
+    [reportError]
+  );
+
+  useEffect(() => {
+    if (!trackUri) return;
+    if (playedUriRef.current === trackUri) return;
+    if (!deviceIdRef.current) return;
+    startPlayback(trackUri, trackUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackUri, trackUrl, ready, startPlayback]);
 
   useEffect(() => {
     if (seekTo === null || seekTo === undefined) return;
@@ -253,11 +336,13 @@ export default function SpotifyPlayer({
     if (!player) return;
     const state = await player.getCurrentState().catch(() => null);
     if (state && state.paused) {
-      await player.resume();
-    } else {
-      await player.pause();
+      await player.resume().catch(() => {});
+    } else if (state && !state.paused) {
+      await player.pause().catch(() => {});
+    } else if (deviceIdRef.current) {
+      startPlayback(trackUri ?? "", trackUrl);
     }
-  }, []);
+  }, [startPlayback, trackUri, trackUrl]);
 
   useEffect(() => {
     if (playToggle !== undefined && playToggle > 0) {
