@@ -23,6 +23,7 @@ declare global {
       ) => SpotifyPlayerInstance;
     };
     onSpotifyWebPlaybackSDKReady?: () => void;
+    __SPOTIFY_DIAG?: boolean;
   }
 }
 
@@ -129,13 +130,23 @@ export default function SpotifyPlayer({
     try {
       const state = await player.getCurrentState();
       if (!state) return;
-      const newDuration = state.duration_ms / 1000;
+      const rawPos = state.position_ms;
+      const rawDur = state.duration_ms;
+      if (window.__SPOTIFY_DIAG && (isNaN(rawPos) || !isFinite(rawPos) || !isFinite(rawDur) || rawDur === 0)) {
+        console.log("[getCurrentState raw]", {
+          position_ms: rawPos,
+          duration_ms: rawDur,
+          paused: state.paused,
+          hasTrack: !!state.track_window?.current_track,
+        });
+      }
+      const newDuration = rawDur / 1000;
       if (isFinite(newDuration) && newDuration > 0 && newDuration !== durationStateRef.current) {
         durationStateRef.current = newDuration;
         setDuration(newDuration);
       }
       durationRef.current?.(newDuration);
-      const posMs = state.position_ms;
+      const posMs = rawPos;
       if (isFinite(posMs)) {
         setCurrentTime(posMs / 1000);
       }

@@ -17,6 +17,7 @@ function getCurrentTime(): number {
 }
 
 function setCurrentTime(time: number): void {
+  if (!isFinite(time) || time < 0) return;
   if (time === currentTime) return;
   currentTime = time;
   listeners.forEach((listener) => listener());
