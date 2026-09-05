@@ -481,20 +481,27 @@ export default function SpotifyPlayer({
     const player = playerRef.current;
     if (!trackUri || !player) return;
     const state = await player.getCurrentState().catch(() => null);
+    const hasTrack = !!state?.track_window?.current_track;
 
-    if (state && !state.paused && (state.position_ms ?? 0) > 0) {
+    if (state && hasTrack && !state.paused) {
       console.log("[ChordFlow] togglePlay → pause (lecture réelle)");
       await player.pause().catch(() => {});
       return;
     }
 
-    if (state && state.paused && state.track_window?.current_track) {
+    if (state && hasTrack && state.paused) {
       console.log("[ChordFlow] togglePlay → resume (piste en pause)");
       await player.resume().catch(() => {});
       return;
     }
 
-    console.log("[ChordFlow] togglePlay → démarrage via relais serveur");
+    if (state && !hasTrack) {
+      console.log("[ChordFlow] togglePlay → état sans piste → relais serveur");
+      await startPlayback(trackUri, trackUrl);
+      return;
+    }
+
+    console.log("[ChordFlow] togglePlay → pas d'état → relais serveur");
     await startPlayback(trackUri, trackUrl);
   }, [startPlayback, trackUri, trackUrl]);
 
