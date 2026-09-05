@@ -22,6 +22,7 @@ import { parseChordContent, sectionsToContent } from "@/lib/chord-parser";
 import { detectKeyFromContent } from "@/lib/key-detection";
 import { loadLineOffsets, saveLineOffset, loadGlobalOffset, saveGlobalOffset } from "@/lib/line-offsets";
 import { loadYouTubeId, saveYouTubeId } from "@/lib/youtube-store";
+import { loadSpotifyId, saveSpotifyId } from "@/lib/spotify-store";
 import { useSharedSong } from "@/lib/use-shared-song";
 import { SongTab } from "@/lib/types";
 import { ArrowLeft, Music, Key, FileText, Music2, Upload, ExternalLink, Wand2, Check, Pencil } from "lucide-react";
@@ -100,7 +101,9 @@ function SongView({ id }: SongViewProps) {
   const [showSpotifySearch, setShowSpotifySearch] = useState(false);
   const [youtubeError, setYoutubeError] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
-  const [spotifyTrackUrl, setSpotifyTrackUrl] = useState<string | null>(null);
+  const [spotifyTrackUrl, setSpotifyTrackUrl] = useState<string | null>(() =>
+    id ? loadSpotifyId(id) : null
+  );
   const [lyricsOffset, setLyricsOffset] = useState(() =>
     id ? loadGlobalOffset(id) : 0
   );
@@ -246,14 +249,21 @@ function SongView({ id }: SongViewProps) {
     setYoutubeError(true);
   }, []);
 
-  const handleSpotifySelect = useCallback((trackUrl: string) => {
-    setSpotifyTrackUrl(trackUrl);
-    setAudioSource("spotify");
-    setDualTrack(false);
-    setAudioUrl(null);
-    setYoutubeVideoId(null);
-    setShowSpotifySearch(false);
-  }, []);
+  const handleSpotifySelect = useCallback(
+    (trackUrl: string) => {
+      setSpotifyTrackUrl(trackUrl);
+      setAudioSource("spotify");
+      setDualTrack(false);
+      setAudioUrl(null);
+      setYoutubeVideoId(null);
+      setShowSpotifySearch(false);
+      if (id) saveSpotifyId(id, trackUrl);
+      if (song && (isCustom || hydrated)) {
+        upsert({ ...song, spotifyId: trackUrl });
+      }
+    },
+    [id, song, upsert, isCustom, hydrated]
+  );
 
   useEffect(() => {
     const syncedId = song?.youtubeId;
@@ -266,6 +276,18 @@ function SongView({ id }: SongViewProps) {
       setAudioUrl(null);
     }
   }, [song, youtubeVideoId, audioSource, id]);
+
+  useEffect(() => {
+    const syncedSpotify = song?.spotifyId;
+    if (syncedSpotify && syncedSpotify !== spotifyTrackUrl) {
+      setSpotifyTrackUrl(syncedSpotify);
+      if (id) saveSpotifyId(id, syncedSpotify);
+    }
+    if (spotifyTrackUrl && !audioSource) {
+      setAudioSource("spotify");
+      setAudioUrl(null);
+    }
+  }, [song, spotifyTrackUrl, audioSource, id]);
 
   const handleLineOffsetChange = useCallback((lineIndex: number, newOffset: number) => {
     setPerLineOffsets((prev) => {

@@ -34,6 +34,7 @@ export interface SongTab {
   officialPlain?: string;
   officialSynced?: string;
   youtubeId?: string;
+  spotifyId?: string;
 }
 
 export interface SyncedLyricLine {
