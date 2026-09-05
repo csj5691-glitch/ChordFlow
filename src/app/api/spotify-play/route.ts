@@ -55,6 +55,7 @@ export async function POST(req: NextRequest) {
       { status: transfer.status }
     );
   }
+  console.log(`[spotify-play] transfer OK (${transfer.status}) device=${deviceId}`);
 
   await new Promise((r) => setTimeout(r, 300));
   const play = await fetch(
@@ -76,6 +77,7 @@ export async function POST(req: NextRequest) {
       { status: play.status }
     );
   }
+  console.log(`[spotify-play] play OK (${play.status}) uri=${uri}`);
 
   return Response.json({ ok: true });
 }
