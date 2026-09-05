@@ -130,12 +130,15 @@ export default function SpotifyPlayer({
       const state = await player.getCurrentState();
       if (!state) return;
       const newDuration = state.duration_ms / 1000;
-      if (newDuration > 0 && newDuration !== durationStateRef.current) {
+      if (isFinite(newDuration) && newDuration > 0 && newDuration !== durationStateRef.current) {
         durationStateRef.current = newDuration;
         setDuration(newDuration);
       }
       durationRef.current?.(newDuration);
-      setCurrentTime(state.position_ms / 1000);
+      const posMs = state.position_ms;
+      if (isFinite(posMs)) {
+        setCurrentTime(posMs / 1000);
+      }
       reportPlaying(!state.paused);
     } catch {
       // ignorer, prochaine itération
@@ -461,6 +464,38 @@ export default function SpotifyPlayer({
   }, [trackUri, trackUrl, ready, startPlayback]);
 
   useEffect(() => {
+    if (!parsed || parsed.type !== "track") return;
+    const id = parsed.id;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getValidToken();
+        if (!token || cancelled) return;
+        const res = await fetch("/api/spotify-track", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token, id }),
+        });
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        const ms = data?.duration_ms;
+        if (isFinite(ms) && ms > 0 && ms !== durationStateRef.current) {
+          durationStateRef.current = ms / 1000;
+          setDuration(ms / 1000);
+          durationRef.current?.(ms / 1000);
+          console.log("Durée Spotify (API) →", ms / 1000, "s");
+        }
+      } catch {
+        // le SDK finira par donner la durée, sinon ignorer
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parsed]);
+
+  useEffect(() => {
     if (seekTo === null || seekTo === undefined) return;
     playerRef.current?.seek(seekTo * 1000).catch(() => {});
   }, [seekTo]);
@@ -499,7 +534,8 @@ export default function SpotifyPlayer({
   };
 
   const fmtTime = (s: number): string => {
-    const total = Math.max(0, Math.floor(s));
+    if (!isFinite(s) || s < 0) s = 0;
+    const total = Math.floor(s);
     const m = Math.floor(total / 60);
     const sec = total % 60;
     return `${m}:${sec.toString().padStart(2, "0")}`;
@@ -602,7 +638,13 @@ export default function SpotifyPlayer({
           >
             <div
               className="h-full bg-green-500 rounded-full"
-              style={{ width: `${Math.min(100, (currentPos / duration) * 100)}%` }}
+              style={{
+                width: `${
+                  isFinite(duration) && isFinite(currentPos) && duration > 0
+                    ? Math.min(100, (currentPos / duration) * 100)
+                    : 0
+                }%`,
+              }}
             />
           </div>
           <div className="mt-1 flex items-center justify-between text-xs font-mono text-zinc-400">
