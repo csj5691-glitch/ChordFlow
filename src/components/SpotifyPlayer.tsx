@@ -91,6 +91,7 @@ export default function SpotifyPlayer({
   const [trackName, setTrackName] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
 
   const playerRef = useRef<SpotifyPlayerInstance | null>(null);
   const deviceIdRef = useRef<string | null>(null);
@@ -160,8 +161,18 @@ export default function SpotifyPlayer({
     const player = new window.Spotify!.Player({
       name: "ChordFlow",
       getOAuthToken: async (cb: (token: string) => void) => {
-        const token = await getValidToken();
-        cb(token ?? "");
+        try {
+          const token = await getValidToken();
+          if (!token) {
+            setLoggedIn(false);
+            reportError("spotify-auth-token-manquant");
+          }
+          cb(token ?? "");
+        } catch (err) {
+          console.error("getOAuthToken a échoué (le SDK restait sans jeton) :", err);
+          reportError("spotify-auth-token-erreur");
+          cb("");
+        }
       },
       volume: 0.7,
     });
@@ -216,6 +227,8 @@ export default function SpotifyPlayer({
   useEffect(() => {
     if (!loggedIn) return;
     let disposed = false;
+    let retries = 0;
+    const MAX_RETRIES = 3;
 
     ensureSdkScript(() => {
       if (!disposed) {
@@ -224,30 +237,52 @@ export default function SpotifyPlayer({
       }
     });
 
-    const createPlayer = () => {
+    const attemptConnect = () => {
       if (disposed) return;
       const player = buildPlayer();
       playerRef.current = player;
-      player.connect().catch(() => {
-        if (!disposed) {
-          setError("Impossible de connecter le lecteur Spotify.");
-          reportError("spotify-connect-failed");
+      player
+        .connect()
+        .then((ok) => {
+          if (!disposed) console.log("Spotify connect() →", ok);
+        })
+        .catch(() => {
+          if (disposed) return;
+          if (retries < MAX_RETRIES) {
+            retries += 1;
+            setTimeout(attemptConnect, 1500);
+          } else {
+            setError("Impossible de connecter le lecteur Spotify.");
+            reportError("spotify-connect-failed");
+          }
+        });
+
+      watchdogRef.current = setTimeout(() => {
+        if (disposed || deviceIdRef.current) return;
+        if (retries < MAX_RETRIES) {
+          retries += 1;
+          console.warn(`Spotify : périphérique non prêt, tentative ${retries}/${MAX_RETRIES}`);
+          try {
+            playerRef.current?.disconnect();
+          } catch {
+            // ignorer
+          }
+          playerRef.current = null;
+          attemptConnect();
+        } else {
+          setError(
+            "Le lecteur ne se connecte pas (WebSocket Spotify bloqué ?). Vérifiez votre réseau, désactivez les bloqueurs, puis réessayez."
+          );
+          reportError("spotify-connect-timeout");
         }
-      });
+      }, 12_000);
     };
 
     if (window.Spotify) {
-      createPlayer();
+      attemptConnect();
     } else {
-      window.onSpotifyWebPlaybackSDKReady = createPlayer;
+      window.onSpotifyWebPlaybackSDKReady = attemptConnect;
     }
-
-    watchdogRef.current = setTimeout(() => {
-      if (!disposed && !deviceIdRef.current) {
-        setError("Le lecteur ne se connecte pas (WebSocket Spotify bloqué ?). Réessayez.");
-        reportError("spotify-connect-timeout");
-      }
-    }, 20_000);
 
     return () => {
       disposed = true;
@@ -263,7 +298,7 @@ export default function SpotifyPlayer({
       }
       window.onSpotifyWebPlaybackSDKReady = undefined;
     };
-  }, [loggedIn, buildPlayer, reportError, stopTimer]);
+  }, [loggedIn, buildPlayer, retry, reportError, stopTimer]);
 
   const reconnect = useCallback(async (): Promise<string> => {
     if (playerRef.current) {
@@ -559,7 +594,18 @@ export default function SpotifyPlayer({
       )}
 
       {error && (
-        <p className="px-3 pb-3 text-xs text-red-400">{error}</p>
+        <div className="px-3 pb-3 flex items-center justify-between gap-2">
+          <p className="text-xs text-red-400 flex-1">{error}</p>
+          <button
+            onClick={() => {
+              setError(null);
+              setRetry((r) => r + 1);
+            }}
+            className="text-xs px-2 py-1 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 transition-colors flex-shrink-0"
+          >
+            Réessayer
+          </button>
+        </div>
       )}
     </div>
   );
