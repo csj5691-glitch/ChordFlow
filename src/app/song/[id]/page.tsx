@@ -21,11 +21,11 @@ import { getSongTab } from "@/lib/mock-data";
 import { parseChordContent, sectionsToContent } from "@/lib/chord-parser";
 import { detectKeyFromContent } from "@/lib/key-detection";
 import { loadLineOffsets, saveLineOffset, loadGlobalOffset, saveGlobalOffset } from "@/lib/line-offsets";
-import { loadYouTubeId, saveYouTubeId } from "@/lib/youtube-store";
-import { loadSpotifyId, saveSpotifyId } from "@/lib/spotify-store";
+import { loadYouTubeId, saveYouTubeId, removeYouTubeId } from "@/lib/youtube-store";
+  import { loadSpotifyId, saveSpotifyId, removeSpotifyId } from "@/lib/spotify-store";
 import { useSharedSong } from "@/lib/use-shared-song";
 import { SongTab } from "@/lib/types";
-import { ArrowLeft, Music, Key, FileText, Music2, Upload, ExternalLink, Wand2, Check, Pencil } from "lucide-react";
+import { ArrowLeft, Music, Key, FileText, Music2, Upload, ExternalLink, Wand2, Check, Pencil, X } from "lucide-react";
 
 const GUITAR_KEYS = [
   "C", "G", "D", "A", "E", "F", "B", "Bb", "Eb", "Ab", "Db", "Gb",
@@ -264,6 +264,31 @@ function SongView({ id }: SongViewProps) {
     },
     [id, song, upsert, isCustom, hydrated]
   );
+
+  const handleRemoveAudio = useCallback(() => {
+    setIsPlaying(false);
+    setShowYoutubeSearch(false);
+    setShowSpotifySearch(false);
+    if (audioSource === "spotify" && id) {
+      removeSpotifyId(id);
+      if (song && (isCustom || hydrated)) {
+        const { spotifyId: _drop, ...rest } = song;
+        void _drop;
+        upsert(rest);
+      }
+    } else if (audioSource === "youtube" && id) {
+      removeYouTubeId(id);
+      if (song && (isCustom || hydrated)) {
+        const { youtubeId: _drop, ...rest } = song;
+        void _drop;
+        upsert(rest);
+      }
+    }
+    setSpotifyTrackUrl(null);
+    setYoutubeVideoId(null);
+    setAudioUrl(null);
+    setAudioSource(null);
+  }, [audioSource, id, song, isCustom, hydrated, upsert]);
 
   useEffect(() => {
     const syncedId = song?.youtubeId;
@@ -693,6 +718,13 @@ function SongView({ id }: SongViewProps) {
                 Reset
               </button>
             )}
+            <button
+              onClick={handleRemoveAudio}
+              title="Retirer cette source audio et en choisir une autre"
+              className="ml-auto w-7 h-7 rounded bg-red-800 hover:bg-red-700 text-white flex items-center justify-center transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
 
@@ -740,14 +772,25 @@ function SongView({ id }: SongViewProps) {
         )}
 
         {audioSource === "spotify" && spotifyTrackUrl && (
-          <SpotifyPlayer
-            trackUrl={spotifyTrackUrl}
-            onDurationChange={handleDurationChange}
-            onPlayStateChange={setIsPlaying}
-            onPlaybackError={(code) => console.error("Spotify playback:", code)}
-            seekTo={seekTo}
-            playToggle={playToggle}
-          />
+          <>
+            <SpotifyPlayer
+              trackUrl={spotifyTrackUrl}
+              onDurationChange={handleDurationChange}
+              onPlayStateChange={setIsPlaying}
+              onPlaybackError={(code) => console.error("Spotify playback:", code)}
+              seekTo={seekTo}
+              playToggle={playToggle}
+            />
+            <button
+              onClick={() => setShowSpotifySearch(true)}
+              className="w-full flex items-center justify-center gap-2 p-2.5 bg-green-600/10 border border-green-600/30 rounded-xl hover:bg-green-600/20 text-sm text-green-400 font-medium transition-colors"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
+              </svg>
+              Rechercher ce morceau sur Spotify
+            </button>
+          </>
         )}
 
         {audioSource === "upload" && (

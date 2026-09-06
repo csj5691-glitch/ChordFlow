@@ -20,3 +20,9 @@ export function saveSpotifyId(songId: string, trackUrl: string): void {
   all[songId] = trackUrl;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
 }
+
+export function removeSpotifyId(songId: string): void {
+  const all = getAll();
+  delete all[songId];
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+}

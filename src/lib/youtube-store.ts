@@ -20,3 +20,9 @@ export function saveYouTubeId(songId: string, videoId: string): void {
   all[songId] = videoId;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
 }
+
+export function removeYouTubeId(songId: string): void {
+  const all = getAll();
+  delete all[songId];
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+}
