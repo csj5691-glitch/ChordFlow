@@ -30,6 +30,61 @@ export async function POST(req: NextRequest) {
     "User-Agent": "ChordFlow/1.0",
   };
 
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  async function getKnownDevices(): Promise<{
+    ok: boolean;
+    ids: string[];
+    names: string[];
+  }> {
+    const res = await fetch("https://api.spotify.com/v1/me/player/devices", {
+      headers,
+      cache: "no-store",
+    });
+    if (!res.ok) return { ok: false, ids: [], names: [] };
+    try {
+      const json = await res.json();
+      const devices = (json?.devices ?? []) as {
+        id?: string;
+        name?: string;
+      }[];
+      return {
+        ok: true,
+        ids: devices.map((d) => d.id ?? ""),
+        names: devices.map((d) => d.name ?? ""),
+      };
+    } catch {
+      return { ok: false, ids: [], names: [] };
+    }
+  }
+
+  const first = await getKnownDevices();
+  let listed = first.ok && first.ids.includes(deviceId);
+  let knownNames = first.names;
+  if (first.ok && !listed) {
+    for (let i = 0; i < 10 && !listed; i++) {
+      await wait(1000);
+      const next = await getKnownDevices();
+      if (!next.ok) break;
+      listed = next.ids.includes(deviceId);
+      knownNames = next.names;
+    }
+  }
+  if (!listed && first.ok) {
+    const detail = knownNames.join(", ") || "(liste vide)";
+    console.error(
+      `[spotify-play] device ${deviceId} introuvable sur le compte. Devices connus: ${detail}`
+    );
+    return Response.json(
+      {
+        ok: false,
+        status: 404,
+        error: `DEVICE_NOT_ON_ACCOUNT devices=[${detail}]`,
+      },
+      { status: 404 }
+    );
+  }
+
   const playBody =
     parsedUri?.type === "track"
       ? JSON.stringify({ uris: [uri] })
