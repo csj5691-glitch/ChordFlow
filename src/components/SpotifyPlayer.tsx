@@ -415,8 +415,8 @@ export default function SpotifyPlayer({
         if (!deviceId) {
           const player = playerRef.current;
           if (!player) {
-            reportError("spotify-no-player");
-            return false;
+            await sleep(1000);
+            continue;
           }
           let ok = false;
           try {
@@ -488,11 +488,16 @@ export default function SpotifyPlayer({
     [reportError, waitDevice]
   );
 
+  const startInFlightRef = useRef(false);
+
   useEffect(() => {
     if (!trackUri) return;
     if (playedUriRef.current === trackUri) return;
-    if (!deviceIdRef.current) return;
-    startPlayback(trackUri, trackUrl);
+    if (startInFlightRef.current) return;
+    startInFlightRef.current = true;
+    startPlayback(trackUri, trackUrl).finally(() => {
+      startInFlightRef.current = false;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackUri, trackUrl, ready, startPlayback]);
 
