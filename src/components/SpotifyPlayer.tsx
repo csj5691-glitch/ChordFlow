@@ -395,20 +395,27 @@ export default function SpotifyPlayer({
             return null;
           }
           let status = res.status;
+          let error = "";
           try {
             const data = await res.json();
             if (data && typeof data.status === "number") status = data.status;
+            if (data && typeof data.error === "string") error = data.error;
           } catch {
             // ignorer
           }
-          console.log("[ChordFlow] relais → échec status =", status);
-          return { status };
+          console.log(
+            "[ChordFlow] relais → échec status =",
+            status,
+            error ? `-> ${error.slice(0, 160)}` : ""
+          );
+          return { status, error };
         } catch {
           console.warn("[ChordFlow] relais → exception réseau");
-          return { status: -1 };
+          return { status: -1, error: "" };
         }
       };
 
+      let last404Context = "";
       for (let attempt = 0; attempt < 3; attempt++) {
         let deviceId = deviceIdRef.current;
 
@@ -455,8 +462,10 @@ export default function SpotifyPlayer({
           return false;
         }
         if (err.status === 404) {
+          last404Context = err.error || "";
           console.warn(
-            "[ChordFlow] relais 404 → périphérique inconnu, ré-enregistrement du SDK"
+            "[ChordFlow] relais 404 → périphérique inconnu, ré-enregistrement du SDK",
+            last404Context
           );
           deviceIdRef.current = null;
           const player = playerRef.current;
@@ -482,7 +491,10 @@ export default function SpotifyPlayer({
         return false;
       }
 
-      reportError("spotify-play-404:périphérique non prêt après 3 tentatives");
+      const reason = last404Context
+        ? `:${last404Context.replace(/\s+/g, " ").slice(0, 120)}`
+        : ":périphérique non prêt après 3 tentatives";
+      reportError(`spotify-play-404${reason}`);
       return false;
     },
     [reportError, waitDevice]
