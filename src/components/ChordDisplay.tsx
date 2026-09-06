@@ -23,7 +23,7 @@ export default function ChordDisplay({
   onRawEdit,
 }: ChordDisplayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const currentTime = useSyncExternalStore(subscribeCurrentTime, getCurrentTime);
+  const currentTime = useSyncExternalStore(subscribeCurrentTime, getCurrentTime, getCurrentTime);
   const [editing, setEditing] = useState<{ sIdx: number; lIdx: number; cIdx: number; value: string } | null>(null);
   const [editingLine, setEditingLine] = useState<{ sIdx: number; lIdx: number; value: string } | null>(null);
   const [textEditorMode, setTextEditorMode] = useState(false);

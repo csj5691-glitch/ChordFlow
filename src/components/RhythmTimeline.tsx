@@ -18,7 +18,7 @@ export default function RhythmTimeline({
 }: RhythmTimelineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
-  const currentTime = useSyncExternalStore(subscribeCurrentTime, getCurrentTime);
+  const currentTime = useSyncExternalStore(subscribeCurrentTime, getCurrentTime, getCurrentTime);
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 

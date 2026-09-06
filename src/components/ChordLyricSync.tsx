@@ -64,7 +64,7 @@ export default function ChordLyricSync({
   onLineOffsetChange,
 }: ChordLyricSyncProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const currentTime = useSyncExternalStore(subscribeCurrentTime, getCurrentTime);
+  const currentTime = useSyncExternalStore(subscribeCurrentTime, getCurrentTime, getCurrentTime);
   const [editMode, setEditMode] = useState(false);
   const [globalShift, setGlobalShift] = useState(0);
 

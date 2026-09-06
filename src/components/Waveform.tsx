@@ -30,7 +30,7 @@ const BARS = (() => {
 
 export default function Waveform({ duration, onSeek }: WaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const currentTime = useSyncExternalStore(subscribeCurrentTime, getCurrentTime);
+  const currentTime = useSyncExternalStore(subscribeCurrentTime, getCurrentTime, getCurrentTime);
 
   useEffect(() => {
     const canvas = canvasRef.current;

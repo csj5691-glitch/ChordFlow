@@ -85,7 +85,7 @@ export default function SpotifyPlayer({
     ? `spotify:${parsed.type}:${parsed.id}`
     : null;
 
-  const currentPos = useSyncExternalStore(subscribeCurrentTime, getCurrentTime);
+  const currentPos = useSyncExternalStore(subscribeCurrentTime, getCurrentTime, getCurrentTime);
   const [loggedIn, setLoggedIn] = useState(false);
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);

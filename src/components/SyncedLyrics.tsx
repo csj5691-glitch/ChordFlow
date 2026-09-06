@@ -59,7 +59,7 @@ export default function SyncedLyrics({
 }: SyncedLyricsProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
-  const currentTime = useSyncExternalStore(subscribeCurrentTime, getCurrentTime);
+  const currentTime = useSyncExternalStore(subscribeCurrentTime, getCurrentTime, getCurrentTime);
   const [editMode, setEditMode] = useState(false);
   const [lineChords, setLineChords] = useState<Record<number, string[]>>(
     () => (songId ? loadLineChords(songId) : {})
