@@ -161,9 +161,18 @@ export default function SpotifySearch({
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && runSearch(query)}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg pl-10 pr-4 py-2.5 text-white placeholder-zinc-500 focus:outline-none focus:border-green-500/50 text-sm"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg pl-10 pr-10 py-2.5 text-white placeholder-zinc-500 focus:outline-none focus:border-green-500/50 text-sm"
                     placeholder="Artiste - Titre"
                   />
+                  {query && (
+                    <button
+                      onClick={() => setQuery("")}
+                      title="Effacer la recherche"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
                 <button
                   onClick={() => runSearch(query)}
