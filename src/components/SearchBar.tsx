@@ -4,7 +4,7 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Download, Loader2 } from "lucide-react";
+import { Search, Download, Loader2, X } from "lucide-react";
 import { saveCustomSong, generateSongId } from "@/lib/custom-songs";
 
 export default function SearchBar() {
@@ -65,6 +65,16 @@ export default function SearchBar() {
             placeholder="Rechercher un morceau... (ex: Wonderwall, Oasis)"
             className="flex-1 bg-transparent px-4 py-4 text-white placeholder-zinc-500 focus:outline-none text-lg"
           />
+          {query.trim() && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              title="Effacer la recherche"
+              className="ml-auto p-2 text-zinc-400 hover:text-white transition-colors flex-shrink-0"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
           <button
             type="submit"
             className="px-6 py-4 bg-amber-500 hover:bg-amber-400 text-black font-semibold transition-colors"
