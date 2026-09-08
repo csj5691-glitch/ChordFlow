@@ -22,6 +22,7 @@ import { parseChordContent, sectionsToContent } from "@/lib/chord-parser";
 import { detectKeyFromContent } from "@/lib/key-detection";
 import { loadLineOffsets, saveLineOffset, loadGlobalOffset, saveGlobalOffset } from "@/lib/line-offsets";
 import { loadYouTubeId, saveYouTubeId, removeYouTubeId } from "@/lib/youtube-store";
+import { detectBpmFromFile } from "@/lib/bpm-detect";
   import { loadSpotifyId, saveSpotifyId, removeSpotifyId } from "@/lib/spotify-store";
 import { useSharedSong } from "@/lib/use-shared-song";
 import { SongTab } from "@/lib/types";
@@ -93,6 +94,13 @@ function SongView({ id }: SongViewProps) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("chords");
   const [audioSource, setAudioSource] = useState<AudioSource>(null);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [rawDuration, setRawDuration] = useState(0);
+  const [detectedBpm, setDetectedBpm] = useState<number | null>(null);
+  const [standardBpm, setStandardBpm] = useState("");
+  const [tempoScale, setTempoScale] = useState(1);
+  const [bpmBusy, setBpmBusy] = useState(false);
+  const [bpmError, setBpmError] = useState<string | null>(null);
   const [dualTrack, setDualTrack] = useState(false);
   const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(() =>
     id ? loadYouTubeId(id) : null
@@ -208,17 +216,38 @@ function SongView({ id }: SongViewProps) {
     return result;
   }, [sections, duration, song, lrcTimestamps]);
 
+  const applyUpload = useCallback((url: string, file: File | null) => {
+    setAudioUrl(url);
+    setAudioSource("upload");
+    setDualTrack(false);
+    setYoutubeVideoId(null);
+    setUploadFile(file);
+    setRawDuration(0);
+    setDetectedBpm(null);
+    setStandardBpm("");
+    setTempoScale(1);
+    setBpmError(null);
+  }, []);
+
+  const handleUploadFile = useCallback(
+    (file: File) => {
+      applyUpload(URL.createObjectURL(file), file);
+    },
+    [applyUpload]
+  );
+
   useEffect(() => {
     const handler = (e: Event) => {
-      const url = (e as CustomEvent).detail;
-      setAudioUrl(url);
-      setAudioSource("upload");
-      setDualTrack(false);
-      setYoutubeVideoId(null);
+      const detail = (e as CustomEvent).detail as
+        | string
+        | { url: string; file?: File };
+      const url = typeof detail === "string" ? detail : detail.url;
+      const file = typeof detail === "string" ? null : detail.file ?? null;
+      applyUpload(url, file);
     };
     window.addEventListener("audio-upload", handler);
     return () => window.removeEventListener("audio-upload", handler);
-  }, []);
+  }, [applyUpload]);
 
   const handleSeek = useCallback((time: number) => {
     setSeekTo(time);
@@ -229,6 +258,64 @@ function SongView({ id }: SongViewProps) {
     setDuration(dur);
   }, []);
 
+  const handleRawDurationChange = useCallback((raw: number) => {
+    setRawDuration(raw);
+  }, []);
+
+  const originalDuration = useMemo(() => {
+    if (lrcTimestamps.length > 0) {
+      return lrcTimestamps[lrcTimestamps.length - 1].time + 3;
+    }
+    const last = timestamps[timestamps.length - 1];
+    return last ? last.time + 3 : 0;
+  }, [lrcTimestamps, timestamps]);
+
+  const autoTempoScale = useMemo(() => {
+    if (originalDuration > 0 && rawDuration > 0) {
+      return originalDuration / rawDuration;
+    }
+    return 1;
+  }, [originalDuration, rawDuration]);
+
+  const autoDiffPct = useMemo(() => {
+    if (originalDuration <= 0 || rawDuration <= 0) return 0;
+    return (rawDuration / originalDuration - 1) * 100;
+  }, [originalDuration, rawDuration]);
+
+  const handleDetectBpm = useCallback(async () => {
+    if (!uploadFile) return;
+    setBpmBusy(true);
+    setBpmError(null);
+    try {
+      const result = await detectBpmFromFile(uploadFile);
+      if (result.bpm > 0) {
+        setDetectedBpm(Math.round(result.bpm));
+      } else {
+        setDetectedBpm(null);
+        setBpmError("Impossible de détecter un BPM sur ce fichier.");
+      }
+    } catch {
+      setDetectedBpm(null);
+      setBpmError("Décodage impossible : le format audio/vidéo n'est pas supporté.");
+    } finally {
+      setBpmBusy(false);
+    }
+  }, [uploadFile]);
+
+  const handleApplyBpm = useCallback(() => {
+    const standard = parseFloat(standardBpm);
+    if (!detectedBpm || !standard || standard <= 0 || detectedBpm <= 0) return;
+    setTempoScale(detectedBpm / standard);
+  }, [detectedBpm, standardBpm]);
+
+  const handleResetBpm = useCallback(() => {
+    setTempoScale(1);
+  }, []);
+
+  const handleApplyAuto = useCallback(() => {
+    setTempoScale(Math.min(2, Math.max(0.5, autoTempoScale)));
+  }, [autoTempoScale]);
+
   const handleYoutubeSelect = useCallback(
     (videoId: string) => {
       setYoutubeVideoId(videoId);
@@ -237,6 +324,11 @@ function SongView({ id }: SongViewProps) {
       setAudioUrl(null);
       setShowYoutubeSearch(false);
       setYoutubeError(false);
+      setTempoScale(1);
+      setRawDuration(0);
+      setDetectedBpm(null);
+      setStandardBpm("");
+      setBpmError(null);
       if (id) saveYouTubeId(id, videoId);
       if (id?.startsWith("custom-") && song) {
         upsert({ ...song, youtubeId: videoId });
@@ -288,6 +380,11 @@ function SongView({ id }: SongViewProps) {
     setYoutubeVideoId(null);
     setAudioUrl(null);
     setAudioSource(null);
+    setTempoScale(1);
+    setUploadFile(null);
+    setRawDuration(0);
+    setDetectedBpm(null);
+    setStandardBpm("");
   }, [audioSource, id, song, isCustom, hydrated, upsert]);
 
   useEffect(() => {
@@ -733,10 +830,12 @@ function SongView({ id }: SongViewProps) {
             <YouTubePlayer
               videoId={youtubeVideoId}
               onDurationChange={handleDurationChange}
+              onRawDurationChange={handleRawDurationChange}
               onPlayStateChange={setIsPlaying}
               onPlaybackError={handleYoutubePlaybackError}
               seekTo={seekTo}
               playToggle={playToggle}
+              tempoScale={tempoScale}
             />
             <button
               onClick={() => setShowSpotifySearch(true)}
@@ -797,7 +896,9 @@ function SongView({ id }: SongViewProps) {
           <AudioPlayer
             audioUrl={audioUrl}
             onDurationChange={handleDurationChange}
+            onRawDurationChange={handleRawDurationChange}
             seekTo={seekTo}
+            tempoScale={tempoScale}
           />
         )}
 
@@ -817,6 +918,132 @@ function SongView({ id }: SongViewProps) {
                 </svg>
               )}
             </button>
+          </div>
+        )}
+
+        {((audioSource === "upload" && audioUrl) ||
+          (audioSource === "youtube" && youtubeVideoId)) && (
+          <div className="rounded-xl border border-zinc-700/50 bg-zinc-800/50 p-4 flex flex-col gap-3">
+            {originalDuration > 0 && rawDuration > 0 && (
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-sm text-zinc-400">
+                  Vidéo :{" "}
+                  <b className="text-zinc-200">
+                    {rawDuration.toFixed(1)} s
+                  </b>{" "}
+                  · Original : ~
+                  <b className="text-zinc-200">
+                    {originalDuration.toFixed(1)} s
+                  </b>
+                  {tempoScale === 1 && (
+                    <>
+                      {" "}
+                      →{" "}
+                      <b className={autoDiffPct >= 0 ? "text-amber-300" : "text-sky-300"}>
+                        vidéo {Math.abs(autoDiffPct).toFixed(1)} %{" "}
+                        {autoDiffPct >= 0 ? "plus lente" : "plus rapide"}
+                      </b>{" "}
+                      que l&apos;original
+                    </>
+                  )}
+                </span>
+                {tempoScale === 1 ? (
+                  <button
+                    onClick={handleApplyAuto}
+                    className="inline-flex items-center gap-2 rounded-lg bg-amber-500 hover:bg-amber-400 px-3 py-1.5 text-sm font-medium text-black transition-colors"
+                  >
+                    <Wand2 className="w-4 h-4" />
+                    Remettre au tempo original
+                  </button>
+                ) : (
+                  <span className="text-sm text-amber-300 font-medium">
+                    Lecture ajustée :{" "}
+                    {tempoScale < 1
+                      ? `vidéo ${Math.round(
+                          (1 - tempoScale) * 100
+                        )} % plus lente − accélérée`
+                      : `vidéo ${Math.round(
+                          (tempoScale - 1) * 100
+                        )} % plus rapide − ralentie`}
+                  </span>
+                )}
+                {tempoScale !== 1 && (
+                  <button
+                    onClick={handleResetBpm}
+                    className="text-sm text-zinc-400 hover:text-white underline transition-colors"
+                  >
+                    Revenir à 1:1
+                  </button>
+                )}
+              </div>
+            )}
+
+            {audioSource === "upload" && uploadFile && (
+              <div className="flex flex-wrap items-center gap-3 border-t border-zinc-700/50 pt-3">
+                {detectedBpm === null ? (
+                  <>
+                    <button
+                      onClick={handleDetectBpm}
+                      disabled={bpmBusy}
+                      className="inline-flex items-center gap-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 px-3 py-1.5 text-sm font-medium text-white transition-colors"
+                    >
+                      <Wand2 className="w-4 h-4" />
+                      {bpmBusy ? "Analyse…" : "Détecter le BPM (manuel)"}
+                    </button>
+                    <span className="text-xs text-zinc-500">
+                      Réglage manuel : le tempo réel est détecté puis comparé au
+                      BPM standard du morceau.
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-sm text-zinc-300">
+                      BPM détecté :{" "}
+                      <b className="text-amber-300">{detectedBpm}</b>
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-zinc-400">
+                        BPM standard
+                      </label>
+                      <input
+                        type="number"
+                        min="40"
+                        step="1"
+                        value={standardBpm}
+                        onChange={(e) => setStandardBpm(e.target.value)}
+                        className="w-20 rounded-lg bg-zinc-900 border border-zinc-700 px-2 py-1.5 text-sm text-white"
+                      />
+                    </div>
+                    <button
+                      onClick={handleApplyBpm}
+                      className="inline-flex items-center gap-2 rounded-lg bg-green-500 hover:bg-green-400 px-3 py-1.5 text-sm font-medium text-black transition-colors"
+                    >
+                      <Check className="w-4 h-4" />
+                      Appliquer
+                    </button>
+                    <button
+                      onClick={handleResetBpm}
+                      className="text-sm text-zinc-400 hover:text-white underline transition-colors"
+                    >
+                      Revenir à 1:1
+                    </button>
+                  </>
+                )}
+                {bpmError && (
+                  <span className="text-sm text-red-400">{bpmError}</span>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end border-t border-zinc-700/50 pt-3">
+              <button
+                onClick={handleRemoveAudio}
+                className="inline-flex items-center gap-2 rounded-lg bg-red-800 hover:bg-red-700 px-3 py-1.5 text-sm font-medium text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+                Retirer la vidéo
+              </button>
+            </div>
           </div>
         )}
 

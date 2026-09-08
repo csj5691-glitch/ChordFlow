@@ -8,24 +8,29 @@ import { setCurrentTime } from "@/lib/playback-store";
 interface AudioPlayerProps {
   audioUrl: string | null;
   onDurationChange?: (duration: number) => void;
+  onRawDurationChange?: (rawDuration: number) => void;
   seekTo?: number | null;
+  tempoScale?: number;
 }
 
 export default function AudioPlayer({
   audioUrl,
   onDurationChange,
+  onRawDurationChange,
   seekTo,
+  tempoScale = 1,
 }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(0.8);
+  const [rawDuration, setRawDuration] = useState(0);
   const animFrameRef = useRef<number>(0);
 
   const tick = useCallback(() => {
     if (audioRef.current) {
-      setCurrentTime(audioRef.current.currentTime);
+      setCurrentTime(audioRef.current.currentTime * tempoScale);
     }
-  }, []);
+  }, [tempoScale]);
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -45,9 +50,31 @@ export default function AudioPlayer({
 
   useEffect(() => {
     if (seekTo !== null && seekTo !== undefined && audioRef.current) {
-      audioRef.current.currentTime = seekTo;
+      audioRef.current.currentTime = seekTo / tempoScale;
     }
-  }, [seekTo]);
+  }, [seekTo, tempoScale]);
+
+  const rate = 1 / tempoScale;
+  useEffect(() => {
+    if (audioRef.current) {
+      const el = audioRef.current as HTMLAudioElement & { preservesPitch?: boolean; webkitPreservesPitch?: boolean };
+      el.playbackRate = rate;
+      if ("preservesPitch" in el) el.preservesPitch = true;
+      if ("webkitPreservesPitch" in el) el.webkitPreservesPitch = true;
+      if (Math.abs(rate - 1) > 1e-4) {
+        console.log(
+          `[ChordFlow] tempo appliqué : scale=${tempoScale.toFixed(4)} playbackRate=${rate.toFixed(4)}`
+        );
+      }
+    }
+  }, [audioUrl, rate, tempoScale]);
+
+  useEffect(() => {
+    if (rawDuration > 0 && onDurationChange) {
+      onDurationChange(rawDuration * tempoScale);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawDuration, tempoScale]);
 
   const togglePlay = () => {
     if (!audioRef.current) return;
@@ -60,9 +87,19 @@ export default function AudioPlayer({
   };
 
   const handleLoadedMetadata = () => {
-    if (audioRef.current && onDurationChange) {
-      onDurationChange(audioRef.current.duration);
+    if (audioRef.current) {
+      const raw = audioRef.current.duration || 0;
+      setRawDuration(raw);
+      if (onRawDurationChange) {
+        onRawDurationChange(raw);
+      }
     }
+  };
+
+  const dispatchUpload = (file: File) => {
+    const url = URL.createObjectURL(file);
+    const event = new CustomEvent("audio-upload", { detail: { url, file } });
+    window.dispatchEvent(event);
   };
 
   if (!audioUrl) {
@@ -75,14 +112,12 @@ export default function AudioPlayer({
           <span className="text-sm font-medium">Upload un fichier audio pour lancer la synchronisation</span>
           <input
             type="file"
-            accept="audio/*"
+            accept="audio/*,video/*"
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) {
-                const url = URL.createObjectURL(file);
-                const event = new CustomEvent("audio-upload", { detail: url });
-                window.dispatchEvent(event);
+                dispatchUpload(file);
               }
             }}
           />
@@ -129,14 +164,12 @@ export default function AudioPlayer({
         Changer
         <input
           type="file"
-          accept="audio/*"
+          accept="audio/*,video/*"
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) {
-              const url = URL.createObjectURL(file);
-              const event = new CustomEvent("audio-upload", { detail: url });
-              window.dispatchEvent(event);
+              dispatchUpload(file);
             }
           }}
         />

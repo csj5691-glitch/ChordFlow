@@ -11,6 +11,7 @@ interface YTPlayerInstance {
   getCurrentTime?: () => number;
   seekTo?: (seconds: number, allowSeekAhead: boolean) => void;
   getPlayerState?: () => number;
+  setPlaybackRate?: (rate: number) => void;
   pauseVideo: () => void;
   playVideo: () => void;
   destroy: () => void;
@@ -40,11 +41,13 @@ declare global {
 interface YouTubePlayerProps {
   videoId: string | null;
   onDurationChange?: (duration: number) => void;
+  onRawDurationChange?: (rawDuration: number) => void;
   onStateChange?: (state: number) => void;
   onPlayStateChange?: (playing: boolean) => void;
   onPlaybackError?: (code: number) => void;
   seekTo?: number | null;
   playToggle?: number;
+  tempoScale?: number;
 }
 
 const PLAYER_STATES = {
@@ -59,11 +62,13 @@ const PLAYER_STATES = {
 export default function YouTubePlayer({
   videoId,
   onDurationChange,
+  onRawDurationChange,
   onStateChange,
   onPlayStateChange,
   onPlaybackError,
   seekTo,
   playToggle,
+  tempoScale = 1,
 }: YouTubePlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayerInstance | null>(null);
@@ -83,15 +88,16 @@ export default function YouTubePlayer({
     stopTimer();
     intervalRef.current = setInterval(() => {
       if (playerRef.current && playerRef.current.getCurrentTime) {
-        setCurrentTime(playerRef.current.getCurrentTime());
+        setCurrentTime(playerRef.current.getCurrentTime() * tempoScale);
 
-        const duration = playerRef.current?.getDuration?.() ?? 0;
-        if (duration > 0) {
-          onDurationChange?.(duration);
+        const raw = playerRef.current?.getDuration?.() ?? 0;
+        if (raw > 0) {
+          onRawDurationChange?.(raw);
+          onDurationChange?.(raw * tempoScale);
         }
       }
     }, 100);
-  }, [onDurationChange, stopTimer]);
+  }, [onDurationChange, onRawDurationChange, stopTimer, tempoScale]);
 
   const togglePlay = useCallback(() => {
     const player = playerRef.current;
@@ -138,6 +144,9 @@ export default function YouTubePlayer({
         events: {
           onReady: () => {
             setIsReady(true);
+            if (playerRef.current?.setPlaybackRate) {
+              playerRef.current.setPlaybackRate(playbackRate);
+            }
             if (pendingToggleRef.current) {
               pendingToggleRef.current = false;
               const state = playerRef.current?.getPlayerState?.();
@@ -148,7 +157,10 @@ export default function YouTubePlayer({
               }
             }
             if (onDurationChange && playerRef.current?.getDuration) {
-              onDurationChange(playerRef.current.getDuration());
+              onDurationChange(playerRef.current.getDuration() * tempoScale);
+            }
+            if (onRawDurationChange && playerRef.current?.getDuration) {
+              onRawDurationChange(playerRef.current.getDuration());
             }
           },
           onStateChange: (event: { data: number }) => {
@@ -194,9 +206,16 @@ export default function YouTubePlayer({
 
   useEffect(() => {
     if (seekTo !== null && seekTo !== undefined && playerRef.current?.seekTo) {
-      playerRef.current.seekTo(seekTo, true);
+      playerRef.current.seekTo(seekTo / tempoScale, true);
     }
-  }, [seekTo]);
+  }, [seekTo, tempoScale]);
+
+  const playbackRate = 1 / tempoScale;
+  useEffect(() => {
+    if (playerRef.current?.setPlaybackRate) {
+      playerRef.current.setPlaybackRate(playbackRate);
+    }
+  }, [playbackRate]);
 
   useEffect(() => {
     if (playToggle !== undefined && playToggle > 0) {
