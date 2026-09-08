@@ -302,6 +302,36 @@ function SongView({ id }: SongViewProps) {
     }
   }, [uploadFile]);
 
+  const handleDetectYoutubeBpm = useCallback(async () => {
+    if (!youtubeVideoId) return;
+    const pendingId = youtubeVideoId;
+    setBpmBusy(true);
+    setBpmError(null);
+    try {
+      const res = await fetch("/api/yt-bpm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoId: pendingId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.bpm) {
+        throw new Error(data?.error || "mesure impossible");
+      }
+      setDetectedBpm(Math.round(data.bpm * 10) / 10);
+      setStandardBpm("");
+      setBpmBusy(false);
+      return;
+    } catch (e) {
+      setDetectedBpm(null);
+      setBpmError(
+        "Mesure serveur impossible (yt-dlp/ffmpeg requis) : " +
+          (e instanceof Error ? e.message : "erreur")
+      );
+    } finally {
+      setBpmBusy(false);
+    }
+  }, [youtubeVideoId]);
+
   const handleApplyBpm = useCallback(() => {
     const standard = parseFloat(standardBpm);
     if (!detectedBpm || !standard || standard <= 0 || detectedBpm <= 0) return;
@@ -978,21 +1008,31 @@ function SongView({ id }: SongViewProps) {
               </div>
             )}
 
-            {audioSource === "upload" && uploadFile && (
+            {((audioSource === "upload" && uploadFile) ||
+            (audioSource === "youtube" && youtubeVideoId)) && (
               <div className="flex flex-wrap items-center gap-3 border-t border-zinc-700/50 pt-3">
                 {detectedBpm === null ? (
                   <>
                     <button
-                      onClick={handleDetectBpm}
+                      onClick={
+                        audioSource === "upload"
+                          ? handleDetectBpm
+                          : handleDetectYoutubeBpm
+                      }
                       disabled={bpmBusy}
                       className="inline-flex items-center gap-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 px-3 py-1.5 text-sm font-medium text-white transition-colors"
                     >
                       <Wand2 className="w-4 h-4" />
-                      {bpmBusy ? "Analyse…" : "Détecter le BPM (manuel)"}
+                      {bpmBusy
+                        ? "Analyse…"
+                        : audioSource === "upload"
+                          ? "Détecter le BPM (fichier)"
+                          : "Mesurer le BPM (serveur)"}
                     </button>
                     <span className="text-xs text-zinc-500">
-                      Réglage manuel : le tempo réel est détecté puis comparé au
-                      BPM standard du morceau.
+                      {audioSource === "upload"
+                        ? "Réglage manuel : le tempo réel du fichier est détecté puis comparé au BPM standard du morceau."
+                        : "Télécharge la vidéo côté serveur (yt-dlp + ffmpeg) et mesure son tempo réel."}
                     </span>
                   </>
                 ) : (
