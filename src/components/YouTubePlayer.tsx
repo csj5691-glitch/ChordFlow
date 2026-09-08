@@ -48,6 +48,8 @@ interface YouTubePlayerProps {
   seekTo?: number | null;
   playToggle?: number;
   tempoScale?: number;
+  height?: number;
+  fillHeight?: boolean;
 }
 
 const PLAYER_STATES = {
@@ -69,6 +71,8 @@ export default function YouTubePlayer({
   seekTo,
   playToggle,
   tempoScale = 1,
+  height = 200,
+  fillHeight = false,
 }: YouTubePlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayerInstance | null>(null);
@@ -132,7 +136,7 @@ export default function YouTubePlayer({
       playerRef.current = new window.YT.Player(containerRef.current, {
         videoId,
         width: "100%",
-        height: "200",
+        height: fillHeight ? "100%" : String(height),
         playerVars: {
           autoplay: 0,
           controls: 1,
@@ -228,8 +232,14 @@ export default function YouTubePlayer({
   }
 
   return (
-    <div className="youtube-player rounded-xl overflow-hidden bg-black border border-zinc-700/50">
-      <div ref={containerRef} className="w-full" />
+    <div
+      className={`${
+        fillHeight
+          ? "h-full flex flex-col [&>iframe]:w-full [&>iframe]:flex-1 [&>iframe]:min-h-0"
+          : ""
+      } youtube-player rounded-xl overflow-hidden bg-black border border-zinc-700/50`}
+    >
+      <div ref={containerRef} />
       <div className="flex items-center gap-3 p-3 bg-zinc-800/80">
         <button
           onClick={togglePlay}

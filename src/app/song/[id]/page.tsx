@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
 
-import { use, useState, useCallback, useMemo, useEffect, useSyncExternalStore } from "react";
+import { use, useState, useCallback, useMemo, useEffect, useRef, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import ChordDisplay from "@/components/ChordDisplay";
 import ChordLyricSync from "@/components/ChordLyricSync";
@@ -123,6 +123,24 @@ function SongView({ id }: SongViewProps) {
   const [perLineOffsets, setPerLineOffsets] = useState<Record<number, number>>(
     () => (id ? loadLineOffsets(id) : {})
   );
+  const removedByUserRef = useRef<{ youtube?: boolean; spotify?: boolean }>({});
+  const [miniYT, setMiniYT] = useState(false);
+
+  useEffect(() => {
+    try {
+      setMiniYT(window.localStorage.getItem("chordflow-mini-yt") === "1");
+    } catch {
+      // ignorer
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("chordflow-mini-yt", miniYT ? "1" : "0");
+    } catch {
+      // ignorer
+    }
+  }, [miniYT]);
 
   const isCustom = id.startsWith("custom-");
   const hydrated = useHydrated();
@@ -277,11 +295,6 @@ function SongView({ id }: SongViewProps) {
     return 1;
   }, [originalDuration, rawDuration]);
 
-  const autoDiffPct = useMemo(() => {
-    if (originalDuration <= 0 || rawDuration <= 0) return 0;
-    return (rawDuration / originalDuration - 1) * 100;
-  }, [originalDuration, rawDuration]);
-
   const handleDetectBpm = useCallback(async () => {
     if (!uploadFile) return;
     setBpmBusy(true);
@@ -348,6 +361,7 @@ function SongView({ id }: SongViewProps) {
 
   const handleYoutubeSelect = useCallback(
     (videoId: string) => {
+      removedByUserRef.current.youtube = false;
       setYoutubeVideoId(videoId);
       setAudioSource("youtube");
       setDualTrack(false);
@@ -373,6 +387,7 @@ function SongView({ id }: SongViewProps) {
 
   const handleSpotifySelect = useCallback(
     (trackUrl: string) => {
+      removedByUserRef.current.spotify = false;
       setSpotifyTrackUrl(trackUrl);
       setAudioSource("spotify");
       setDualTrack(false);
@@ -392,6 +407,7 @@ function SongView({ id }: SongViewProps) {
     setShowYoutubeSearch(false);
     setShowSpotifySearch(false);
     if (audioSource === "spotify" && id) {
+      removedByUserRef.current.spotify = true;
       removeSpotifyId(id);
       if (song && (isCustom || hydrated)) {
         const { spotifyId: _drop, ...rest } = song;
@@ -399,6 +415,7 @@ function SongView({ id }: SongViewProps) {
         upsert(rest);
       }
     } else if (audioSource === "youtube" && id) {
+      removedByUserRef.current.youtube = true;
       removeYouTubeId(id);
       if (song && (isCustom || hydrated)) {
         const { youtubeId: _drop, ...rest } = song;
@@ -419,7 +436,11 @@ function SongView({ id }: SongViewProps) {
 
   useEffect(() => {
     const syncedId = song?.youtubeId;
-    if (syncedId && syncedId !== youtubeVideoId) {
+    if (
+      syncedId &&
+      syncedId !== youtubeVideoId &&
+      !removedByUserRef.current.youtube
+    ) {
       setYoutubeVideoId(syncedId);
       if (id) saveYouTubeId(id, syncedId);
     }
@@ -431,7 +452,11 @@ function SongView({ id }: SongViewProps) {
 
   useEffect(() => {
     const syncedSpotify = song?.spotifyId;
-    if (syncedSpotify && syncedSpotify !== spotifyTrackUrl) {
+    if (
+      syncedSpotify &&
+      syncedSpotify !== spotifyTrackUrl &&
+      !removedByUserRef.current.spotify
+    ) {
       setSpotifyTrackUrl(syncedSpotify);
       if (id) saveSpotifyId(id, syncedSpotify);
     }
@@ -857,25 +882,54 @@ function SongView({ id }: SongViewProps) {
 
         {audioSource === "youtube" && youtubeVideoId && (
           <>
-            <YouTubePlayer
-              videoId={youtubeVideoId}
-              onDurationChange={handleDurationChange}
-              onRawDurationChange={handleRawDurationChange}
-              onPlayStateChange={setIsPlaying}
-              onPlaybackError={handleYoutubePlaybackError}
-              seekTo={seekTo}
-              playToggle={playToggle}
-              tempoScale={tempoScale}
-            />
-            <button
-              onClick={() => setShowSpotifySearch(true)}
-              className="w-full flex items-center justify-center gap-2 p-2.5 bg-green-600/10 border border-green-600/30 rounded-xl hover:bg-green-600/20 text-sm text-green-400 font-medium transition-colors"
+            <div
+              className={
+                miniYT
+                  ? "fixed left-1/2 top-0 z-40 w-[min(1200px,94vw)] -translate-x-1/2 pointer-events-none"
+                  : ""
+              }
             >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
-              </svg>
-              Rechercher ce morceau sur Spotify
-            </button>
+              <div
+                className={miniYT ? "pointer-events-auto h-[60vh]" : ""}
+              >
+                <YouTubePlayer
+                  videoId={youtubeVideoId}
+                  onDurationChange={handleDurationChange}
+                  onRawDurationChange={handleRawDurationChange}
+                  onPlayStateChange={setIsPlaying}
+                  onPlaybackError={handleYoutubePlaybackError}
+                  seekTo={seekTo}
+                  playToggle={playToggle}
+                  tempoScale={tempoScale}
+                  fillHeight={miniYT}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <button
+                onClick={() => setShowSpotifySearch(true)}
+                className="flex items-center justify-center gap-2 p-2.5 bg-green-600/10 border border-green-600/30 rounded-xl hover:bg-green-600/20 text-sm text-green-400 font-medium transition-colors"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
+                </svg>
+                Rechercher ce morceau sur Spotify
+              </button>
+              <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={miniYT}
+                  onChange={(e) => setMiniYT(e.target.checked)}
+                  className="accent-amber-500"
+                />
+                Mini lecteur
+                {miniYT && (
+                  <span className="text-xs text-zinc-600">
+                    (superposé à la page)
+                  </span>
+                )}
+              </label>
+            </div>
           </>
         )}
 
@@ -956,27 +1010,6 @@ function SongView({ id }: SongViewProps) {
           <div className="rounded-xl border border-zinc-700/50 bg-zinc-800/50 p-4 flex flex-col gap-3">
             {originalDuration > 0 && rawDuration > 0 && (
               <div className="flex flex-wrap items-center gap-3">
-                <span className="text-sm text-zinc-400">
-                  Vidéo :{" "}
-                  <b className="text-zinc-200">
-                    {rawDuration.toFixed(1)} s
-                  </b>{" "}
-                  · Original : ~
-                  <b className="text-zinc-200">
-                    {originalDuration.toFixed(1)} s
-                  </b>
-                  {tempoScale === 1 && (
-                    <>
-                      {" "}
-                      →{" "}
-                      <b className={autoDiffPct >= 0 ? "text-amber-300" : "text-sky-300"}>
-                        vidéo {Math.abs(autoDiffPct).toFixed(1)} %{" "}
-                        {autoDiffPct >= 0 ? "plus lente" : "plus rapide"}
-                      </b>{" "}
-                      que l&apos;original
-                    </>
-                  )}
-                </span>
                 {tempoScale === 1 ? (
                   <button
                     onClick={handleApplyAuto}

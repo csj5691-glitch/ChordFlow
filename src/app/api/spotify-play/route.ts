@@ -58,33 +58,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const first = await getKnownDevices();
-  let listed = first.ok && first.ids.includes(deviceId);
-  let knownNames = first.names;
-  if (first.ok && !listed) {
-    for (let i = 0; i < 10 && !listed; i++) {
-      await wait(1000);
-      const next = await getKnownDevices();
-      if (!next.ok) break;
-      listed = next.ids.includes(deviceId);
-      knownNames = next.names;
-    }
-  }
-  if (!listed && first.ok) {
-    const detail = knownNames.join(", ") || "(liste vide)";
-    console.error(
-      `[spotify-play] device ${deviceId} introuvable sur le compte. Devices connus: ${detail}`
-    );
-    return Response.json(
-      {
-        ok: false,
-        status: 404,
-        error: `DEVICE_NOT_ON_ACCOUNT devices=[${detail}]`,
-      },
-      { status: 404 }
-    );
-  }
-
   const playBody =
     parsedUri?.type === "track"
       ? JSON.stringify({ uris: [uri] })
@@ -93,27 +66,68 @@ export async function POST(req: NextRequest) {
           offset: { position: 0 },
         });
 
-  const transfer = await fetch("https://api.spotify.com/v1/me/player", {
-    method: "PUT",
-    headers,
-    body: JSON.stringify({ device_ids: [deviceId], play: false }),
-    cache: "no-store",
-  });
+  const attemptTransfer = () =>
+    fetch("https://api.spotify.com/v1/me/player", {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ device_ids: [deviceId], play: false }),
+      cache: "no-store",
+    });
 
-  if (transfer.status !== 204 && transfer.status !== 200) {
-    const txt = await transfer.text();
-    console.error(
-      `[spotify-play] transfer ${transfer.status} -> ${txt.slice(0, 200)}`
+  const isTransferOk = (r: Response) =>
+    r.status === 204 || r.status === 200;
+
+  async function ensureDeviceRegistered(): Promise<boolean> {
+    const deadline = Date.now() + 6_000;
+    for (;;) {
+      const known = await getKnownDevices();
+      if (known.ok && known.ids.includes(deviceId)) return true;
+      if (Date.now() >= deadline) return false;
+      await wait(1000);
+    }
+  }
+
+  let transfer: Response | null = null;
+
+  if (await ensureDeviceRegistered()) {
+    transfer = await attemptTransfer();
+  } else {
+    console.log(
+      `[spotify-play] device ${deviceId} absent de la liste → transfert direct comme déclencheur d'enregistrement`
     );
+    transfer = await attemptTransfer();
+    if (!isTransferOk(transfer)) {
+      await wait(1500);
+      transfer = await attemptTransfer();
+    }
+  }
+
+  if (transfer && !isTransferOk(transfer)) {
+    const fTransfer = transfer;
+    const txt = await fTransfer.text();
+    console.error(
+      `[spotify-play] transfer ${fTransfer.status} -> ${txt.slice(0, 200)}`
+    );
+    const known = await getKnownDevices();
+    const detail = known.ok
+      ? known.ids.join(", ") || "(liste vide)"
+      : "(indisponible)";
     return Response.json(
-      { ok: false, status: transfer.status, error: txt.slice(0, 200) },
-      { status: transfer.status }
+      {
+        ok: false,
+        status: fTransfer.status,
+        error:
+          fTransfer.status === 404
+            ? `DEVICE_NOT_ON_ACCOUNT devices=[${detail}]`
+            : txt.slice(0, 200),
+      },
+      { status: fTransfer.status }
     );
   }
-  console.log(`[spotify-play] transfer OK (${transfer.status}) device=${deviceId}`);
+  console.log(`[spotify-play] transfer OK (${transfer?.status}) device=${deviceId}`);
 
-  await new Promise((r) => setTimeout(r, 300));
-  const play = await fetch(
+  await wait(300);
+  let play = await fetch(
     `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`,
     {
       method: "PUT",
@@ -122,6 +136,26 @@ export async function POST(req: NextRequest) {
       cache: "no-store",
     }
   );
+
+  if (play.status === 404) {
+    for (let i = 0; i < 10; i++) {
+      await wait(1000);
+      const next = await getKnownDevices();
+      if (!next.ok) break;
+      if (!next.ids.includes(deviceId)) continue;
+      play = await fetch(
+        `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`,
+        {
+          method: "PUT",
+          headers,
+          body: playBody,
+          cache: "no-store",
+        }
+      );
+      if (play.status === 204 || play.status === 200) break;
+    }
+  }
+
   if (play.status !== 204 && play.status !== 200) {
     const txt = await play.text();
     console.error(

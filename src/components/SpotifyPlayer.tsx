@@ -464,23 +464,10 @@ export default function SpotifyPlayer({
         if (err.status === 404) {
           last404Context = err.error || "";
           console.warn(
-            "[ChordFlow] relais 404 → périphérique inconnu, ré-enregistrement du SDK",
+            "[ChordFlow] relais 404 → périphérique non enregistré, nouvelle tentative sans casser la connexion SDK",
             last404Context
           );
-          deviceIdRef.current = null;
-          const player = playerRef.current;
-          try {
-            await player?.disconnect();
-          } catch {
-            // ignorer
-          }
-          try {
-            await player?.connect();
-          } catch {
-            // ignorer
-          }
-          deviceId = await waitDevice();
-          await sleep(1500);
+          await sleep(2000);
           continue;
         }
         if (err.status > 0) {
