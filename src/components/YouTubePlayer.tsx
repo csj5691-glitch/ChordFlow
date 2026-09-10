@@ -45,11 +45,13 @@ interface YouTubePlayerProps {
   onStateChange?: (state: number) => void;
   onPlayStateChange?: (playing: boolean) => void;
   onPlaybackError?: (code: number) => void;
+  onEnded?: () => void;
   seekTo?: number | null;
   playToggle?: number;
   tempoScale?: number;
   height?: number;
   fillHeight?: boolean;
+  autoPlay?: boolean;
 }
 
 const PLAYER_STATES = {
@@ -68,18 +70,26 @@ export default function YouTubePlayer({
   onStateChange,
   onPlayStateChange,
   onPlaybackError,
+  onEnded,
   seekTo,
   playToggle,
   tempoScale = 1,
   height = 200,
   fillHeight = false,
+  autoPlay = false,
 }: YouTubePlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayerInstance | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingToggleRef = useRef(false);
+  const autoPlayRef = useRef(autoPlay);
+  autoPlayRef.current = autoPlay;
+  const autoPlayAttemptedRef = useRef(false);
+  const onEndedRef = useRef(onEnded);
+  onEndedRef.current = onEnded;
   const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
 
   const stopTimer = useCallback(() => {
     if (intervalRef.current) {
@@ -159,6 +169,8 @@ export default function YouTubePlayer({
               } else {
                 playerRef.current?.playVideo();
               }
+            } else if (autoPlayRef.current) {
+              playerRef.current?.playVideo();
             }
             if (onDurationChange && playerRef.current?.getDuration) {
               onDurationChange(playerRef.current.getDuration() * tempoScale);
@@ -174,9 +186,14 @@ export default function YouTubePlayer({
             onPlayStateChange?.(state === PLAYER_STATES.PLAYING);
 
             if (state === PLAYER_STATES.PLAYING) {
+              setAutoplayBlocked(false);
               startTimer();
             } else {
               stopTimer();
+            }
+
+            if (state === PLAYER_STATES.ENDED) {
+              onEndedRef.current?.();
             }
           },
           onError: (event: { data: number }) => {
@@ -204,6 +221,7 @@ export default function YouTubePlayer({
       }
       setIsReady(false);
       pendingToggleRef.current = false;
+      autoPlayAttemptedRef.current = false;
       window.onYouTubeIframeAPIReady = () => {};
     };
   }, [videoId]);
@@ -213,6 +231,19 @@ export default function YouTubePlayer({
       playerRef.current.seekTo(seekTo / tempoScale, true);
     }
   }, [seekTo, tempoScale]);
+
+  useEffect(() => {
+    if (!autoPlay) return;
+    if (autoPlayAttemptedRef.current) return;
+    if (!isReady) return;
+    autoPlayAttemptedRef.current = true;
+    playerRef.current?.playVideo();
+    const t = setTimeout(() => {
+      if (playerRef.current?.getPlayerState?.() === PLAYER_STATES.PLAYING) return;
+      setAutoplayBlocked(true);
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [autoPlay, isReady, videoId]);
 
   const playbackRate = 1 / tempoScale;
   useEffect(() => {
@@ -256,7 +287,13 @@ export default function YouTubePlayer({
           )}
         </button>
         <div className="flex-1 text-sm text-zinc-400">
-          YouTube
+          {autoplayBlocked ? (
+            <span className="text-amber-300">
+              Lecture auto bloquée par le navigateur — appuyez sur Lecture
+            </span>
+          ) : (
+            "YouTube"
+          )}
         </div>
       </div>
     </div>

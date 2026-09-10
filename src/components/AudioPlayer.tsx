@@ -9,19 +9,24 @@ interface AudioPlayerProps {
   audioUrl: string | null;
   onDurationChange?: (duration: number) => void;
   onRawDurationChange?: (rawDuration: number) => void;
+  onEnded?: () => void;
   seekTo?: number | null;
   tempoScale?: number;
+  autoPlay?: boolean;
 }
 
 export default function AudioPlayer({
   audioUrl,
   onDurationChange,
   onRawDurationChange,
+  onEnded,
   seekTo,
   tempoScale = 1,
+  autoPlay = false,
 }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [volume, setVolume] = useState(0.8);
   const [rawDuration, setRawDuration] = useState(0);
   const animFrameRef = useRef<number>(0);
@@ -76,6 +81,14 @@ export default function AudioPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawDuration, tempoScale]);
 
+  useEffect(() => {
+    if (!autoPlay || !audioRef.current || !audioUrl) return;
+    const promise = audioRef.current.play();
+    if (promise) {
+      promise.then(() => setIsPlaying(true)).catch(() => setAutoplayBlocked(true));
+    }
+  }, [audioUrl, autoPlay]);
+
   const togglePlay = () => {
     if (!audioRef.current) return;
     if (isPlaying) {
@@ -128,7 +141,7 @@ export default function AudioPlayer({
 
   return (
     <div className="audio-player flex items-center gap-4 p-4 bg-zinc-800/50 rounded-xl border border-zinc-700/50">
-      <audio ref={audioRef} src={audioUrl} onLoadedMetadata={handleLoadedMetadata} />
+      <audio ref={audioRef} src={audioUrl} onLoadedMetadata={handleLoadedMetadata} onEnded={onEnded} />
 
       <button
         onClick={togglePlay}

@@ -18,14 +18,18 @@ import {
   SortDirection,
 } from "@/lib/repertoire-sort";
 import { SongTab } from "@/lib/types";
+import { songHasYoutube, songHasSpotify, usePersistedUploads } from "@/lib/song-sources";
 import { Plus, Trash2, Pencil, ArrowUpAZ, ArrowDownAZ, ListFilter, ArrowUp } from "lucide-react";
+import { SourceBadges } from "@/components/SourceBadges";
 
 function SearchResults({
   repertoire,
+  uploads,
   onEdit,
   onDelete,
 }: {
   repertoire: SongTab[];
+  uploads: Set<string>;
   onEdit: (song: SongTab) => void;
   onDelete: (id: string) => void;
 }) {
@@ -59,6 +63,7 @@ function SearchResults({
               <RepertoireRow
                 key={song.id}
                 song={song}
+                hasFile={uploads.has(song.id)}
                 onOpen={() => router.push(`/song/${song.id}`)}
                 onEdit={() => onEdit(song)}
                 onDelete={() => onDelete(song.id)}
@@ -106,15 +111,19 @@ function HideOnSearch({ children }: { children: React.ReactNode }) {
 
 function RepertoireRow({
   song,
+  hasFile,
   onOpen,
   onEdit,
   onDelete,
 }: {
   song: SongTab;
+  hasFile: boolean;
   onOpen: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const hasYoutube = songHasYoutube(song);
+  const hasSpotify = songHasSpotify(song);
   return (
     <div
       className="flex items-center gap-3 p-3 bg-zinc-900/80 border border-zinc-800 rounded-xl hover:border-zinc-700 transition-colors group cursor-pointer"
@@ -128,6 +137,11 @@ function RepertoireRow({
         <p className="text-xs text-zinc-500 truncate">{song.artist}</p>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
+        <SourceBadges
+          youtube={songHasYoutube(song)}
+          spotify={songHasSpotify(song)}
+          file={hasFile}
+        />
         {song.key && (
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
             {song.key}
@@ -164,6 +178,8 @@ export default function Home() {
   const router = useRouter();
   const hydrated = useHydrated();
   const { songs: customSongs, importing, importError, upsertSong, removeSong, importLocal } = useSharedSongs();
+  const songIds = useMemo(() => customSongs.map((s) => s.id), [customSongs]);
+  const uploads = usePersistedUploads(songIds);
   const [showAddSong, setShowAddSong] = useState(false);
   const [editingSong, setEditingSong] = useState<SongTab | null>(null);
   const [editedSort, setEditedSort] = useState<RepertoireSort | null>(null);
@@ -327,6 +343,7 @@ export default function Home() {
                 <RepertoireRow
                   key={song.id}
                   song={song}
+                  hasFile={uploads.has(song.id)}
                   onOpen={() => router.push(`/song/${song.id}`)}
                   onEdit={() => setEditingSong(song)}
                   onDelete={() => handleDeleteSong(song.id)}
@@ -363,6 +380,7 @@ export default function Home() {
           </HideOnSearch>
           <SearchResults
             repertoire={customSongs}
+            uploads={uploads}
             onEdit={setEditingSong}
             onDelete={handleDeleteSong}
           />

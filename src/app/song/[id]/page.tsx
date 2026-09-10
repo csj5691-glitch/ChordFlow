@@ -24,9 +24,12 @@ import { loadLineOffsets, saveLineOffset, loadGlobalOffset, saveGlobalOffset } f
 import { loadYouTubeId, saveYouTubeId, removeYouTubeId } from "@/lib/youtube-store";
 import { detectBpmFromFile } from "@/lib/bpm-detect";
   import { loadSpotifyId, saveSpotifyId, removeSpotifyId } from "@/lib/spotify-store";
+import { extractSpotifyUri } from "@/lib/spotify-auth";
 import { useSharedSong } from "@/lib/use-shared-song";
 import { SongTab } from "@/lib/types";
-import { ArrowLeft, Music, Key, FileText, Music2, Upload, ExternalLink, Wand2, Check, Pencil, X } from "lucide-react";
+import { loadPlaylists, loadSession, saveSession, clearSession } from "@/lib/playlists";
+import type { Playlist } from "@/lib/playlists";
+import { ArrowLeft, Music, Key, FileText, Music2, Upload, ExternalLink, Wand2, Check, Pencil, X, ChevronLeft, ChevronRight, ListMusic, Square, Shuffle, RefreshCw } from "lucide-react";
 
 const GUITAR_KEYS = [
   "C", "G", "D", "A", "E", "F", "B", "Bb", "Eb", "Ab", "Db", "Gb",
@@ -92,7 +95,7 @@ function SongView({ id }: SongViewProps) {
   const [duration, setDuration] = useState(0);
   const [seekTo, setSeekTo] = useState<number | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("chords");
+  const [viewMode, setViewMode] = useState<ViewMode>("lyrics");
   const [audioSource, setAudioSource] = useState<AudioSource>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [rawDuration, setRawDuration] = useState(0);
@@ -108,6 +111,7 @@ function SongView({ id }: SongViewProps) {
   const [showYoutubeSearch, setShowYoutubeSearch] = useState(false);
   const [showSpotifySearch, setShowSpotifySearch] = useState(false);
   const [youtubeError, setYoutubeError] = useState(false);
+  const [spotifyError, setSpotifyError] = useState<string | null>(null);
   const [showEdit, setShowEdit] = useState(false);
   const [spotifyTrackUrl, setSpotifyTrackUrl] = useState<string | null>(() =>
     id ? loadSpotifyId(id) : null
@@ -125,6 +129,111 @@ function SongView({ id }: SongViewProps) {
   );
   const removedByUserRef = useRef<{ youtube?: boolean; spotify?: boolean }>({});
   const [miniYT, setMiniYT] = useState(false);
+
+  const [setlist, setSetlist] = useState<{ playlist: Playlist; index: number } | null>(
+    null
+  );
+  const [shuffle, setShuffle] = useState(false);
+
+  useEffect(() => {
+    const session = loadSession();
+    if (!session) return;
+    const playlist = loadPlaylists().find((p) => p.id === session.playlistId);
+    if (!playlist || playlist.entries.length === 0) {
+      clearSession();
+      return;
+    }
+    const idx = playlist.entries.findIndex((e) => e.id === id);
+    if (idx === -1) {
+      clearSession();
+      return;
+    }
+    setShuffle(!!session.shuffle);
+    setSetlist({ playlist, index: idx });
+  }, [id]);
+
+  const goToPlaylistIndex = useCallback(
+    (index: number) => {
+      if (!setlist) return;
+      if (index < 0 || index >= setlist.playlist.entries.length) return;
+      saveSession({ playlistId: setlist.playlist.id, index, shuffle });
+      router.push(`/song/${setlist.playlist.entries[index].id}`);
+    },
+    [router, setlist, shuffle]
+  );
+
+  const advance = useCallback(() => {
+    if (!setlist) return;
+    const n = setlist.playlist.entries.length;
+    let next: number;
+    if (shuffle && n > 1) {
+      do {
+        next = Math.floor(Math.random() * n);
+      } while (next === setlist.index);
+    } else {
+      next = setlist.index + 1;
+      if (next >= n) {
+        clearSession();
+        setSetlist(null);
+        return;
+      }
+    }
+    saveSession({ playlistId: setlist.playlist.id, index: next, shuffle });
+    router.push(`/song/${setlist.playlist.entries[next].id}`);
+  }, [router, setlist, shuffle]);
+
+  const handlePlaylistEnded = advance;
+
+  const setlistQueue = useMemo(() => {
+    if (!setlist) return null;
+    const entries = setlist.playlist.entries;
+    const uris: string[] = [];
+    const map = new Map<string, string>();
+    for (let i = setlist.index; i < entries.length; i++) {
+      const raw = loadSpotifyId(entries[i].id);
+      const parsed = raw ? extractSpotifyUri(raw) : null;
+      if (!parsed) return null;
+      const uri = `spotify:${parsed.type}:${parsed.id}`;
+      uris.push(uri);
+      map.set(uri, entries[i].id);
+    }
+    return { uris, map };
+  }, [setlist]);
+
+  const handleDeviceTrack = useCallback(
+    (uri: string) => {
+      if (!setlist || !setlistQueue) return;
+      const targetId = setlistQueue.map.get(uri);
+      if (!targetId || targetId === id) return;
+      const targetIndex = setlist.playlist.entries.findIndex(
+        (e) => e.id === targetId
+      );
+      if (targetIndex === -1 || targetIndex === setlist.index) return;
+      saveSession({
+        playlistId: setlist.playlist.id,
+        index: targetIndex,
+        shuffle,
+      });
+      router.push(`/song/${targetId}`);
+    },
+    [setlist, setlistQueue, id, router, shuffle]
+  );
+
+  const toggleShuffle = useCallback(() => {
+    if (!setlist) return;
+    const v = !shuffle;
+    setShuffle(v);
+    saveSession({
+      playlistId: setlist.playlist.id,
+      index: setlist.index,
+      shuffle: v,
+    });
+  }, [setlist, shuffle]);
+
+  const stopSetlist = useCallback(() => {
+    clearSession();
+    setSetlist(null);
+  }, []);
 
   useEffect(() => {
     try {
@@ -385,9 +494,19 @@ function SongView({ id }: SongViewProps) {
     setYoutubeError(true);
   }, []);
 
+  const handleSpotifyPlaybackError = useCallback((code: string) => {
+    setSpotifyError(code);
+  }, []);
+
+  const handleSpotifyRetry = useCallback(() => {
+    setSpotifyError(null);
+    setPlayToggle((t) => t + 1);
+  }, []);
+
   const handleSpotifySelect = useCallback(
     (trackUrl: string) => {
       removedByUserRef.current.spotify = false;
+      setSpotifyError(null);
       setSpotifyTrackUrl(trackUrl);
       setAudioSource("spotify");
       setDualTrack(false);
@@ -614,17 +733,6 @@ function SongView({ id }: SongViewProps) {
 
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
-              onClick={() => setViewMode("chords")}
-              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
-                viewMode === "chords"
-                  ? "text-black bg-amber-400"
-                  : "text-zinc-400 bg-zinc-800 hover:bg-zinc-700"
-              }`}
-            >
-              <Music2 className="w-3.5 h-3.5" />
-              Accords
-            </button>
-            <button
               onClick={() => setViewMode("lyrics")}
               className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
                 viewMode === "lyrics"
@@ -634,6 +742,17 @@ function SongView({ id }: SongViewProps) {
             >
               <FileText className="w-3.5 h-3.5" />
               Paroles
+            </button>
+            <button
+              onClick={() => setViewMode("chords")}
+              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
+                viewMode === "chords"
+                  ? "text-black bg-amber-400"
+                  : "text-zinc-400 bg-zinc-800 hover:bg-zinc-700"
+              }`}
+            >
+              <Music2 className="w-3.5 h-3.5" />
+              Accords
             </button>
             <button
               onClick={() => setViewMode("sync")}
@@ -720,6 +839,65 @@ function SongView({ id }: SongViewProps) {
       </header>
 
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 flex flex-col gap-6">
+        {setlist && (
+          <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+            <ListMusic className="w-4 h-4 text-amber-400 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-amber-200 font-medium truncate">
+                {setlist.playlist.name}
+              </p>
+              <p className="text-xs text-zinc-400 truncate">
+                {setlist.index + 1} / {setlist.playlist.entries.length}
+                {!shuffle &&
+                  setlist.index < setlist.playlist.entries.length - 1 &&
+                  ` · Suivant : ${setlist.playlist.entries[setlist.index + 1].title}`}
+                {shuffle && ` · Lecture aléatoire`}
+              </p>
+            </div>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {shuffle ? (
+                <button
+                  onClick={toggleShuffle}
+                  title="Lecture aléatoire (activée)"
+                  className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500/30 flex items-center justify-center transition-colors"
+                >
+                  <Shuffle className="w-4 h-4 text-amber-300" />
+                </button>
+              ) : (
+                <button
+                  onClick={toggleShuffle}
+                  title="Lecture aléatoire"
+                  className="w-8 h-8 rounded-lg bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center transition-colors"
+                >
+                  <Shuffle className="w-4 h-4 text-zinc-300" />
+                </button>
+              )}
+              <button
+                onClick={() => goToPlaylistIndex(setlist.index - 1)}
+                disabled={setlist.index === 0}
+                title="Précédent"
+                className="w-8 h-8 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 flex items-center justify-center transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4 text-zinc-300" />
+              </button>
+              <button
+                onClick={advance}
+                disabled={setlist.playlist.entries.length === 1}
+                title="Suivant"
+                className="w-8 h-8 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 flex items-center justify-center transition-colors"
+              >
+                <ChevronRight className="w-4 h-4 text-zinc-300" />
+              </button>
+              <button
+                onClick={stopSetlist}
+                title="Arrêter la playlist"
+                className="w-8 h-8 rounded-lg bg-red-900/60 hover:bg-red-800 flex items-center justify-center transition-colors"
+              >
+                <Square className="w-3.5 h-3.5 text-red-300" />
+              </button>
+            </div>
+          </div>
+        )}
         {!audioSource && (
           <div className="flex gap-3">
             <button
@@ -898,10 +1076,12 @@ function SongView({ id }: SongViewProps) {
                   onRawDurationChange={handleRawDurationChange}
                   onPlayStateChange={setIsPlaying}
                   onPlaybackError={handleYoutubePlaybackError}
+                  onEnded={setlist ? handlePlaylistEnded : undefined}
                   seekTo={seekTo}
                   playToggle={playToggle}
                   tempoScale={tempoScale}
                   fillHeight={miniYT}
+                  autoPlay={setlist !== null}
                 />
               </div>
             </div>
@@ -960,9 +1140,13 @@ function SongView({ id }: SongViewProps) {
               trackUrl={spotifyTrackUrl}
               onDurationChange={handleDurationChange}
               onPlayStateChange={setIsPlaying}
-              onPlaybackError={(code) => console.error("Spotify playback:", code)}
+              onPlaybackError={handleSpotifyPlaybackError}
+              onEnded={setlist ? handlePlaylistEnded : undefined}
               seekTo={seekTo}
               playToggle={playToggle}
+              autoPlay={setlist !== null}
+              queueUris={setlistQueue?.uris}
+              onDeviceTrack={handleDeviceTrack}
             />
             <button
               onClick={() => setShowSpotifySearch(true)}
@@ -976,13 +1160,43 @@ function SongView({ id }: SongViewProps) {
           </>
         )}
 
+        {audioSource === "spotify" && spotifyError && (
+          <div className="rounded-xl border border-green-500/30 bg-green-500/10 p-4">
+            {spotifyError.includes("DEVICE_NOT_ON_ACCOUNT") ? (
+              <>
+                <p className="text-sm text-green-200 font-medium mb-1">
+                  Le lecteur Spotify n&apos;apparaît pas comme périphérique actif
+                </p>
+                <p className="text-sm text-zinc-400 mb-3">
+                  {spotifyError.includes("(liste vide)")
+                    ? "Spotify ne voit aucun de vos périphériques. C&apos;est presque toujours le WebSocket vers Spotify bloqué par une extension (Stands/AdBlock) ou un pare-feu, ou un compte non Premium. Désactivez les extensions, vérifiez le réseau, puis réessayez."
+                    : "Le périphérique Web SDK n&apos;est pas encore enregistré sur votre compte. Un refresh est déjà tenté automatiquement ; sinon réessayez."}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-zinc-400 mb-3">
+                Erreur de lecture Spotify : {spotifyError}
+              </p>
+            )}
+            <button
+              onClick={handleSpotifyRetry}
+              className="inline-flex items-center gap-2 rounded-lg bg-green-500 hover:bg-green-400 px-3 py-1.5 text-sm font-medium text-black transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Réessayer
+            </button>
+          </div>
+        )}
+
         {audioSource === "upload" && (
           <AudioPlayer
             audioUrl={audioUrl}
             onDurationChange={handleDurationChange}
             onRawDurationChange={handleRawDurationChange}
+            onEnded={setlist ? handlePlaylistEnded : undefined}
             seekTo={seekTo}
             tempoScale={tempoScale}
+            autoPlay={setlist !== null}
           />
         )}
 

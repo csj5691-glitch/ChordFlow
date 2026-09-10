@@ -14,41 +14,31 @@ import {
   getValidToken,
   isLoggedIn,
 } from "@/lib/spotify-auth";
+import {
+  ensureSpotifyPlayer,
+  getSpotifyDeviceId,
+  getSpotifyPlayerInstance,
+  subscribeSpotifyPlayer,
+  type SpotifyPlaybackState,
+  type SpotifyPlayerInstance,
+} from "@/lib/spotify-player-singleton";
 
 declare global {
   interface Window {
-    Spotify?: {
-      Player: new (
-        options: Record<string, unknown>
-      ) => SpotifyPlayerInstance;
-    };
-    onSpotifyWebPlaybackSDKReady?: () => void;
     __SPOTIFY_DIAG?: boolean;
   }
 }
 
-interface SpotifyPlayerInstance {
-  connect: () => Promise<boolean>;
-  disconnect: () => void;
-  activateElement: () => Promise<void>;
-  pause: () => Promise<void>;
-  resume: () => Promise<void>;
-  seek: (positionMs: number) => Promise<void>;
-  getCurrentState: () => Promise<SpotifyPlaybackState | null>;
-  addListener: (event: string, cb: (state?: unknown) => void) => void;
-}
+// Mode "suivi" : quand on a confié toute la file au device (queueUris),
+// c'est lui qui avance nativement entre les pages. Ce jeton module garde
+// le morceau actuellement joué par le device afin de ne JAMAIS relancer
+// startPlayback() (retour à 0) après une navigation de suivi.
+let lastFollowedUri: string | null = null;
 
-interface SpotifyPlaybackState {
-  paused: boolean;
-  position_ms: number;
-  duration_ms: number;
-  track_window?: {
-    current_track?: {
-      uri: string;
-      name: string;
-      artists: { name: string }[];
-    };
-  };
+// Marqueur de version pour vérifier en console que le bundle récent est
+// bien celui exécuté (sinon les tests portent sur du code obsolète).
+if (typeof window !== "undefined") {
+  (window as typeof window & { __CHORDFLOW_VER?: number }).__CHORDFLOW_VER = 5;
 }
 
 interface SpotifyPlayerProps {
@@ -56,20 +46,12 @@ interface SpotifyPlayerProps {
   onDurationChange?: (duration: number) => void;
   onPlayStateChange?: (playing: boolean) => void;
   onPlaybackError?: (message: string) => void;
+  onEnded?: () => void;
   seekTo?: number | null;
   playToggle?: number;
-}
-
-const SDK_SCRIPT_ID = "spotify-playback-sdk";
-
-function ensureSdkScript(onError?: () => void): void {
-  if (document.getElementById(SDK_SCRIPT_ID)) return;
-  const tag = document.createElement("script");
-  tag.id = SDK_SCRIPT_ID;
-  tag.src = "https://sdk.scdn.co/spotify-player.js";
-  tag.async = true;
-  tag.onerror = () => onError?.();
-  document.head.appendChild(tag);
+  autoPlay?: boolean;
+  queueUris?: string[];
+  onDeviceTrack?: (uri: string) => void;
 }
 
 export default function SpotifyPlayer({
@@ -77,8 +59,12 @@ export default function SpotifyPlayer({
   onDurationChange,
   onPlayStateChange,
   onPlaybackError,
+  onEnded = () => {},
   seekTo,
   playToggle,
+  autoPlay = false,
+  queueUris,
+  onDeviceTrack,
 }: SpotifyPlayerProps) {
   const parsed = useMemo(() => extractSpotifyUri(trackUrl), [trackUrl]);
   const trackUri = parsed
@@ -97,9 +83,9 @@ export default function SpotifyPlayer({
   const playerRef = useRef<SpotifyPlayerInstance | null>(null);
   const deviceIdRef = useRef<string | null>(null);
   const playedUriRef = useRef<string | null>(null);
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playbackStartedRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const readyQueueRef = useRef<Array<(deviceId: string) => void>>([]);
   const playbackErrorRef = useRef(onPlaybackError);
   const durationRef = useRef(onDurationChange);
   const durationStateRef = useRef(0);
@@ -107,9 +93,16 @@ export default function SpotifyPlayer({
   const clockRunAtRef = useRef(0);
   const clockRunningRef = useRef(false);
   const playStateRef = useRef(onPlayStateChange);
+  const endedFiredRef = useRef(false);
+  const endedRef = useRef(onEnded);
+  const queueUrisRef = useRef(queueUris);
+  const deviceTrackRef = useRef(onDeviceTrack);
   playbackErrorRef.current = onPlaybackError;
   durationRef.current = onDurationChange;
   playStateRef.current = onPlayStateChange;
+  endedRef.current = onEnded;
+  queueUrisRef.current = queueUris;
+  deviceTrackRef.current = onDeviceTrack;
 
   const reportError = useCallback((code: string) => {
     playbackErrorRef.current?.(code);
@@ -146,7 +139,11 @@ export default function SpotifyPlayer({
   }, []);
 
   const pollPosition = useCallback(async () => {
-    const player = playerRef.current;
+    let player = playerRef.current;
+    if (!player) {
+      player = getSpotifyPlayerInstance();
+      if (player) playerRef.current = player;
+    }
     if (!player) return;
     try {
       const state = await player.getCurrentState();
@@ -179,6 +176,23 @@ export default function SpotifyPlayer({
         const clamped = isFinite(cap) && cap > 0 && est > cap ? cap : est;
         if (isFinite(clamped) && clamped >= 0) setCurrentTime(clamped);
       }
+
+      // Fin de piste : les événements player_state_changed du SDK arrivent
+      // souvent sans position_ms/duration_ms (→ undefined), donc la
+      // détection "position >= durée - 3 s" est insuffisante. On la
+      // complète avec notre horloge : si on jouait et qu'on a atteint la
+      // durée connue (SDK ou API), la piste est terminée.
+      if (
+        clockRunningRef.current &&
+        durationStateRef.current > 0 &&
+        getCurrentTime() >= durationStateRef.current - 3 &&
+        !endedFiredRef.current
+      ) {
+        endedFiredRef.current = true;
+        console.log("[ChordFlow] fin de piste détectée (poll) →", trackUri);
+        endedRef.current?.();
+      }
+
       reportPlaying(!state.paused);
     } catch {
       // ignorer, prochaine itération
@@ -190,185 +204,138 @@ export default function SpotifyPlayer({
     intervalRef.current = setInterval(pollPosition, 250);
   }, [pollPosition, stopTimer]);
 
-  const waitDevice = useCallback(
-    (): Promise<string> =>
-      new Promise((resolve) => {
-        const dev = deviceIdRef.current;
-        if (dev) {
-          resolve(dev);
-          return;
-        }
-        const timer = setTimeout(() => resolve(""), 8000);
-        readyQueueRef.current.push((id: string) => {
-          clearTimeout(timer);
-          resolve(id);
-        });
-      }),
-    []
-  );
-
-  const buildPlayer = useCallback(() => {
-    const player = new window.Spotify!.Player({
-      name: "ChordFlow",
-      getOAuthToken: async (cb: (token: string) => void) => {
-        try {
-          const token = await getValidToken();
-          if (!token) {
-            console.warn("SDK : aucun jeton valide (expiré/non rafraîchissable)");
-            setLoggedIn(false);
-            reportError("spotify-auth-token-manquant");
-          } else {
-            console.log("SDK : jeton fourni");
-          }
-          cb(token ?? "");
-        } catch (err) {
-          console.error("getOAuthToken a échoué (le SDK restait sans jeton) :", err);
-          reportError("spotify-auth-token-erreur");
-          cb("");
-        }
-      },
-      volume: 0.7,
-    });
-
-    const sdkErrors: Array<[string, string]> = [
-      ["initialization_error", "Erreur d'initialisation du SDK"],
-      ["authentication_error", "Erreur d'authentification (jeton invalide ou scopes)"],
-      ["account_error", "Compte Spotify sans abonnement Premium"],
-      ["playback_error", "Erreur de lecture Spotify"],
-    ];
-    for (const [evt, label] of sdkErrors) {
-      player.addListener(evt, (d) => {
-        const msg = (d as { message?: string })?.message ?? "";
-        console.error(`Spotify SDK ${evt}:`, msg || "(aucun message)");
-        setError(`${label}${msg ? ` : ${msg}` : ""}.`);
-        reportError(`spotify-sdk-${evt}`);
-      });
-    }
-
-    player.addListener("ready", (data) => {
-      const dev = (data as { device_id: string }).device_id;
-      deviceIdRef.current = dev;
-      console.log("Spotify ready → device_id:", dev);
-      setError(null);
-      setReady(true);
-      startTimer();
-      if (watchdogRef.current) clearTimeout(watchdogRef.current);
-      const q = readyQueueRef.current;
-      readyQueueRef.current = [];
-      for (const resolve of q) resolve(dev);
-    });
-
-    player.addListener("player_state_changed", (data) => {
-      const state = data as unknown as SpotifyPlaybackState | null;
-      if (!state) {
-        console.log("[ChordFlow] player_state_changed → null (aucun état)");
-        return;
-      }
-      const track = state.track_window?.current_track;
-      console.log(
-        "[ChordFlow] state →",
-        JSON.stringify({
-          pos: state.position_ms,
-          dur: state.duration_ms,
-          paused: state.paused,
-          piste: track?.name ?? null,
-        })
-      );
-      if (track) setTrackName(track.name);
-      reportPlaying(!state.paused);
-    });
-
-    player.addListener("not_ready", () => {
-      console.warn("Spotify not_ready (périphérique indisponible)");
-      deviceIdRef.current = null;
-      setReady(false);
-    });
-
-    return player;
-  }, [reportError, reportPlaying, startTimer, stopTimer]);
-
   useEffect(() => {
     setLoggedIn(isLoggedIn());
   }, []);
 
   useEffect(() => {
     if (!loggedIn) return;
-    let disposed = false;
-    let retries = 0;
-    const MAX_RETRIES = 3;
+    let cancelled = false;
 
-    ensureSdkScript(() => {
-      if (!disposed) {
-        setError("Impossible de charger le SDK Spotify (réseau ou bloqueur ?).");
-        reportError("spotify-sdk-load-failed");
-      }
-    });
-
-    const attemptConnect = () => {
-      if (disposed) return;
-      const player = buildPlayer();
-      playerRef.current = player;
-      player
-        .connect()
-        .then((ok) => {
-          if (!disposed) console.log("Spotify connect() →", ok);
-        })
-        .catch(() => {
-          if (disposed) return;
-          if (retries < MAX_RETRIES) {
-            retries += 1;
-            setTimeout(attemptConnect, 1500);
-          } else {
-            setError("Impossible de connecter le lecteur Spotify.");
-            reportError("spotify-connect-failed");
-          }
-        });
-
-      watchdogRef.current = setTimeout(() => {
-        if (disposed || deviceIdRef.current) return;
-        if (retries < MAX_RETRIES) {
-          retries += 1;
-          console.warn(`Spotify : périphérique non prêt, tentative ${retries}/${MAX_RETRIES}`);
-          try {
-            playerRef.current?.disconnect();
-          } catch {
-            // ignorer
-          }
-          playerRef.current = null;
-          attemptConnect();
-        } else {
+    ensureSpotifyPlayer()
+      .then(() => {
+        if (cancelled) return;
+        playerRef.current = getSpotifyPlayerInstance();
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        const cause = (e as { cause?: string })?.cause;
+        if (cause === "timeout") {
           setError(
             "Le lecteur ne se connecte pas (WebSocket Spotify bloqué ?). Vérifiez votre réseau, désactivez les bloqueurs, puis réessayez."
           );
           reportError("spotify-connect-timeout");
+        } else {
+          setError(
+            (e as Error)?.message ??
+              "Impossible de charger le SDK Spotify (réseau ou bloqueur ?)."
+          );
+          reportError("spotify-sdk-load-failed");
         }
-      }, 12_000);
-    };
+      });
 
-    if (window.Spotify) {
-      attemptConnect();
-    } else {
-      window.onSpotifyWebPlaybackSDKReady = attemptConnect;
-    }
+    playerRef.current = getSpotifyPlayerInstance();
+    const unsub = subscribeSpotifyPlayer({
+      onReady: (dev) => {
+        deviceIdRef.current = dev;
+        setReady(true);
+        setError(null);
+        startTimer();
+      },
+      onState: (data) => {
+        const state = (data ?? null) as SpotifyPlaybackState | null;
+        if (!state) {
+          console.log("[ChordFlow] player_state_changed → null (aucun état)");
+          return;
+        }
+        const track = state.track_window?.current_track;
+        console.log(
+          "[ChordFlow] state →",
+          JSON.stringify({
+            pos: state.position_ms,
+            dur: state.duration_ms,
+            paused: state.paused,
+            piste: track?.name ?? null,
+            uri: track?.uri ?? null,
+          })
+        );
+        if (track) setTrackName(track.name);
+        // Suivi du périphérique : quand on lui a confié TOUTE la file
+        // (queueUris), c'est lui qui avance nativement. On suit son morceau
+        // réel au lieu de forcer chaque lecture.
+        const sdkUri = track?.uri ?? null;
+        const followerQueue = queueUrisRef.current;
+        if (
+          !state.paused &&
+          followerQueue &&
+          followerQueue.length > 0 &&
+          sdkUri &&
+          followerQueue.includes(sdkUri) &&
+          sdkUri !== playedUriRef.current
+        ) {
+          console.log(
+            "[ChordFlow] device a avancé dans notre file (suivi) →",
+            sdkUri,
+            track?.name ?? ""
+          );
+          playedUriRef.current = sdkUri;
+          playbackStartedRef.current = true;
+          endedFiredRef.current = true;
+          clockPosRef.current = 0;
+          clockRunAtRef.current = Date.now();
+          clockRunningRef.current = true;
+          setCurrentTime(0);
+          lastFollowedUri = sdkUri;
+          deviceTrackRef.current?.(sdkUri);
+          return;
+        }
+        reportPlaying(!state.paused);
+
+        if (!state.paused && !playbackStartedRef.current) {
+          playbackStartedRef.current = true;
+          if (reloadTimerRef.current) {
+            clearTimeout(reloadTimerRef.current);
+            reloadTimerRef.current = null;
+          }
+        }
+
+        const dur = state.duration_ms ?? 0;
+        if (!state.paused && dur > 60_000) {
+          endedFiredRef.current = false;
+        }
+        if (
+          state.paused &&
+          dur > 0 &&
+          state.position_ms >= dur - 3_000 &&
+          !endedFiredRef.current
+        ) {
+          endedFiredRef.current = true;
+          endedRef.current?.();
+        }
+      },
+      onNotReady: () => {
+        setReady(false);
+        deviceIdRef.current = null;
+      },
+      onSdkError: (_key, label, msg) => {
+        setError(`${label}${msg ? ` : ${msg}` : ""}.`);
+        reportError(`spotify-sdk-${_key}`);
+      },
+      onAuthError: (code) => {
+        setLoggedIn(false);
+        reportError(code);
+      },
+    });
 
     return () => {
-      disposed = true;
+      cancelled = true;
+      unsub();
       stopTimer();
-      if (watchdogRef.current) clearTimeout(watchdogRef.current);
-      if (playerRef.current) {
-        try {
-          playerRef.current.disconnect();
-        } catch {
-          // ignorer pendant le démontage
-        }
-        playerRef.current = null;
-      }
-      window.onSpotifyWebPlaybackSDKReady = undefined;
     };
-  }, [loggedIn, buildPlayer, retry, reportError, stopTimer]);
+  }, [loggedIn, retry, reportError, reportPlaying, startTimer, stopTimer]);
 
   const startPlayback = useCallback(
-    async (uri: string, url: string): Promise<boolean> => {
+    async (uri: string, url: string, queue?: string[]): Promise<boolean> => {
       console.log("[ChordFlow] startPlayback appelé uri =", uri);
       const token = await getValidToken();
       if (!token) {
@@ -388,7 +355,13 @@ export default function SpotifyPlayer({
           const res = await fetch("/api/spotify-play", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token, deviceId, uri, parsedUri }),
+            body: JSON.stringify({
+              token,
+              deviceId,
+              uri,
+              parsedUri,
+              uris: queue && queue.length > 0 ? queue : undefined,
+            }),
           });
           if (res.ok) {
             console.log("[ChordFlow] relais → OK");
@@ -416,24 +389,17 @@ export default function SpotifyPlayer({
       };
 
       let last404Context = "";
-      for (let attempt = 0; attempt < 3; attempt++) {
+      for (let attempt = 0; attempt < 15; attempt++) {
         let deviceId = deviceIdRef.current;
 
         if (!deviceId) {
-          const player = playerRef.current;
-          if (!player) {
-            await sleep(1000);
-            continue;
-          }
-          let ok = false;
           try {
-            ok = await player.connect();
+            const inst = await ensureSpotifyPlayer();
+            if (inst) playerRef.current = inst;
           } catch {
-            // continue, waitDevice gérera
+            // la connexion continue, poll ci-dessous la laisse finir
           }
-          if (ok) {
-            deviceId = await waitDevice();
-          }
+          deviceId = getSpotifyDeviceId() ?? deviceIdRef.current;
           if (!deviceId) {
             await sleep(1000);
             continue;
@@ -450,11 +416,32 @@ export default function SpotifyPlayer({
 
         const err = await play(deviceId);
         if (!err) {
+          // Le device Web SDK reprend souvent son DERNIER contexte après
+          // reconnexion, en écrasant le morceau qu'on vient d'envoyer.
+          // On vérifie ce qu'il joue réellement et on rejoue le nôtre.
+          await sleep(1500);
+          try {
+            const current = await getSpotifyPlayerInstance()?.getCurrentState();
+            const sdkUri = current?.track_window?.current_track?.uri;
+            if (sdkUri && sdkUri !== uri) {
+              console.warn(
+                "[ChordFlow] le device a repris un autre contexte (",
+                sdkUri,
+                ") → rejeu de",
+                uri
+              );
+              const err2 = await play(deviceId);
+              if (err2) console.warn("[ChordFlow] rejeu échoué", err2.status);
+            }
+          } catch {
+            // état indisponible → on garde la première tentative
+          }
           clockPosRef.current = 0;
           clockRunAtRef.current = Date.now();
           clockRunningRef.current = true;
           setCurrentTime(0);
           playedUriRef.current = uri;
+          endedFiredRef.current = false;
           return true;
         }
         if (err.status === 401 || err.status === 403) {
@@ -464,10 +451,10 @@ export default function SpotifyPlayer({
         if (err.status === 404) {
           last404Context = err.error || "";
           console.warn(
-            "[ChordFlow] relais 404 → périphérique non enregistré, nouvelle tentative sans casser la connexion SDK",
+            "[ChordFlow] relais 404 → périphérique pas encore enregistré, nouvelle tentative",
             last404Context
           );
-          await sleep(2000);
+          await sleep(2500);
           continue;
         }
         if (err.status > 0) {
@@ -480,25 +467,108 @@ export default function SpotifyPlayer({
 
       const reason = last404Context
         ? `:${last404Context.replace(/\s+/g, " ").slice(0, 120)}`
-        : ":périphérique non prêt après 3 tentatives";
+        : ":périphérique non prêt après 15 tentatives";
       reportError(`spotify-play-404${reason}`);
       return false;
     },
-    [reportError, waitDevice]
+    [reportError]
   );
 
   const startInFlightRef = useRef(false);
 
   useEffect(() => {
+    playbackStartedRef.current = false;
+    endedFiredRef.current = false;
+    durationStateRef.current = 0;
+    setCurrentTime(0);
+    clockPosRef.current = 0;
+    clockRunAtRef.current = 0;
+    clockRunningRef.current = false;
+    if (reloadTimerRef.current) {
+      clearTimeout(reloadTimerRef.current);
+      reloadTimerRef.current = null;
+    }
+  }, [trackUri, trackUrl]);
+
+  useEffect(() => {
+    if (!trackUri || !ready) return;
+    // Moniteur de fin indépendant du SDK : la détection "position >= durée"
+    // échoue quand player_state_changed / getCurrentState n'exposent pas de
+    // position (undefined). On s'appuie sur notre horloge + la durée connue
+    // (SDK ou API) : si on jouait et qu'on a atteint la fin, on avance.
+    const id = setInterval(() => {
+      if (
+        clockRunningRef.current &&
+        durationStateRef.current > 0 &&
+        !endedFiredRef.current &&
+        getCurrentTime() >= durationStateRef.current - 3
+      ) {
+        endedFiredRef.current = true;
+        console.log(
+          "[ChordFlow] fin de piste détectée (horloge) →",
+          trackUri
+        );
+        endedRef.current?.();
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [trackUri, ready]);
+
+  useEffect(() => {
+    if (!autoPlay || !ready || !trackUri) return;
+    if (playbackStartedRef.current) return;
+    const reloadKey = `chordflow-spotify-refresh:${trackUri}`;
+    let attempts = 0;
+    try {
+      attempts = parseInt(sessionStorage.getItem(reloadKey) || "0", 10) || 0;
+    } catch {
+      // sessionStorage indisponible → on s'abstient
+    }
+    if (attempts >= 2) return;
+    reloadTimerRef.current = setTimeout(() => {
+      reloadTimerRef.current = null;
+      if (playbackStartedRef.current) return;
+      try {
+        sessionStorage.setItem(reloadKey, String(attempts + 1));
+      } catch {
+        // ignorer
+      }
+      console.log(
+        `[ChordFlow] lecteur Spotify activé mais aucune lecture → refresh (${attempts + 1}/2) pour laisser le device s'enregistrer`
+      );
+      window.location.reload();
+    }, 4000);
+    return () => {
+      if (reloadTimerRef.current) {
+        clearTimeout(reloadTimerRef.current);
+        reloadTimerRef.current = null;
+      }
+    };
+  }, [autoPlay, ready, trackUri, trackUrl]);
+
+  useEffect(() => {
     if (!trackUri) return;
+    if (!ready) return;
     if (playedUriRef.current === trackUri) return;
     if (startInFlightRef.current) return;
+    // Le device joue déjà ce morceau (mode suivi) → on ne le relance pas.
+    if (lastFollowedUri === trackUri) {
+      console.log("[ChordFlow] suivi : device joue déjà", trackUri, "→ pas de replay");
+      playbackStartedRef.current = true;
+      clockPosRef.current = 0;
+      clockRunAtRef.current = Date.now();
+      clockRunningRef.current = true;
+      setCurrentTime(0);
+      endedFiredRef.current = false;
+      return;
+    }
     startInFlightRef.current = true;
-    startPlayback(trackUri, trackUrl).finally(() => {
-      startInFlightRef.current = false;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trackUri, trackUrl, ready, startPlayback]);
+    startPlayback(trackUri, trackUrl, queueUrisRef.current ?? undefined).finally(
+      () => {
+        startInFlightRef.current = false;
+      }
+    );
+  }, [trackUri, trackUrl, ready, startPlayback, queueUris]);
 
   useEffect(() => {
     if (!parsed || parsed.type !== "track") return;
@@ -529,18 +599,22 @@ export default function SpotifyPlayer({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsed]);
 
   useEffect(() => {
     if (seekTo === null || seekTo === undefined) return;
     clockPosRef.current = seekTo;
     if (clockRunningRef.current) clockRunAtRef.current = Date.now();
-    playerRef.current?.seek(seekTo * 1000).catch(() => {});
+    const p = playerRef.current ?? getSpotifyPlayerInstance();
+    p?.seek(seekTo * 1000).catch(() => {});
   }, [seekTo]);
 
   const togglePlay = useCallback(async () => {
-    const player = playerRef.current;
+    let player = playerRef.current;
+    if (!player) {
+      player = getSpotifyPlayerInstance();
+      if (player) playerRef.current = player;
+    }
     if (!trackUri || !player) return;
     const state = await player.getCurrentState().catch(() => null);
     const hasTrack = !!state?.track_window?.current_track;
@@ -559,12 +633,12 @@ export default function SpotifyPlayer({
 
     if (state && !hasTrack) {
       console.log("[ChordFlow] togglePlay → état sans piste → relais serveur");
-      await startPlayback(trackUri, trackUrl);
+      await startPlayback(trackUri, trackUrl, queueUrisRef.current ?? undefined);
       return;
     }
 
     console.log("[ChordFlow] togglePlay → pas d'état → relais serveur");
-    await startPlayback(trackUri, trackUrl);
+    await startPlayback(trackUri, trackUrl, queueUrisRef.current ?? undefined);
   }, [startPlayback, trackUri, trackUrl]);
 
   useEffect(() => {
@@ -586,7 +660,8 @@ export default function SpotifyPlayer({
     clockPosRef.current = target;
     if (clockRunningRef.current) clockRunAtRef.current = Date.now();
     setCurrentTime(target);
-    playerRef.current?.seek(target * 1000).catch(() => {});
+    const p = playerRef.current ?? getSpotifyPlayerInstance();
+    p?.seek(target * 1000).catch(() => {});
   };
 
   const fmtTime = (s: number): string => {
@@ -628,6 +703,7 @@ export default function SpotifyPlayer({
   }
 
   useEffect(() => {
+    if (!window.__SPOTIFY_DIAG) return;
     console.log(
       "[SpotifyPlayer diag] ready =",
       ready,

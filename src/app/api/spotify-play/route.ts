@@ -8,6 +8,7 @@ export async function POST(req: NextRequest) {
     deviceId?: unknown;
     uri?: unknown;
     parsedUri?: unknown;
+    uris?: unknown;
   };
   try {
     body = await req.json();
@@ -19,6 +20,9 @@ export async function POST(req: NextRequest) {
   const deviceId = typeof body.deviceId === "string" ? body.deviceId : "";
   const uri = typeof body.uri === "string" ? body.uri : "";
   const parsedUri = body.parsedUri as { type?: string } | null | undefined;
+  const uris = Array.isArray(body.uris)
+    ? body.uris.filter((u): u is string => typeof u === "string" && u.startsWith("spotify:"))
+    : [];
 
   if (!token || !deviceId || !uri) {
     return Response.json({ error: "params manquants" }, { status: 400 });
@@ -47,11 +51,14 @@ export async function POST(req: NextRequest) {
       const devices = (json?.devices ?? []) as {
         id?: string;
         name?: string;
+        is_active?: boolean;
       }[];
       return {
         ok: true,
         ids: devices.map((d) => d.id ?? ""),
-        names: devices.map((d) => d.name ?? ""),
+        names: devices.map(
+          (d) => `${d.name ?? "?"}${d.is_active ? " (ACTIF)" : ""}=${d.id ?? ""}`
+        ),
       };
     } catch {
       return { ok: false, ids: [], names: [] };
@@ -59,12 +66,14 @@ export async function POST(req: NextRequest) {
   }
 
   const playBody =
-    parsedUri?.type === "track"
-      ? JSON.stringify({ uris: [uri] })
-      : JSON.stringify({
-          context_uri: uri,
-          offset: { position: 0 },
-        });
+    uris.length > 0
+      ? JSON.stringify({ uris })
+      : parsedUri?.type === "track"
+        ? JSON.stringify({ uris: [uri] })
+        : JSON.stringify({
+            context_uri: uri,
+            offset: { position: 0 },
+          });
 
   const attemptTransfer = () =>
     fetch("https://api.spotify.com/v1/me/player", {
@@ -78,7 +87,7 @@ export async function POST(req: NextRequest) {
     r.status === 204 || r.status === 200;
 
   async function ensureDeviceRegistered(): Promise<boolean> {
-    const deadline = Date.now() + 6_000;
+    const deadline = Date.now() + 10_000;
     for (;;) {
       const known = await getKnownDevices();
       if (known.ok && known.ids.includes(deviceId)) return true;
@@ -89,15 +98,28 @@ export async function POST(req: NextRequest) {
 
   let transfer: Response | null = null;
 
-  if (await ensureDeviceRegistered()) {
+  const registered = await ensureDeviceRegistered();
+  {
+    const kn = await getKnownDevices();
+    console.log(
+      `[spotify-play] devices connus: ${kn.ok ? kn.names.join(" | ") : "(indisponible)"}`
+    );
+  }
+  if (registered) {
     transfer = await attemptTransfer();
   } else {
     console.log(
-      `[spotify-play] device ${deviceId} absent de la liste → transfert direct comme déclencheur d'enregistrement`
+      `[spotify-play] device ${deviceId} absent de la liste → transferts répétés comme déclencheur d'enregistrement`
     );
-    transfer = await attemptTransfer();
-    if (!isTransferOk(transfer)) {
+    for (let i = 0; i < 6; i++) {
+      transfer = await attemptTransfer();
+      if (isTransferOk(transfer)) break;
       await wait(1500);
+    }
+  }
+  if (transfer && !isTransferOk(transfer)) {
+    const known = await getKnownDevices();
+    if (known.ok && known.ids.includes(deviceId)) {
       transfer = await attemptTransfer();
     }
   }
@@ -136,6 +158,28 @@ export async function POST(req: NextRequest) {
       cache: "no-store",
     }
   );
+
+  {
+    // Diagnostic : quel appareil Spotify considère-t-il actif, et que
+    // joue-t-il réellement après notre requête ?
+    const dbg = await fetch("https://api.spotify.com/v1/me/player", {
+      headers,
+      cache: "no-store",
+    });
+    if (dbg.ok) {
+      try {
+        const st = (await dbg.json()) as {
+          device?: { id?: string; name?: string; is_active?: boolean };
+          item?: { name?: string; uri?: string };
+        };
+        console.log(
+          `[spotify-play] state après play: device=${st.device?.name ?? "?"} (${st.device?.id ?? "?"}, active=${st.device?.is_active}) → "${st.item?.name ?? "?"}" ${st.item?.uri ?? ""}`
+        );
+      } catch {
+        // json illisible
+      }
+    }
+  }
 
   if (play.status === 404) {
     for (let i = 0; i < 10; i++) {
