@@ -15,7 +15,7 @@ import YouTubePlayer from "@/components/YouTubePlayer";
 import YouTubeSearch from "@/components/YouTubeSearch";
 import SpotifyPlayer from "@/components/SpotifyPlayer";
 import SpotifySearch from "@/components/SpotifySearch";
-import DualTrackPlayer from "@/components/DualTrackPlayer";
+import InstrumentalMix from "@/components/InstrumentalMix";
 import AddSong from "@/components/AddSong";
 import { getSongTab } from "@/lib/mock-data";
 import { parseChordContent, sectionsToContent } from "@/lib/chord-parser";
@@ -104,7 +104,6 @@ function SongView({ id }: SongViewProps) {
   const [tempoScale, setTempoScale] = useState(1);
   const [bpmBusy, setBpmBusy] = useState(false);
   const [bpmError, setBpmError] = useState<string | null>(null);
-  const [dualTrack, setDualTrack] = useState(false);
   const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(() =>
     id ? loadYouTubeId(id) : null
   );
@@ -123,6 +122,7 @@ function SongView({ id }: SongViewProps) {
     id ? loadGlobalOffset(id) : 0
   );
   const [isPlaying, setIsPlaying] = useState(false);
+  const [voiceVolume, setVoiceVolume] = useState<number | null>(null);
   const [playToggle, setPlayToggle] = useState(0);
   const [perLineOffsets, setPerLineOffsets] = useState<Record<number, number>>(
     () => (id ? loadLineOffsets(id) : {})
@@ -346,7 +346,6 @@ function SongView({ id }: SongViewProps) {
   const applyUpload = useCallback((url: string, file: File | null) => {
     setAudioUrl(url);
     setAudioSource("upload");
-    setDualTrack(false);
     setYoutubeVideoId(null);
     setUploadFile(file);
     setRawDuration(0);
@@ -473,7 +472,6 @@ function SongView({ id }: SongViewProps) {
       removedByUserRef.current.youtube = false;
       setYoutubeVideoId(videoId);
       setAudioSource("youtube");
-      setDualTrack(false);
       setAudioUrl(null);
       setShowYoutubeSearch(false);
       setYoutubeError(false);
@@ -509,7 +507,6 @@ function SongView({ id }: SongViewProps) {
       setSpotifyError(null);
       setSpotifyTrackUrl(trackUrl);
       setAudioSource("spotify");
-      setDualTrack(false);
       setAudioUrl(null);
       setYoutubeVideoId(null);
       setShowSpotifySearch(false);
@@ -946,32 +943,11 @@ function SongView({ id }: SongViewProps) {
                     const url = URL.createObjectURL(file);
                     setAudioUrl(url);
                     setAudioSource("upload");
-                    setDualTrack(false);
                   }
                 }}
               />
             </label>
-            <button
-              onClick={() => {
-                setDualTrack(true);
-                setAudioSource(null);
-                setShowYoutubeSearch(false);
-                setShowSpotifySearch(false);
-              }}
-              className="flex-1 flex items-center justify-center gap-2 p-4 bg-purple-600/10 border border-purple-600/30 rounded-xl hover:bg-purple-600/20 transition-colors"
-            >
-              <Music2 className="w-5 h-5 text-purple-400" />
-              <span className="text-sm font-medium text-purple-400">2 pistes</span>
-            </button>
           </div>
-        )}
-
-        {dualTrack && (
-          <DualTrackPlayer
-            songId={id}
-            onDurationChange={handleDurationChange}
-            seekTo={seekTo}
-          />
         )}
 
         {audioSource && (
@@ -1058,6 +1034,16 @@ function SongView({ id }: SongViewProps) {
           </div>
         )}
 
+        {audioSource && (
+          <InstrumentalMix
+            songId={id}
+            isPlaying={isPlaying}
+            seekTo={seekTo}
+            tempoScale={tempoScale}
+            onVoiceVolume={setVoiceVolume}
+          />
+        )}
+
         {audioSource === "youtube" && youtubeVideoId && (
           <>
             <div
@@ -1082,6 +1068,7 @@ function SongView({ id }: SongViewProps) {
                   tempoScale={tempoScale}
                   fillHeight={miniYT}
                   autoPlay={setlist !== null}
+                  volume={voiceVolume}
                 />
               </div>
             </div>
@@ -1147,6 +1134,7 @@ function SongView({ id }: SongViewProps) {
               autoPlay={setlist !== null}
               queueUris={setlistQueue?.uris}
               onDeviceTrack={handleDeviceTrack}
+              volume={voiceVolume}
             />
             <button
               onClick={() => setShowSpotifySearch(true)}
@@ -1197,6 +1185,7 @@ function SongView({ id }: SongViewProps) {
             seekTo={seekTo}
             tempoScale={tempoScale}
             autoPlay={setlist !== null}
+            volume={voiceVolume}
           />
         )}
 

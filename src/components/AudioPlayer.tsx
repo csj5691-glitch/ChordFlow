@@ -13,6 +13,7 @@ interface AudioPlayerProps {
   seekTo?: number | null;
   tempoScale?: number;
   autoPlay?: boolean;
+  volume?: number | null;
 }
 
 export default function AudioPlayer({
@@ -23,11 +24,12 @@ export default function AudioPlayer({
   seekTo,
   tempoScale = 1,
   autoPlay = false,
+  volume,
 }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
-  const [volume, setVolume] = useState(0.8);
+  const [internalVolume, setInternalVolume] = useState(0.8);
   const [rawDuration, setRawDuration] = useState(0);
   const animFrameRef = useRef<number>(0);
 
@@ -48,7 +50,13 @@ export default function AudioPlayer({
   }, [isPlaying, tick]);
 
   useEffect(() => {
-    if (audioRef.current) {
+    if (audioRef.current && volume === null) {
+      audioRef.current.volume = internalVolume;
+    }
+  }, [internalVolume, volume]);
+
+  useEffect(() => {
+    if (audioRef.current && volume !== null && volume !== undefined) {
       audioRef.current.volume = volume;
     }
   }, [volume]);
@@ -167,8 +175,8 @@ export default function AudioPlayer({
           min="0"
           max="1"
           step="0.01"
-          value={volume}
-          onChange={(e) => setVolume(parseFloat(e.target.value))}
+          value={internalVolume}
+          onChange={(e) => setInternalVolume(parseFloat(e.target.value))}
           className="flex-1 h-1 accent-amber-500"
         />
       </div>

@@ -52,12 +52,15 @@ export async function POST(req: NextRequest) {
         id?: string;
         name?: string;
         is_active?: boolean;
+        is_restricted?: boolean;
+        volume_percent?: number;
       }[];
       return {
         ok: true,
         ids: devices.map((d) => d.id ?? ""),
         names: devices.map(
-          (d) => `${d.name ?? "?"}${d.is_active ? " (ACTIF)" : ""}=${d.id ?? ""}`
+          (d) =>
+            `${d.name ?? "?"}${d.is_active ? " (ACTIF)" : ""}${d.is_restricted ? " (restreint)" : ""} vol=${d.volume_percent}%=${d.id ?? ""}`
         ),
       };
     } catch {
@@ -169,11 +172,11 @@ export async function POST(req: NextRequest) {
     if (dbg.ok) {
       try {
         const st = (await dbg.json()) as {
-          device?: { id?: string; name?: string; is_active?: boolean };
+          device?: { id?: string; name?: string; is_active?: boolean; volume_percent?: number };
           item?: { name?: string; uri?: string };
         };
         console.log(
-          `[spotify-play] state après play: device=${st.device?.name ?? "?"} (${st.device?.id ?? "?"}, active=${st.device?.is_active}) → "${st.item?.name ?? "?"}" ${st.item?.uri ?? ""}`
+          `[spotify-play] state après play: device=${st.device?.name ?? "?"} (${st.device?.id ?? "?"}, active=${st.device?.is_active}, vol=${st.device?.volume_percent}%) → "${st.item?.name ?? "?"}" ${st.item?.uri ?? ""}`
         );
       } catch {
         // json illisible

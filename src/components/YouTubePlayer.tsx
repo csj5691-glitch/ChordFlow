@@ -12,6 +12,7 @@ interface YTPlayerInstance {
   seekTo?: (seconds: number, allowSeekAhead: boolean) => void;
   getPlayerState?: () => number;
   setPlaybackRate?: (rate: number) => void;
+  setVolume?: (percent: number) => void;
   pauseVideo: () => void;
   playVideo: () => void;
   destroy: () => void;
@@ -52,6 +53,7 @@ interface YouTubePlayerProps {
   height?: number;
   fillHeight?: boolean;
   autoPlay?: boolean;
+  volume?: number | null;
 }
 
 const PLAYER_STATES = {
@@ -77,6 +79,7 @@ export default function YouTubePlayer({
   height = 200,
   fillHeight = false,
   autoPlay = false,
+  volume,
 }: YouTubePlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayerInstance | null>(null);
@@ -90,6 +93,29 @@ export default function YouTubePlayer({
   const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+
+  useEffect(() => {
+    if (volume === null || volume === undefined) return;
+    const target = Math.max(0, Math.min(1, volume)) * 100;
+    let tries = 0;
+    let id = 0;
+    const apply = () => {
+      try {
+        if (playerRef.current?.setVolume) {
+          playerRef.current.setVolume(target);
+          console.log(`[ChordFlow] youtube setVolume ${target}%`);
+          window.clearInterval(id);
+        } else if (++tries > 20) {
+          window.clearInterval(id);
+        }
+      } catch {
+        if (++tries > 20) window.clearInterval(id);
+      }
+    };
+    apply();
+    id = window.setInterval(apply, 500);
+    return () => window.clearInterval(id);
+  }, [volume, videoId]);
 
   const stopTimer = useCallback(() => {
     if (intervalRef.current) {

@@ -52,6 +52,7 @@ interface SpotifyPlayerProps {
   autoPlay?: boolean;
   queueUris?: string[];
   onDeviceTrack?: (uri: string) => void;
+  volume?: number | null;
 }
 
 export default function SpotifyPlayer({
@@ -65,6 +66,7 @@ export default function SpotifyPlayer({
   autoPlay = false,
   queueUris,
   onDeviceTrack,
+  volume,
 }: SpotifyPlayerProps) {
   const parsed = useMemo(() => extractSpotifyUri(trackUrl), [trackUrl]);
   const trackUri = parsed
@@ -101,6 +103,30 @@ export default function SpotifyPlayer({
   durationRef.current = onDurationChange;
   playStateRef.current = onPlayStateChange;
   endedRef.current = onEnded;
+
+  useEffect(() => {
+    if (volume === null || volume === undefined) return;
+    const target = Math.max(0, Math.min(1, volume));
+    let tries = 0;
+    let id = 0;
+    const apply = () => {
+      const p = playerRef.current ?? getSpotifyPlayerInstance();
+      if (p) {
+        try {
+          p.setVolume(target).catch(() => {});
+          console.log(`[ChordFlow] spotify setVolume ${target}`);
+        } catch {
+          /* noop */
+        }
+        window.clearInterval(id);
+      } else if (++tries > 20) {
+        window.clearInterval(id);
+      }
+    };
+    apply();
+    id = window.setInterval(apply, 500);
+    return () => window.clearInterval(id);
+  }, [volume]);
   queueUrisRef.current = queueUris;
   deviceTrackRef.current = onDeviceTrack;
 
@@ -260,6 +286,16 @@ export default function SpotifyPlayer({
           })
         );
         if (track) setTrackName(track.name);
+        window.dispatchEvent(
+          new CustomEvent("chordflow-spotify-info", {
+            detail: {
+              paused: state.paused,
+              piste: track?.name ?? null,
+              dur: (state.duration_ms ?? 0) / 1000,
+              pos: (state.position_ms ?? 0) / 1000,
+            },
+          })
+        );
         // Suivi du périphérique : quand on lui a confié TOUTE la file
         // (queueUris), c'est lui qui avance nativement. On suit son morceau
         // réel au lieu de forcer chaque lecture.

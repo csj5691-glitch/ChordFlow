@@ -39,6 +39,7 @@ export interface SpotifyPlayerInstance {
   pause: () => Promise<void>;
   resume: () => Promise<void>;
   seek: (positionMs: number) => Promise<void>;
+  setVolume: (volume: number) => Promise<void>;
   getCurrentState: () => Promise<SpotifyPlaybackState | null>;
   addListener: (event: string, cb: (state?: unknown) => void) => void;
 }
