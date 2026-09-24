@@ -28,6 +28,8 @@ export interface SongTab {
   type: string;
   content: string;
   sections?: ChordSection[];
+  diagrams?: SavedChordShape[];
+  bpm?: number;
   key?: string;
   capo?: number;
   tuning?: string;
@@ -47,6 +49,28 @@ export interface ChordTimestamp {
   chord: string;
   sectionIndex: number;
   lineIndex: number;
+}
+
+export interface SavedChordFinger {
+  string: number;
+  fret: number;
+  finger: number;
+}
+
+export interface SavedChordShape {
+  id: string;
+  label: string;
+  fingers: SavedChordFinger[];
+  barreOn: boolean;
+  barreCount: number;
+  muted: boolean[];
+  baseFret: number;
+  capo: number;
+  duration?: number;
+  dotted?: boolean;
+  silence?: boolean;
+  bar?: boolean;
+  repeats?: number;
 }
 
 export interface AnalyzedSong {

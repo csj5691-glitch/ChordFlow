@@ -130,6 +130,16 @@ export default function SpotifyPlayer({
   queueUrisRef.current = queueUris;
   deviceTrackRef.current = onDeviceTrack;
 
+  useEffect(() => {
+    const stop = () => {
+      const p = playerRef.current ?? getSpotifyPlayerInstance();
+      if (p) p.pause().catch(() => {});
+      setPlaying(false);
+    };
+    window.addEventListener("chordflow-stop-playback", stop);
+    return () => window.removeEventListener("chordflow-stop-playback", stop);
+  }, []);
+
   const reportError = useCallback((code: string) => {
     playbackErrorRef.current?.(code);
   }, []);
@@ -585,6 +595,7 @@ export default function SpotifyPlayer({
   useEffect(() => {
     if (!trackUri) return;
     if (!ready) return;
+    if (!autoPlay) return;
     if (playedUriRef.current === trackUri) return;
     if (startInFlightRef.current) return;
     // Le device joue déjà ce morceau (mode suivi) → on ne le relance pas.
@@ -604,7 +615,7 @@ export default function SpotifyPlayer({
         startInFlightRef.current = false;
       }
     );
-  }, [trackUri, trackUrl, ready, startPlayback, queueUris]);
+  }, [trackUri, trackUrl, ready, autoPlay, startPlayback, queueUris]);
 
   useEffect(() => {
     if (!parsed || parsed.type !== "track") return;

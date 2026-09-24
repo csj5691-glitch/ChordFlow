@@ -94,7 +94,7 @@ export default function YouTubePlayer({
   const [isPlaying, setIsPlaying] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
 
-  useEffect(() => {
+useEffect(() => {
     if (volume === null || volume === undefined) return;
     const target = Math.max(0, Math.min(1, volume)) * 100;
     let tries = 0;

@@ -28,6 +28,7 @@ import { extractSpotifyUri } from "@/lib/spotify-auth";
 import { useSharedSong } from "@/lib/use-shared-song";
 import { SongTab } from "@/lib/types";
 import { loadPlaylists, loadSession, saveSession, clearSession } from "@/lib/playlists";
+import { buildChordLineTimestamps } from "@/lib/lyric-timing";
 import type { Playlist } from "@/lib/playlists";
 import { ArrowLeft, Music, Key, FileText, Music2, Upload, ExternalLink, Wand2, Check, Pencil, X, ChevronLeft, ChevronRight, ListMusic, Square, Shuffle, RefreshCw } from "lucide-react";
 
@@ -231,8 +232,10 @@ function SongView({ id }: SongViewProps) {
   }, [setlist, shuffle]);
 
   const stopSetlist = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("chordflow-stop-playback"));
     clearSession();
     setSetlist(null);
+    setIsPlaying(false);
   }, []);
 
   useEffect(() => {
@@ -262,7 +265,7 @@ function SongView({ id }: SongViewProps) {
   const { current: sharedSong, upsert } = useSharedSong(id);
 
   const song = hydrated
-    ? (editedSong ?? (isCustom ? sharedSong : null) ?? baseSong)
+    ? (editedSong ?? sharedSong ?? baseSong)
     : baseSong;
   const [editableContent, setEditableContent] = useState<string | null>(() =>
     isCustom ? null : getStaticSong(id)?.content ?? null
@@ -288,37 +291,11 @@ function SongView({ id }: SongViewProps) {
   }, [song]);
 
   const timestamps = useMemo(() => {
-    const result: { time: number; chord: string; sectionIndex: number; lineIndex: number }[] = [];
+    const result: { time: number; chord: string; sectionIndex: number; lineIndex: number; matched: boolean }[] = [];
     if (!song) return result;
 
     if (lrcTimestamps.length > 0) {
-      let lyricIdx = 0;
-      sections.forEach((section, sIdx) => {
-        section.lines.forEach((line, lIdx) => {
-          if (!line.lyrics.trim()) return;
-          const normalizedLyrics = line.lyrics.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
-          let bestTime = lyricIdx < lrcTimestamps.length ? lrcTimestamps[lyricIdx].time : -1;
-          let bestScore = 0;
-          for (let i = lyricIdx; i < Math.min(lyricIdx + 5, lrcTimestamps.length); i++) {
-            const normalizedLrc = lrcTimestamps[i].text.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
-            const words1 = new Set(normalizedLyrics.split(/\s+/));
-            const words2 = new Set(normalizedLrc.split(/\s+/));
-            const intersection = [...words1].filter(w => words2.has(w)).length;
-            const score = intersection / Math.max(words1.size, 1);
-            if (score > bestScore) {
-              bestScore = score;
-              bestTime = lrcTimestamps[i].time;
-              lyricIdx = i + 1;
-            }
-          }
-          result.push({
-            time: bestTime >= 0 ? bestTime : 0,
-            chord: line.chords[0] || "",
-            sectionIndex: sIdx,
-            lineIndex: lIdx,
-          });
-        });
-      });
+      result.push(...buildChordLineTimestamps(sections, lrcTimestamps));
     } else if (duration > 0) {
       let totalLines = 0;
       for (const section of sections) {
@@ -334,6 +311,7 @@ function SongView({ id }: SongViewProps) {
             chord: line.chords[0] || "",
             sectionIndex: sIdx,
             lineIndex: lIdx,
+            matched: false,
           });
           lineCounter++;
         });
@@ -603,10 +581,22 @@ function SongView({ id }: SongViewProps) {
           } else {
             newChords.push(newChord);
           }
+          let newRaw = l.rawChord;
+          if (chordIndex < l.chords.length && l.rawChord) {
+            const old = l.chords[chordIndex];
+            const idx = l.rawChord.indexOf(old);
+            if (idx !== -1) {
+              newRaw = l.rawChord.slice(0, idx) + newChord + l.rawChord.slice(idx + old.length);
+            } else {
+              newRaw = newChords.join("  ");
+            }
+          } else {
+            newRaw = newChords.join("  ");
+          }
           return {
             ...l,
             chords: newChords,
-            rawChord: newChords.join("  "),
+            rawChord: newRaw,
           };
         }),
       };
@@ -730,17 +720,6 @@ function SongView({ id }: SongViewProps) {
 
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
-              onClick={() => setViewMode("lyrics")}
-              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
-                viewMode === "lyrics"
-                  ? "text-black bg-emerald-400"
-                  : "text-zinc-400 bg-zinc-800 hover:bg-zinc-700"
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5" />
-              Paroles
-            </button>
-            <button
               onClick={() => setViewMode("chords")}
               className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
                 viewMode === "chords"
@@ -750,6 +729,17 @@ function SongView({ id }: SongViewProps) {
             >
               <Music2 className="w-3.5 h-3.5" />
               Accords
+            </button>
+            <button
+              onClick={() => setViewMode("lyrics")}
+              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
+                viewMode === "lyrics"
+                  ? "text-black bg-emerald-400"
+                  : "text-zinc-400 bg-zinc-800 hover:bg-zinc-700"
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Paroles
             </button>
             <button
               onClick={() => setViewMode("sync")}
@@ -831,6 +821,14 @@ function SongView({ id }: SongViewProps) {
                 Modifier
               </button>
             )}
+            <button
+              onClick={() => router.push(`/song/${id}/edit`)}
+              title="Éditer la grille et les diagrammes"
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full text-black bg-amber-400 hover:bg-amber-300 transition-colors"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              Éditer
+            </button>
           </div>
         </div>
       </header>
@@ -852,6 +850,25 @@ function SongView({ id }: SongViewProps) {
               </p>
             </div>
             <div className="flex items-center gap-1 flex-shrink-0">
+              <button
+                onClick={() => setPlayToggle((t) => t + 1)}
+                title={isPlaying ? "Pause" : "Lecture"}
+                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                  isPlaying
+                    ? "bg-amber-500/80 text-black hover:bg-amber-400"
+                    : "bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500/30"
+                }`}
+              >
+                {isPlaying ? (
+                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
+                  </svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                )}
+              </button>
               {shuffle ? (
                 <button
                   onClick={toggleShuffle}
@@ -888,9 +905,10 @@ function SongView({ id }: SongViewProps) {
               <button
                 onClick={stopSetlist}
                 title="Arrêter la playlist"
-                className="w-8 h-8 rounded-lg bg-red-900/60 hover:bg-red-800 flex items-center justify-center transition-colors"
+                className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg bg-red-900/60 hover:bg-red-800 text-red-200 text-xs font-medium transition-colors"
               >
                 <Square className="w-3.5 h-3.5 text-red-300" />
+                Arrêt
               </button>
             </div>
           </div>

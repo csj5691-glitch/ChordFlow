@@ -1,0 +1,78 @@
+// Copyright (c) 2026 Claude St-Jean. All rights reserved.
+
+import type { SavedChordShape } from "./types";
+
+const STRING_BASE_FREQ = [82.4069, 110.0, 146.832, 195.998, 246.942, 329.628];
+const STRING_COUNT = 6;
+
+export interface SynthEvent {
+  id: string;
+  label: string;
+  notes: number[];
+  start: number;
+  duration: number;
+  silence: boolean;
+  shape: SavedChordShape;
+}
+
+export function beatsForShape(d: SavedChordShape): number {
+  const base = d.duration ?? 1;
+  return d.dotted ? base * 1.5 : base;
+}
+
+export function renderSequence(
+  diagrams: SavedChordShape[],
+  bpm: number
+): SynthEvent[] {
+  const beatSec = 60 / bpm;
+  const events: SynthEvent[] = [];
+  let section: SavedChordShape[] = [];
+  let cursor = 0;
+
+  const pushSection = (repeats: number) => {
+    if (repeats < 1) return;
+    for (let r = 0; r < repeats; r++) {
+      for (const d of section) {
+        const dur = beatsForShape(d) * beatSec;
+        events.push({
+          id: `${d.id}-${r}`,
+          label: d.label,
+          notes: shapeNotes(d),
+          start: cursor,
+          duration: dur,
+          silence: d.silence === true,
+          shape: d,
+        });
+        cursor += dur;
+      }
+    }
+    section = [];
+  };
+
+  for (const d of diagrams) {
+    if (d.bar) {
+      pushSection(d.repeats ?? 1);
+    } else {
+      section.push(d);
+    }
+  }
+  pushSection(1);
+
+  return events;
+}
+
+function shapeNotes(d: SavedChordShape): number[] {
+  const notes: number[] = [];
+  for (let s = 0; s < STRING_COUNT; s++) {
+    if (d.muted && d.muted[s] === true) continue;
+    let pos = 0;
+    const fp = d.fingers.find((f) => f.string === s);
+    if (fp) pos = fp.fret;
+    if (d.barreOn && s >= STRING_COUNT - (d.barreCount || STRING_COUNT)) {
+      pos = Math.max(d.baseFret || 1, pos);
+    }
+    pos = Math.max(d.capo || 0, pos);
+    notes.push(STRING_BASE_FREQ[s] * Math.pow(2, pos / 12));
+  }
+  return notes.length > 0 ? notes : [0];
+}

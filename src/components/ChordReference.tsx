@@ -3,6 +3,7 @@
 
 
 import { useState, useMemo } from "react";
+import ChordDiagram from "@/components/ChordDiagram";
 import {
   NOTES,
   QUALITIES,
@@ -18,12 +19,6 @@ interface ChordReferenceProps {
 
 const STRING_NAMES = ["E", "A", "D", "G", "B", "e"];
 const FRET_COUNT = 5;
-const STRING_SPACING = 28;
-const FRET_SPACING = 40;
-const PADDING_LEFT = 36;
-const PADDING_TOP = 30;
-const SVG_WIDTH = PADDING_LEFT + FRET_COUNT * FRET_SPACING + 20;
-const SVG_HEIGHT = PADDING_TOP + 5 * STRING_SPACING + 20;
 
 export default function ChordReference({ onInsert }: ChordReferenceProps) {
   const [selectedNote, setSelectedNote] = useState<NoteName>("C");
@@ -134,138 +129,7 @@ export default function ChordReference({ onInsert }: ChordReferenceProps) {
         </div>
 
         <div className="flex-shrink-0 flex items-center justify-center">
-          <svg
-            width={SVG_WIDTH}
-            height={SVG_HEIGHT}
-            viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
-          >
-            <text
-              x={SVG_WIDTH / 2}
-              y={14}
-              textAnchor="middle"
-              className="fill-white text-sm font-bold"
-              fontSize="13"
-            >
-              {chordName}
-            </text>
-
-            {Array.from({ length: FRET_COUNT + 1 }, (_, i) => {
-              const x = PADDING_LEFT + i * FRET_SPACING;
-              return (
-                <line
-                  key={`fret-${i}`}
-                  x1={x}
-                  y1={PADDING_TOP}
-                  x2={x}
-                  y2={PADDING_TOP + 5 * STRING_SPACING}
-                  stroke={i === 0 ? "#71717a" : "#3f3f46"}
-                  strokeWidth={i === 0 ? 3 : 1}
-                />
-              );
-            })}
-
-            {Array.from({ length: 6 }, (_, i) => {
-              const y = PADDING_TOP + i * STRING_SPACING;
-              return (
-                <line
-                  key={`string-${i}`}
-                  x1={PADDING_LEFT}
-                  y1={y}
-                  x2={PADDING_LEFT + FRET_COUNT * FRET_SPACING}
-                  y2={y}
-                  stroke="#52525b"
-                  strokeWidth={1 + i * 0.2}
-                />
-              );
-            })}
-
-            {STRING_NAMES.map((name, sIdx) => {
-              const y = PADDING_TOP + sIdx * STRING_SPACING;
-              const fretValue = shape.frets[sIdx];
-              const isMuted = fretValue === -1;
-              const isOpen = fretValue === 0;
-              const absoluteFret = fretValue;
-
-              if (isMuted) {
-                return (
-                  <text
-                    key={`marker-${sIdx}`}
-                    x={PADDING_LEFT - 14}
-                    y={y + 4}
-                    textAnchor="middle"
-                    className="fill-red-400"
-                    fontSize="13"
-                    fontWeight="bold"
-                  >
-                    X
-                  </text>
-                );
-              }
-
-              if (isOpen) {
-                return (
-                  <circle
-                    key={`marker-${sIdx}`}
-                    cx={PADDING_LEFT - 14}
-                    cy={y}
-                    r={5}
-                    fill="none"
-                    stroke="#22c55e"
-                    strokeWidth="2"
-                  />
-                );
-              }
-
-              const fretIdx = absoluteFret - shape.baseFret;
-              if (fretIdx >= 0 && fretIdx < FRET_COUNT) {
-                const cx = PADDING_LEFT + fretIdx * FRET_SPACING + FRET_SPACING / 2;
-                return (
-                  <circle
-                    key={`dot-${sIdx}`}
-                    cx={cx}
-                    cy={y}
-                    r={9}
-                    fill="#f59e0b"
-                  />
-                );
-              }
-
-              return null;
-            })}
-
-            {STRING_NAMES.map((name, sIdx) => {
-              const y = PADDING_TOP + sIdx * STRING_SPACING;
-              const fretValue = shape.frets[sIdx];
-              const isMuted = fretValue === -1;
-              const isOpen = fretValue === 0;
-              const absoluteFret = fretValue;
-              const fretIdx = absoluteFret - shape.baseFret;
-
-              if (
-                !isMuted &&
-                !isOpen &&
-                fretIdx >= 0 &&
-                fretIdx < FRET_COUNT
-              ) {
-                const cx =
-                  PADDING_LEFT + fretIdx * FRET_SPACING + FRET_SPACING / 2;
-                return (
-                  <text
-                    key={`finger-${sIdx}`}
-                    x={cx}
-                    y={y + 4}
-                    textAnchor="middle"
-                    className="fill-black"
-                    fontSize="11"
-                    fontWeight="bold"
-                  >
-                    {shape.fingers[sIdx]}
-                  </text>
-                );
-              }
-              return null;
-            })}
-          </svg>
+          <ChordDiagram note={selectedNote} quality={selectedQuality} />
         </div>
       </div>
     </div>

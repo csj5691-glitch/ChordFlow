@@ -59,12 +59,29 @@ const ENTITIES: Record<string, string> = {
   "&apos;": "'",
   "&#39;": "'",
   "&nbsp;": " ",
+  "&rsquo;": "’",
+  "&lsquo;": "‘",
+  "&ldquo;": "“",
+  "&rdquo;": "”",
+  "&mdash;": "—",
+  "&ndash;": "–",
+  "&hellip;": "…",
+  "&eacute;": "é",
+  "&egrave;": "è",
+  "&ecirc;": "ê",
+  "&euml;": "ë",
+  "&agrave;": "à",
+  "&acirc;": "â",
+  "&uuml;": "ü",
+  "&ouml;": "ö",
+  "&iuml;": "ï",
+  "&ccedil;": "ç",
+  "&ntilde;": "ñ",
 };
 
 export function decodeHtmlEntities(input: string): string {
   return input
-    .replace(/&(quot|amp|lt|gt|apos|nbsp|#0?39);/g, (m, name) => {
-      if (name.startsWith("#")) return "'";
+    .replace(/&(quot|amp|lt|gt|apos|nbsp|rsquo|lsquo|ldquo|rdquo|mdash|ndash|hellip|eacute|egrave|ecirc|euml|agrave|acirc|uuml|ouml|iuml|ccedil|ntilde);/g, (m, name) => {
       return ENTITIES[`&${name};`] ?? m;
     })
     .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num, 10)));

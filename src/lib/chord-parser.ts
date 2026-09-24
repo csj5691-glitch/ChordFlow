@@ -8,21 +8,24 @@ export function parseChordContent(content: string): ChordSection[] {
   const rawLines = content.split("\n");
   const sections: ChordSection[] = [];
   let currentSection: ChordSection = { lines: [] };
-  let pendingChords: string[] | null = null;
+  let pendingChords: { chords: string[]; raw: string } | null = null;
+
+  const pushPending = () => {
+    if (!pendingChords) return;
+    currentSection.lines.push({
+      chords: pendingChords.chords,
+      lyrics: "",
+      rawChord: pendingChords.raw,
+    });
+    pendingChords = null;
+  };
 
   for (let i = 0; i < rawLines.length; i++) {
     const line = rawLines[i];
     const trimmed = line.trim();
 
     if (/^\[.*\]$/.test(trimmed)) {
-      if (pendingChords) {
-        currentSection.lines.push({
-          chords: pendingChords,
-          lyrics: "",
-          rawChord: pendingChords.join(" "),
-        });
-        pendingChords = null;
-      }
+      pushPending();
       if (currentSection.lines.length > 0 || currentSection.label) {
         sections.push(currentSection);
       }
@@ -34,14 +37,7 @@ export function parseChordContent(content: string): ChordSection[] {
     }
 
     if (!trimmed) {
-      if (pendingChords) {
-        currentSection.lines.push({
-          chords: pendingChords,
-          lyrics: "",
-          rawChord: pendingChords.join(" "),
-        });
-        pendingChords = null;
-      }
+      pushPending();
       if (currentSection.lines.length > 0) {
         sections.push(currentSection);
         currentSection = { lines: [] };
@@ -50,20 +46,14 @@ export function parseChordContent(content: string): ChordSection[] {
     }
 
     if (isChordLine(trimmed)) {
-      if (pendingChords) {
-        currentSection.lines.push({
-          chords: pendingChords,
-          lyrics: "",
-          rawChord: pendingChords.join(" "),
-        });
-      }
-      pendingChords = extractChords(trimmed);
+      pushPending();
+      pendingChords = { chords: extractChords(trimmed), raw: trimmed };
     } else {
       if (pendingChords) {
         currentSection.lines.push({
-          chords: pendingChords,
+          chords: pendingChords.chords,
           lyrics: trimmed,
-          rawChord: pendingChords.join(" "),
+          rawChord: pendingChords.raw,
         });
         pendingChords = null;
       } else {
@@ -76,13 +66,7 @@ export function parseChordContent(content: string): ChordSection[] {
     }
   }
 
-  if (pendingChords) {
-    currentSection.lines.push({
-      chords: pendingChords,
-      lyrics: "",
-      rawChord: pendingChords.join(" "),
-    });
-  }
+  pushPending();
   if (currentSection.lines.length > 0 || currentSection.label) {
     sections.push(currentSection);
   }

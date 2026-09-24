@@ -5,10 +5,54 @@
 import { useRef, useEffect, useState, useCallback, useMemo, useSyncExternalStore } from "react";
 import { ChordSection } from "@/lib/types";
 import { subscribeCurrentTime, getCurrentTime } from "@/lib/playback-store";
+import { sectionsToContent } from "@/lib/chord-parser";
+import ChordDiagram from "@/components/ChordDiagram";
+import { resolveChordForDiagram, type NoteName, type ChordQuality } from "@/lib/chord-data";
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function ChordName({ chord }: { chord: string }) {
+  const slashIdx = chord.lastIndexOf("/");
+  if (slashIdx <= 0 || slashIdx === chord.length - 1) {
+    return <>{chord}</>;
+  }
+  return (
+    <>
+      {chord.slice(0, slashIdx)}
+      <span className="opacity-50">/</span>
+      <span className="opacity-70">{chord.slice(slashIdx + 1)}</span>
+    </>
+  );
+}
+
+interface Segment {
+  text: string;
+  chordIdx?: number;
+}
+
+function buildSegments(raw: string, chords: string[]): Segment[] {
+  if (!chords.length || !raw) return [{ text: raw }];
+  const segs: Segment[] = [];
+  let pos = 0;
+  for (let i = 0; i < chords.length; i++) {
+    const chord = chords[i];
+    const idx = raw.indexOf(chord, pos);
+    if (idx === -1) continue;
+    if (idx > pos) segs.push({ text: raw.slice(pos, idx) });
+    segs.push({ text: chord, chordIdx: i });
+    pos = idx + chord.length;
+  }
+  if (pos < raw.length) segs.push({ text: raw.slice(pos) });
+  return segs;
+}
 
 interface ChordDisplayProps {
   sections: ChordSection[];
-  timestamps: { time: number; chord: string; sectionIndex: number; lineIndex: number }[];
+  timestamps: { time: number; chord: string; sectionIndex: number; lineIndex: number; matched: boolean }[];
   onSeek?: (time: number) => void;
   offset?: number;
   onChordEdit?: (sectionIndex: number, lineIndex: number, chordIndex: number, newChord: string) => void;
@@ -28,6 +72,25 @@ export default function ChordDisplay({
   const [editingLine, setEditingLine] = useState<{ sIdx: number; lIdx: number; value: string } | null>(null);
   const [textEditorMode, setTextEditorMode] = useState(false);
   const [rawText, setRawText] = useState("");
+  const [showDiagrams, setShowDiagrams] = useState(false);
+
+  const distinctChords = useMemo(() => {
+    const seen = new Set<string>();
+    const chords: { note: NoteName; quality: ChordQuality; label: string }[] = [];
+    sections.forEach((section) => {
+      section.lines.forEach((line) => {
+        line.chords.forEach((chord) => {
+          const label = chord.trim();
+          const resolved = resolveChordForDiagram(label);
+          if (!resolved) return;
+          if (seen.has(label)) return;
+          seen.add(label);
+          chords.push({ note: resolved.note, quality: resolved.quality, label });
+        });
+      });
+    });
+    return chords;
+  }, [sections]);
 
   const adjustedTimestamps = useMemo(() => timestamps.map((ts) => ({
     ...ts,
@@ -62,7 +125,7 @@ export default function ChordDisplay({
       const ts = adjustedTimestamps.find(
         (t) => t.sectionIndex === sectionIdx && t.lineIndex === lineIdx
       );
-      return ts?.time;
+      return ts ? { time: ts.time, matched: ts.matched } : undefined;
     },
     [adjustedTimestamps]
   );
@@ -89,22 +152,34 @@ export default function ChordDisplay({
       setEditingLine(null);
       return;
     }
-    const chords = editingLine.value.trim().split(/\s+/).filter(Boolean);
-    chords.forEach((chord, cIdx) => {
-      const existing = sections[editingLine.sIdx]?.lines[editingLine.lIdx]?.chords[cIdx];
-      if (existing !== chord) {
-        onChordEdit(editingLine.sIdx, editingLine.lIdx, cIdx, chord);
+    const newRaw = editingLine.value;
+    const newChords = newRaw.trim().split(/\s+/).filter(Boolean);
+    const oldLine = sections[editingLine.sIdx]?.lines[editingLine.lIdx];
+    if (oldLine && (newRaw !== oldLine.rawChord || newChords.length !== oldLine.chords.length)) {
+      const updated = sections.map((s, si) => {
+        if (si !== editingLine.sIdx) return s;
+        return {
+          ...s,
+          lines: s.lines.map((l, li) => {
+            if (li !== editingLine.lIdx) return l;
+            return { ...l, chords: newChords, rawChord: newRaw };
+          }),
+        };
+      });
+      const newContent = sectionsToContent(updated);
+      if (onRawEdit) {
+        onRawEdit(newContent);
       }
-    });
+    }
     setEditingLine(null);
-  }, [editingLine, onChordEdit, sections]);
+  }, [editingLine, onChordEdit, onRawEdit, sections]);
 
   const generateRawText = useCallback(() => {
     return sections.map((section) => {
       const lines: string[] = [];
       if (section.label) lines.push(`[${section.label}]`);
       section.lines.forEach((line) => {
-        if (line.chords.length > 0) lines.push(line.chords.join("  "));
+        if (line.chords.length > 0) lines.push(line.rawChord || line.chords.join("  "));
         lines.push(line.lyrics);
       });
       return lines.join("\n");
@@ -134,6 +209,16 @@ export default function ChordDisplay({
         <div className="flex items-center gap-3 mb-4">
           <p className="text-[10px] text-zinc-600 flex-1">Cliquez sur un accord pour le modifier</p>
           <button
+            onClick={() => setShowDiagrams((v) => !v)}
+            className={`text-[10px] px-2 py-1 rounded transition-colors ${
+              showDiagrams
+                ? "bg-amber-500 text-black"
+                : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+            }`}
+          >
+            Diagrammes
+          </button>
+          <button
             onClick={textEditorMode ? () => setTextEditorMode(false) : openTextEditor}
             className={`text-[10px] px-2 py-1 rounded transition-colors ${
               textEditorMode
@@ -143,6 +228,24 @@ export default function ChordDisplay({
           >
             {textEditorMode ? "Retour" : "Éditeur texte"}
           </button>
+        </div>
+      )}
+      {showDiagrams && (
+        <div className="mb-4">
+          {distinctChords.length === 0 ? (
+            <p className="text-[10px] text-zinc-600">Aucun accord trouvé</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+              {distinctChords.map((c) => (
+                <div
+                  key={c.label}
+                  className="bg-zinc-800/40 border border-zinc-700/50 rounded-lg p-1.5"
+                >
+                  <ChordDiagram note={c.note} quality={c.quality} label={c.label} />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {textEditorMode ? (
@@ -191,17 +294,27 @@ export default function ChordDisplay({
             return (
               <div
                 key={`${sIdx}-${lIdx}`}
-                className={`song-line py-1.5 px-3 -mx-3 rounded transition-all duration-150 cursor-pointer ${
+                className={`song-line py-1.5 px-3 -mx-3 flex items-baseline gap-3 rounded transition-all duration-150 cursor-pointer ${
                   isActive
                     ? "active bg-amber-400/8 border-l-[3px] border-amber-400"
                     : isPast
                       ? "border-l-[3px] border-transparent opacity-40"
                       : "border-l-[3px] border-transparent hover:bg-zinc-800/30"
                 }`}
-                onClick={() => seekTime !== undefined && onSeek?.(seekTime)}
+                onClick={() => seekTime && onSeek?.(seekTime.time)}
               >
+                {seekTime && (
+                  <span
+                    className={`text-xs font-mono flex-shrink-0 w-12 ${
+                      isActive ? "text-amber-400" : "text-zinc-600"
+                    }`}
+                  >
+                    {formatTime(seekTime.time)}
+                  </span>
+                )}
+                <div className="flex-1 min-w-0">
                 {hasChords && (
-                  <div className="flex font-mono text-[13px] font-semibold leading-none mb-0.5 select-none items-center">
+                  <div className="font-mono text-[13px] font-semibold leading-none mb-0.5 select-none whitespace-pre">
                     {editingLine?.sIdx === sIdx && editingLine?.lIdx === lIdx ? (
                       <input
                         type="text"
@@ -218,101 +331,82 @@ export default function ChordDisplay({
                       />
                     ) : (
                       <>
-                        {line.chords.map((chord, cIdx) => {
-                      const isEditingThis =
-                        editing?.sIdx === sIdx &&
-                        editing?.lIdx === lIdx &&
-                        editing?.cIdx === cIdx;
-
-                      return (
-                        <span
-                          key={cIdx}
-                          className={`chord-tag inline-block ${
-                            isEditingThis
-                              ? "text-amber-300 bg-amber-400/20 rounded px-0.5 mx-px"
-                              : isActive
-                                ? "text-amber-400"
-                                : "text-emerald-400"
-                          } ${onChordEdit ? "cursor-text hover:bg-amber-400/15 hover:text-amber-300 rounded px-0.5 mx-px" : "mx-px"}`}
-                          onClick={(e) => {
-                            if (!onChordEdit) return;
-                            e.stopPropagation();
-                            startEditing(sIdx, lIdx, cIdx, chord);
-                          }}
-                        >
-                          {isEditingThis ? (
-                            <input
-                              type="text"
-                              value={editing.value}
-                              onChange={(e) =>
-                                setEditing((prev) =>
-                                  prev ? { ...prev, value: e.target.value } : null
-                                )
-                              }
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.stopPropagation();
-                                  commitEdit();
-                                }
-                                if (e.key === "Escape") {
-                                  setEditing(null);
-                                }
-                                if (e.key === "Tab") {
-                                  e.preventDefault();
-                                  commitEdit();
-                                  const nextCIdx = cIdx + 1;
-                                  if (nextCIdx < line.chords.length) {
-                                    setTimeout(() =>
-                                      startEditing(sIdx, lIdx, nextCIdx, line.chords[nextCIdx])
-                                    , 0);
-                                  }
-                                }
+                        {buildSegments(line.rawChord, line.chords).map((seg, sIdx2) => {
+                          if (seg.chordIdx === undefined) {
+                            return <span key={sIdx2}>{seg.text}</span>;
+                          }
+                          const cIdx = seg.chordIdx;
+                          const isRepeated = cIdx > 0 && line.chords[cIdx] === line.chords[cIdx - 1];
+                          if (isRepeated) {
+                            return <span key={sIdx2} className="invisible">{line.chords[cIdx]}</span>;
+                          }
+                          return (
+                            <span
+                              key={sIdx2}
+                              className={`chord-tag inline-block ${
+                                editing?.sIdx === sIdx && editing?.lIdx === lIdx && editing?.cIdx === cIdx
+                                  ? "text-amber-300 bg-amber-400/20 rounded px-0.5 mx-px"
+                                  : isActive
+                                    ? "text-amber-400"
+                                    : "text-emerald-400"
+                              } ${onChordEdit ? "cursor-text hover:bg-amber-400/15 hover:text-amber-300 rounded px-0.5 mx-px" : ""}`}
+                              onClick={(e) => {
+                                if (!onChordEdit) return;
+                                e.stopPropagation();
+                                startEditing(sIdx, lIdx, cIdx, line.chords[cIdx]);
                               }}
-                              onBlur={commitEdit}
-                              autoFocus
-                              className="bg-transparent outline-none w-14 text-amber-400 font-mono text-[13px] font-semibold"
-                              onClick={(e) => e.stopPropagation()}
-                            />
-                          ) : (
-                            chord
-                          )}
-                        </span>
-                      );
-                    })}
-                        </>
-                      )}
-                      {onChordEdit && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingLine({ sIdx, lIdx, value: line.chords.join("  ") });
-                          }}
-                          className="text-[10px] text-zinc-600 hover:text-amber-400 px-1.5 py-0.5 rounded border border-dashed border-zinc-700 hover:border-amber-400/50 transition-colors ml-2"
-                        >
-                          éditer
-                        </button>
-                      )}
-                  </div>
-                )}
-                {!hasChords && onChordEdit && (
-                  <div className="flex items-center h-4 mb-0.5">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onChordEdit(sIdx, lIdx, 0, "");
-                      }}
-                      className="text-[10px] text-zinc-600 hover:text-amber-400 px-1 py-0.5 rounded border border-dashed border-zinc-700 hover:border-amber-400/50 transition-colors opacity-0 group-hover:opacity-100"
-                    >
-                      + accord
-                    </button>
+                            >
+                              {editing?.sIdx === sIdx && editing?.lIdx === lIdx && editing?.cIdx === cIdx ? (
+                                <input
+                                  type="text"
+                                  value={editing.value}
+                                  onChange={(e) => setEditing((prev) => prev ? { ...prev, value: e.target.value } : null)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") { e.stopPropagation(); commitEdit(); }
+                                    if (e.key === "Escape") setEditing(null);
+                                    if (e.key === "Tab") {
+                                      e.preventDefault();
+                                      commitEdit();
+                                      const next = cIdx + 1;
+                                      if (next < line.chords.length) {
+                                        setTimeout(() => startEditing(sIdx, lIdx, next, line.chords[next]), 0);
+                                      }
+                                    }
+                                  }}
+                                  onBlur={commitEdit}
+                                  autoFocus
+                                  className="bg-transparent outline-none text-amber-400 font-mono text-[13px] font-semibold border-b border-amber-500/50"
+                                  style={{ width: `${Math.max(editing.value.length, 2)}ch` }}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              ) : (
+                                <ChordName chord={line.chords[cIdx]} />
+                              )}
+                            </span>
+                          );
+                        })}
+                        {onChordEdit && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingLine({ sIdx, lIdx, value: line.rawChord });
+                            }}
+                            className="text-[10px] text-zinc-600 hover:text-amber-400 px-1.5 py-0.5 rounded border border-dashed border-zinc-700 hover:border-amber-400/50 transition-colors ml-2"
+                          >
+                            éditer
+                          </button>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
                 <div
-                  className={`lyrics text-[15px] leading-snug ${
+                  className={`lyrics font-mono text-[15px] leading-snug ${
                     isActive ? "text-white" : isPast ? "text-zinc-500" : "text-zinc-300"
                   }`}
                 >
                   {line.lyrics || "\u00A0"}
+                </div>
                 </div>
               </div>
               );

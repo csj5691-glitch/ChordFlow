@@ -8,7 +8,7 @@ import SearchBar from "@/components/SearchBar";
 import SongCard from "@/components/SongCard";
 import AddSong from "@/components/AddSong";
 import { searchSongs, MOCK_SEARCH_RESULTS } from "@/lib/mock-data";
-import { generateSongId } from "@/lib/custom-songs";
+import { generateSongId, saveCustomSong } from "@/lib/custom-songs";
 import { useSharedSongs } from "@/lib/use-shared-songs";
 import {
   loadRepertoireSort,
@@ -213,7 +213,7 @@ export default function Home() {
     []
   );
 
-  const handleAddSong = useCallback((data: {
+  const handleAddSong = useCallback(async (data: {
     id?: string;
     artist: string;
     title: string;
@@ -237,7 +237,21 @@ export default function Home() {
       tuning: data.tuning,
       key: data.key,
     };
-    upsertSong(song);
+    saveCustomSong(song);
+    if (!data.id) {
+      try {
+        await Promise.race([
+          upsertSong(song),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("timeout")), 5000)
+          ),
+        ]);
+      } catch {
+        // base lente/indisponible : la chanson est déjà en local, on continue
+      }
+    } else {
+      upsertSong(song);
+    }
     setShowAddSong(false);
     setEditingSong(null);
     if (!data.id) {

@@ -28,6 +28,9 @@ export type NoteName =
   | "B";
 
 export const NOTES: NoteName[] = [
+  "A",
+  "A#/Bb",
+  "B",
   "C",
   "C#/Db",
   "D",
@@ -37,9 +40,6 @@ export const NOTES: NoteName[] = [
   "F#/Gb",
   "G",
   "G#/Ab",
-  "A",
-  "A#/Bb",
-  "B",
 ];
 
 export const QUALITIES: ChordQuality[] = [
@@ -226,20 +226,95 @@ export function getChordShape(note: NoteName, quality: ChordQuality): ChordShape
   return SHAPES[note][quality];
 }
 
+const QUALITY_SUFFIX: Record<ChordQuality, string> = {
+  Maj: "",
+  Min: "m",
+  Aug: "+",
+  dim: "dim",
+  Dom7: "7",
+  Min7: "m7",
+  Maj7: "maj7",
+  Dim7: "dim7",
+  m7b5: "m7b5",
+  MinMaj7: "mMaj7",
+  Aug7: "+7",
+};
+
 export function formatChordName(note: NoteName, quality: ChordQuality): string {
   const baseNote = note.split("/")[0].replace("#", "#").replace("b", "b");
-  const qualityMap: Record<ChordQuality, string> = {
-    Maj: "",
-    Min: "m",
-    Aug: "+",
-    dim: "dim",
-    Dom7: "7",
-    Min7: "m7",
-    Maj7: "maj7",
-    Dim7: "dim7",
-    m7b5: "m7b5",
-    MinMaj7: "mMaj7",
-    Aug7: "+7",
+  return baseNote + QUALITY_SUFFIX[quality];
+}
+
+export function parseChordName(
+  chord: string
+): { note: NoteName; quality: ChordQuality } | null {
+  const root = chord.trim().split("/")[0].trim();
+  if (!root) return null;
+  for (const note of NOTES) {
+    const rootNames = note.split("/");
+    for (const quality of QUALITIES) {
+      const test = QUALITY_SUFFIX[quality];
+      if (rootNames.some((n) => `${n}${test}` === root)) {
+        return { note, quality };
+      }
+    }
+  }
+  return null;
+}
+
+export const CHORD_QUALITY_ALIASES: Record<ChordQuality, string[]> = {
+  Maj: ["", "sus", "sus2", "sus4", "6", "add9", "5", "9", "11", "13", "6/9"],
+  Min: ["m", "min", "m6", "m9", "m11", "madd9", "msus4", "m6add9"],
+  Dom7: ["7", "9", "11", "13", "7sus4", "7sus2"],
+  Min7: ["m7", "min7", "m9", "m11", "m7sus4"],
+  Maj7: ["maj7", "M7", "Δ7", "7M"],
+  dim: ["dim", "°"],
+  Dim7: ["dim7", "°7"],
+  Aug: ["aug", "+"],
+  Aug7: ["aug7", "+7"],
+  m7b5: ["m7b5", "ø7", "min7b5"],
+  MinMaj7: ["mMaj7", "mM7", "minmaj7"],
+};
+
+export function resolveChordForDiagram(
+  chord: string
+): { note: NoteName; quality: ChordQuality; label: string } | null {
+  const text = chord.trim();
+  const rootPart = text.split("/")[0].trim();
+  const m = rootPart.match(/^([A-G][#b]?)(.*)$/);
+  if (!m) return null;
+  const noteEntry = NOTES.find((n) => n.split("/").includes(m[1]));
+  if (!noteEntry) return null;
+  const rest = m[2] || "";
+  const restLower = rest.toLowerCase().replace(/maj7/g, "maj7").replace(/δ/g, "Δ");
+
+  let best: { quality: ChordQuality; score: number } | null = null;
+  for (const quality of QUALITIES) {
+    const aliases = CHORD_QUALITY_ALIASES[quality];
+    let score = -1;
+    for (const alias of aliases) {
+      const a = alias.replace("+", "\\+").replace("°", "°");
+      if (a === "") {
+        if (rest === "") score = 0;
+        continue;
+      }
+      if (restLower === a.toLowerCase()) {
+        score = Math.max(score, 100 + a.length);
+      } else if (restLower.startsWith(a.toLowerCase())) {
+        score = Math.max(score, a.length);
+      }
+    }
+    if (score >= 0 && (best === null || score > best.score)) {
+      best = { quality, score };
+    }
+  }
+
+  if (!best) return null;
+
+  const noteName = noteEntry.split("/")[0].replace("#", "#").replace("b", "b");
+  return {
+    note: noteEntry,
+    quality: best.quality,
+    label: rootPart,
   };
-  return baseNote + qualityMap[quality];
 }
