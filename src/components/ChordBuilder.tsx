@@ -37,6 +37,7 @@ const FINGER_LABELS: Record<number, string> = {
   2: "Majeur",
   3: "Annulaire",
   4: "Auriculaire",
+  5: "Pouce (T)",
 };
 
 interface QualityDef {
@@ -129,7 +130,7 @@ interface ChordBuilderProps {
   onSaveShape?: (shape: SavedChordShape) => void;
 }
 
-type Tool = 1 | 2 | 3 | 4;
+type Tool = 1 | 2 | 3 | 4 | 5;
 
 export default function ChordBuilder({ onChord, onShape, onSaveShape }: ChordBuilderProps) {
   const [fingers, setFingers] = useState<PlacedFinger[]>([]);
@@ -429,7 +430,7 @@ export default function ChordBuilder({ onChord, onShape, onSaveShape }: ChordBui
             ))}
           </div>
         )}
-        {[1, 2, 3, 4].map((n) => (
+        {[1, 2, 3, 4, 5].map((n) => (
           <button
             key={n}
             onClick={() => { setAutoMode(false); setTool(n as Tool); }}
@@ -654,7 +655,7 @@ export default function ChordBuilder({ onChord, onShape, onSaveShape }: ChordBui
                 fontSize="11"
                 fontWeight="bold"
               >
-                {f.finger}
+                {f.finger === 5 ? "T" : f.finger}
               </text>
             </g>
           );
@@ -677,8 +678,8 @@ export default function ChordBuilder({ onChord, onShape, onSaveShape }: ChordBui
             label = "X";
             title = "Corde mutée — clic pour ouvrir";
           } else if (fp) {
-            label = `${fp.finger}`;
-            title = `Corde jouée (doigt ${fp.finger})`;
+            label = fp.finger === 5 ? "T" : `${fp.finger}`;
+            title = `Corde jouée (${fp.finger === 5 ? "pouce" : `doigt ${fp.finger}`})`;
           } else if (inBarre) {
             label = "1";
             title = "Corde barrée (index)";

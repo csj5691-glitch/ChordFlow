@@ -309,7 +309,7 @@ export default function ChordShapeView({ shape, onNoteClick, legatoStrings }: Ch
               fontSize="11"
               fontWeight="bold"
             >
-              {f.finger}
+{f.finger === 5 ? "T" : f.finger}
             </text>
             {isLegatoSrc && (
               <circle cx={x} cy={cy} r={14} fill="none" stroke="#38bdf8" strokeWidth={2.5} />
