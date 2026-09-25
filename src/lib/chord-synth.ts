@@ -13,12 +13,52 @@ export interface SynthEvent {
   duration: number;
   silence: boolean;
   shape: SavedChordShape;
+  legato?: LegatoInfo[];
 }
 
 export function beatsForShape(d: SavedChordShape): number {
   const base = d.duration ?? 1;
   return d.dotted ? base * 1.5 : base;
 }
+
+const STRING_NAMES = ["E", "A", "D", "G", "B", "e"];
+
+export function fretForString(d: SavedChordShape, s: number): number {
+  if (d.muted && d.muted[s] === true) return -1;
+  let pos = 0;
+  const fp = d.fingers.find((f) => f.string === s);
+  if (fp) pos = fp.fret;
+  if (d.barreOn && s >= STRING_COUNT - (d.barreCount || STRING_COUNT)) {
+    pos = Math.max(d.baseFret || 1, pos);
+  }
+  pos = Math.max(d.capo || 0, pos);
+  return pos;
+}
+
+export interface LegatoInfo {
+  string: number;
+  fromFret: number;
+  toFret: number;
+  kind: "H" | "P" | "=";
+  toLabel: string;
+}
+
+export function legatoBetween(from: SavedChordShape, to: SavedChordShape): LegatoInfo[] | null {
+  const strings = from.legatoTo;
+  if (!strings || strings.length === 0) return null;
+  const out: LegatoInfo[] = [];
+  for (const s of strings) {
+    const fromFret = fretForString(from, s);
+    const toFret = fretForString(to, s);
+    if (fromFret < 0 || toFret < 0) continue;
+    const diff = toFret - fromFret;
+    const kind: LegatoInfo["kind"] = diff > 0 ? "H" : diff < 0 ? "P" : "=";
+    out.push({ string: s, fromFret, toFret, kind, toLabel: to.label });
+  }
+  return out.length > 0 ? out : null;
+}
+
+export const legatoStringName = (s: number) => STRING_NAMES[s] ?? "?";
 
 export function renderSequence(
   diagrams: SavedChordShape[],
@@ -32,9 +72,10 @@ export function renderSequence(
   const pushSection = (repeats: number) => {
     if (repeats < 1) return;
     for (let r = 0; r < repeats; r++) {
+      let prevShape: SavedChordShape | null = null;
       for (const d of section) {
         const dur = beatsForShape(d) * beatSec;
-        events.push({
+        const ev: SynthEvent = {
           id: `${d.id}-${r}`,
           label: d.label,
           notes: shapeNotes(d),
@@ -42,8 +83,14 @@ export function renderSequence(
           duration: dur,
           silence: d.silence === true,
           shape: d,
-        });
+        };
+        if (prevShape && prevShape.legatoTo && prevShape.legatoTo.length > 0) {
+          const lg = legatoBetween(prevShape, d);
+          if (lg && lg.length > 0) ev.legato = lg;
+        }
+        events.push(ev);
         cursor += dur;
+        prevShape = d;
       }
     }
     section = [];

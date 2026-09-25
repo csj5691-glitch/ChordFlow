@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X, Square, Play, RotateCcw } from "lucide-react";
-import { renderSequence, beatsForShape, type SynthEvent } from "@/lib/chord-synth";
+import { renderSequence, beatsForShape, legatoStringName, type SynthEvent } from "@/lib/chord-synth";
 import { parseChordContent } from "@/lib/chord-parser";
 import { decodeHtmlEntities } from "@/lib/ug-scraper";
 import type { SavedChordShape } from "@/lib/types";
@@ -15,6 +15,8 @@ interface ConductorProps {
   content: string;
   officialPlain?: string;
   officialSynced?: string;
+  instrumentalUrl?: string | null;
+  vocalsUrl?: string | null;
   onClose: () => void;
 }
 
@@ -28,19 +30,30 @@ function extractLyrics(content: string): { label: string; lines: string[] }[] {
     .filter((s) => s.lines.length > 0);
 }
 
-function extractOfficialLyrics(synced?: string, plain?: string): string[] {
+interface LyricLine {
+  label: string;
+  text: string;
+  time: number | null;
+}
+
+function extractOfficialLyrics(synced?: string, plain?: string): LyricLine[] {
   if (synced) {
-    const lines: string[] = [];
-    for (const line of synced.split("\n")) {
-      const m = line.match(/^\[(?:\d+:\d+\.?\d*)\]\s*(.*)/);
-      if (m && m[1].trim()) lines.push(m[1].trim());
+    const lines: LyricLine[] = [];
+    for (const raw of synced.split("\n")) {
+      const m = raw.match(/^\[(\d+):(\d+\.?\d*)\]\s*(.*)/);
+      if (m && m[3].trim()) {
+        const mins = parseInt(m[1], 10);
+        const secs = parseFloat(m[2]);
+        lines.push({ label: "", text: decodeHtmlEntities(m[3]).trim(), time: mins * 60 + secs });
+      }
     }
     if (lines.length > 0) return lines;
   }
   return (plain || "")
     .split("\n")
     .map((l) => decodeHtmlEntities(l).trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((text) => ({ label: "", text, time: null }));
 }
 
 export default function Conductor({
@@ -49,6 +62,8 @@ export default function Conductor({
   content,
   officialPlain,
   officialSynced,
+  instrumentalUrl,
+  vocalsUrl,
   onClose,
 }: ConductorProps) {
   const events = useMemo(() => renderSequence(diagrams, bpm), [diagrams, bpm]);
@@ -60,17 +75,60 @@ export default function Conductor({
   const flatLyrics = useMemo(
     () =>
       officialLines.length > 0
-        ? officialLines.map((text) => ({ label: "", text }))
-        : lyricSections.flatMap((s) => s.lines.map((text) => ({ label: s.label, text }))),
+        ? officialLines
+        : lyricSections.flatMap((s) => s.lines.map((text) => ({ label: s.label, text, time: null as null }))),
     [officialLines, lyricSections]
   );
   const [playing, setPlaying] = useState(false);
   const [index, setIndex] = useState(0);
   const [lyricIndex, setLyricIndex] = useState(0);
+  const [chordVolume, setChordVolume] = useState(0.4);
+  const [instVolume, setInstVolume] = useState(1);
+  const [vocalsVolume, setVocalsVolume] = useState(0.9);
+  const [lyricOffset, setLyricOffset] = useState(0);
+  const lyricOffsetRef = useRef(0);
+  const changeLyricOffset = (delta: number) => {
+    setLyricOffset((o) => {
+      const next = Math.max(-30, Math.min(30, o + delta));
+      lyricOffsetRef.current = next;
+      return next;
+    });
+  };
+  const chordVolRef = useRef(chordVolume);
+  const chordMasterRef = useRef<GainNode | null>(null);
+  const changeChordVolume = (v: number) => {
+    setChordVolume(v);
+    chordVolRef.current = v;
+    if (chordMasterRef.current) {
+      chordMasterRef.current.gain.setTargetAtTime(v, chordMasterRef.current.context.currentTime, 0.02);
+    }
+  };
+  const instVolRef = useRef(instVolume);
+  const changeInstVolume = (v: number) => {
+    setInstVolume(v);
+    instVolRef.current = v;
+    if (instRef.current) instRef.current.volume = v;
+  };
+  const vocalsVolRef = useRef(vocalsVolume);
+  const changeVocalsVolume = (v: number) => {
+    setVocalsVolume(v);
+    vocalsVolRef.current = v;
+    if (vocalsRef.current) vocalsRef.current.volume = v;
+  };
   const ctxRef = useRef<AudioContext | null>(null);
+  const instRef = useRef<HTMLAudioElement | null>(null);
+  const vocalsRef = useRef<HTMLAudioElement | null>(null);
   const timerRef = useRef<number | null>(null);
   const stripRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const [stemStart, setStemStart] = useState<number | null>(null);
+  const stemStartRef = useRef<number | null>(null);
+  const usesAudio = useMemo(() => Boolean(instrumentalUrl || vocalsUrl), [instrumentalUrl, vocalsUrl]);
+  const totalSequenceMs = useMemo(
+    () => events.reduce((a, e) => a + e.duration, 0) * 1000,
+    [events]
+  );
+  const totalMs = totalSequenceMs;
 
   const stop = useCallback(() => {
     if (timerRef.current !== null) {
@@ -81,8 +139,73 @@ export default function Conductor({
       ctxRef.current.close().catch(() => {});
     }
     ctxRef.current = null;
+    chordMasterRef.current = null;
+    if (instRef.current) instRef.current.pause();
+    if (vocalsRef.current) vocalsRef.current.pause();
     setPlaying(false);
   }, []);
+
+  const detectFirstSound = async (url: string) => {
+    const res = await fetch(url);
+    const buf = await res.arrayBuffer();
+    const Ctor =
+      window.OfflineAudioContext ??
+      (window as unknown as { webkitOfflineAudioContext?: typeof OfflineAudioContext })
+        .webkitOfflineAudioContext;
+    if (!Ctor) return null;
+    try {
+      const tempo = new Ctor(1, 1, 44100);
+      const decoded = await tempo.decodeAudioData(buf);
+      const ch = decoded.getChannelData(0);
+      const step = Math.floor(decoded.sampleRate * 0.05);
+      let maxRms = 0;
+      const rmsArr: number[] = [];
+      for (let i = 0; i < ch.length; i += step) {
+        let sum = 0;
+        const n = Math.min(step, ch.length - i);
+        for (let j = i; j < i + n; j++) sum += ch[j] * ch[j];
+        const rms = Math.sqrt(sum / n);
+        rmsArr.push(rms);
+        if (rms > maxRms) maxRms = rms;
+      }
+      const thresh = Math.max(0.004, maxRms * 0.08);
+      let detected = 0;
+      for (let i = 0; i < rmsArr.length; i++) {
+        if (rmsArr[i] > thresh) {
+          detected = (i * step) / decoded.sampleRate;
+          break;
+        }
+      }
+      return detected;
+    } catch {
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const refUrl = instrumentalUrl ?? vocalsUrl;
+    if (refUrl) {
+      void detectFirstSound(refUrl).then((d) => {
+        if (cancelled) return;
+        if (d === null) {
+          setStemStart(null);
+          stemStartRef.current = null;
+        } else {
+          setStemStart(d);
+          stemStartRef.current = d;
+        }
+      });
+    } else {
+      stemStartRef.current = null;
+      void Promise.resolve().then(() => {
+        if (!cancelled) setStemStart(null);
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [instrumentalUrl, vocalsUrl]);
 
   const playEvent = (
     ctx: AudioContext,
@@ -116,6 +239,28 @@ export default function Conductor({
   const play = useCallback(() => {
     stop();
     if (events.length === 0) return;
+
+    setIndex(0);
+    setLyricIndex(0);
+
+    const pickPrimary = (): HTMLAudioElement | null => {
+      if (instRef.current) return instRef.current;
+      if (vocalsRef.current) return vocalsRef.current;
+      return null;
+    };
+    const pickVocals = (): HTMLAudioElement | null => vocalsRef.current;
+    const primary = pickPrimary();
+    const firstVocals = pickVocals();
+
+    if (primary) {
+      primary.currentTime = 0;
+      void primary.play().catch(() => {});
+      if (firstVocals !== null && firstVocals !== primary) {
+        firstVocals.currentTime = 0;
+        void firstVocals.play().catch(() => {});
+      }
+    }
+
     const Ctor =
       window.AudioContext ||
       (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -123,14 +268,12 @@ export default function Conductor({
     const ctx = new Ctor();
     ctxRef.current = ctx;
     const master = ctx.createGain();
-    master.gain.value = 0.3;
+    master.gain.value = chordVolRef.current;
     master.connect(ctx.destination);
+    chordMasterRef.current = master;
     const now = ctx.currentTime + 0.1;
     for (const ev of events) playEvent(ctx, ev, master, now + ev.start);
-    const totalMs = events.reduce((a, e) => a + e.duration, 0) * 1000;
 
-    setIndex(0);
-    setLyricIndex(0);
     const startedAt = performance.now() + 100;
     const tick = () => {
       const t = performance.now() - startedAt;
@@ -138,10 +281,29 @@ export default function Conductor({
       if (i < 0) i = events.filter((e) => e.start * 1000 <= t).length - 1;
       setIndex(Math.max(0, i));
       if (flatLyrics.length > 0) {
-        const li = Math.min(
-          flatLyrics.length - 1,
-          Math.max(0, Math.floor((t / totalMs) * flatLyrics.length))
-        );
+        const lyricClockMs = vocalsRef.current ? vocalsRef.current.currentTime * 1000 : t;
+        const vs = stemStartRef.current ?? 0;
+        const hasTimes = flatLyrics[0].time !== null;
+        let li = 0;
+        if (hasTimes) {
+          const firstTime = flatLyrics[0].time ?? 0;
+          const ref =
+            lyricClockMs + lyricOffsetRef.current * 1000 + (firstTime - vs) * 1000;
+          for (let k = 0; k < flatLyrics.length; k++) {
+            const tm = flatLyrics[k].time;
+            if (tm !== null && tm * 1000 <= ref) li = k;
+          }
+        } else {
+          const start = vs * 1000;
+          const clock = lyricClockMs + lyricOffsetRef.current * 1000;
+          if (clock >= start) {
+            const span = Math.max(1, totalMs - start);
+            li = Math.min(
+              flatLyrics.length - 1,
+              Math.max(0, Math.floor(((clock - start) / span) * flatLyrics.length))
+            );
+          }
+        }
         setLyricIndex(li);
       }
       if (t >= totalMs) {
@@ -152,7 +314,7 @@ export default function Conductor({
     };
     timerRef.current = window.setTimeout(tick, 40);
     setPlaying(true);
-  }, [events, stop, flatLyrics.length]);
+  }, [events, stop, totalMs, flatLyrics]);
 
   useEffect(() => {
     const t = window.setTimeout(play, 50);
@@ -172,9 +334,8 @@ export default function Conductor({
 
   const totalBeat = diagrams.reduce((a, d) => a + (d.bar ? 0 : beatsForShape(d)), 0);
   const cur = events[index];
-  const elapsed = cur ? cur.start : 0;
-  const duration = events.reduce((a, e) => a + e.duration, 0);
-  const pct = duration > 0 ? (elapsed / duration) * 100 : 0;
+  const dur2 = totalMs / 1000;
+  const pct = cur ? (cur.start / dur2) * 100 : 0;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/95 flex flex-col">
@@ -184,7 +345,8 @@ export default function Conductor({
             Chef d&apos;orchestre
           </h2>
           <span className="text-[11px] text-zinc-500 font-mono">
-            {bpm} BPM · {totalBeat.toFixed(2)} temps · {duration.toFixed(1)} s
+            {usesAudio ? `${bpm} BPM · stems` : `${bpm} BPM`} · {totalBeat.toFixed(2)} temps ·{" "}
+            {dur2.toFixed(1)} s
             {flatLyrics.length > 0 && <> · {flatLyrics.length} lignes de paroles</>}
           </span>
         </div>
@@ -265,7 +427,7 @@ export default function Conductor({
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center px-6 relative z-10 gap-6">
+      <div className="flex-1 flex flex-col items-center justify-center px-6 relative z-10 gap-6 pb-16">
         {flatLyrics.length > 0 && (
           <div className="text-center max-w-3xl w-full">
             {lyricIndex > 0 && flatLyrics[lyricIndex - 1] && (
@@ -292,18 +454,31 @@ export default function Conductor({
         )}
 
         {cur && (
-          <div className="flex flex-col items-center gap-1.5 opacity-75">
+          <div className="flex flex-col items-center gap-2">
             <p
-              className={`text-xl font-black tracking-tight ${
+              className={`text-2xl font-black tracking-tight ${
                 cur.silence || cur.notes[0] === 0 ? "text-zinc-500" : "text-amber-400"
               }`}
             >
               {cur.silence ? "Silence" : cur.label}
             </p>
-            <div className="w-32">
+            {cur.legato && cur.legato.length > 0 && (
+              <div className="flex items-center gap-1.5 flex-wrap justify-center">
+                {cur.legato.map((lg) => (
+                  <span
+                    key={lg.string}
+                    className="text-[11px] font-mono text-sky-300 bg-sky-500/10 border border-sky-500/30 rounded-full px-2.5 py-0.5"
+                  >
+                    {lg.kind === "H" ? "H Hammer-on" : lg.kind === "P" ? "P Pull-off" : "Liaison"}{" "}
+                    · corde {legatoStringName(lg.string)}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="w-72 sm:w-80 md:w-96">
               <ChordShapeView shape={cur.shape} />
             </div>
-            <p className="text-[10px] text-zinc-500 font-mono">{cur.duration.toFixed(2)} s</p>
+            <p className="text-[11px] text-zinc-500 font-mono">{cur.duration.toFixed(2)} s</p>
           </div>
         )}
         <div className="w-full max-w-xl">
@@ -314,7 +489,136 @@ export default function Conductor({
             />
           </div>
         </div>
+        {usesAudio && (
+          <div className="flex flex-col gap-1.5 text-xs text-zinc-400">
+            <div className="flex items-center gap-2">
+              <span className="text-zinc-500 w-20">Instrument</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={instVolume}
+                onChange={(e) => changeInstVolume(parseFloat(e.target.value))}
+                className="w-32 h-1 accent-amber-500 cursor-pointer"
+                title="Volume du stem instrumental"
+              />
+              <span className="text-[10px] text-zinc-500 font-mono w-9">
+                {Math.round(instVolume * 100)}%
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-zinc-500 w-20">Chant</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={vocalsVolume}
+                onChange={(e) => changeVocalsVolume(parseFloat(e.target.value))}
+                className="w-32 h-1 accent-amber-500 cursor-pointer"
+                title="Volume du stem vocal"
+              />
+              <span className="text-[10px] text-zinc-500 font-mono w-9">
+                {Math.round(vocalsVolume * 100)}%
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-zinc-500 w-20">Accords</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={chordVolume}
+                onChange={(e) => changeChordVolume(parseFloat(e.target.value))}
+                className="w-32 h-1 accent-amber-500 cursor-pointer"
+                title="Volume des accords synthétisés par-dessus le stem"
+              />
+              <span className="text-[10px] text-zinc-500 font-mono w-9">
+                {Math.round(chordVolume * 100)}%
+              </span>
+            </div>
+          </div>
+        )}
+        {usesAudio && (
+          <div className="flex flex-col gap-1 text-xs text-zinc-400">
+            <span className="text-zinc-500">Paroles</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => changeLyricOffset(-5)}
+                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
+                title="-5 s"
+              >
+                -5
+              </button>
+              <button
+                onClick={() => changeLyricOffset(-1)}
+                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
+                title="-1 s"
+              >
+                -1
+              </button>
+              <span className="font-mono text-amber-400 w-16 text-center">
+                {lyricOffset >= 0 ? "+" : ""}
+                {lyricOffset.toFixed(1)} s
+              </span>
+              <button
+                onClick={() => changeLyricOffset(1)}
+                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
+                title="+1 s"
+              >
+                +1
+              </button>
+              <button
+                onClick={() => changeLyricOffset(5)}
+                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
+                title="+5 s"
+              >
+                +5
+              </button>
+              {lyricOffset !== 0 && (
+                <button
+                  onClick={() => {
+                    lyricOffsetRef.current = 0;
+                    setLyricOffset(0);
+                  }}
+                  className="text-zinc-500 hover:text-zinc-300 underline transition-colors"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+            {stemStart === null && (instrumentalUrl || vocalsUrl) ? (
+              <span className="text-[10px] text-zinc-500 animate-pulse">
+                Détection du premier son de la piste…
+              </span>
+            ) : (
+              <span className="text-[10px] text-zinc-600">
+                {stemStart !== null && stemStart > 0
+                  ? `1re parole à ${stemStart.toFixed(2)} s (début sonore de la piste)`
+                  : "1re parole au début de la lecture"}
+              </span>
+            )}
+          </div>
+        )}
       </div>
+      {instrumentalUrl && (
+        <audio
+          ref={instRef}
+          src={instrumentalUrl}
+          preload="auto"
+          className="hidden"
+        />
+      )}
+      {vocalsUrl && (
+        <audio
+          ref={vocalsRef}
+          src={vocalsUrl}
+          preload="auto"
+          className="hidden"
+        />
+      )}
     </div>
   );
 }

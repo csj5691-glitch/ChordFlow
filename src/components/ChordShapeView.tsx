@@ -17,13 +17,15 @@ const MARKER_Y = PADDING_TOP - 16;
 
 interface ChordShapeViewProps {
   shape: SavedChordShape;
+  onNoteClick?: (stringIndex: number) => void;
+  legatoStrings?: number[];
 }
 
 function strIsMuted(shape: SavedChordShape, s: number): boolean {
   return shape.muted[s] === true;
 }
 
-export default function ChordShapeView({ shape }: ChordShapeViewProps) {
+export default function ChordShapeView({ shape, onNoteClick, legatoStrings }: ChordShapeViewProps) {
   const baseFret = shape.baseFret || 1;
 
   if (shape.silence) {
@@ -291,8 +293,13 @@ export default function ChordShapeView({ shape }: ChordShapeViewProps) {
         const row = f.fret - baseFret;
         if (row < 0 || row >= FRET_COUNT) return null;
         const cy = NUT_Y + row * FRET_SPACING + FRET_SPACING / 2;
+        const isLegatoSrc = legatoStrings?.includes(f.string);
         return (
-          <g key={`dot-${f.string}-${f.fret}-${f.finger}`}>
+          <g
+            key={`dot-${f.string}-${f.fret}-${f.finger}`}
+            onClick={onNoteClick ? () => onNoteClick(f.string) : undefined}
+            style={onNoteClick ? { cursor: "pointer" } : undefined}
+          >
             <circle cx={x} cy={cy} r={9} fill="#f59e0b" />
             <text
               x={x}
@@ -304,6 +311,9 @@ export default function ChordShapeView({ shape }: ChordShapeViewProps) {
             >
               {f.finger}
             </text>
+            {isLegatoSrc && (
+              <circle cx={x} cy={cy} r={14} fill="none" stroke="#38bdf8" strokeWidth={2.5} />
+            )}
           </g>
         );
       })}

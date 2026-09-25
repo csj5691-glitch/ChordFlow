@@ -7,6 +7,8 @@ import ChordBuilder from "@/components/ChordBuilder";
 import ChordShapeView from "@/components/ChordShapeView";
 import SynthPlayer from "@/components/SynthPlayer";
 import Conductor from "@/components/Conductor";
+import { loadAudioStems, saveAudioStem, getAudioStemUrl } from "@/lib/audio-store";
+import { legatoBetween } from "@/lib/chord-synth";
 import { getSongTab } from "@/lib/mock-data";
 import { useSharedSong } from "@/lib/use-shared-song";
 import type { SavedChordShape, SongTab } from "@/lib/types";
@@ -24,6 +26,8 @@ import {
   Clipboard,
   SeparatorVertical,
   Mic2,
+  Music4,
+  Upload,
 } from "lucide-react";
 
 function getStaticSong(id: string): SongTab | null {
@@ -70,10 +74,17 @@ function EditSongView({ id }: { id: string }) {
   const router = useRouter();
   const hydrated = useHydrated();
   const [mode, setMode] = useState<EditMode>("grid");
+  const [legatoEdit, setLegatoEdit] = useState<number | null>(null);
   const [editableContent, setEditableContent] = useState<string | null>(null);
   const [showBuilder, setShowBuilder] = useState(false);
   const [copied, setCopied] = useState<SavedChordShape | null>(null);
   const [conductorOpen, setConductorOpen] = useState(false);
+  const [instUrl, setInstUrl] = useState<string | null>(null);
+  const [instName, setInstName] = useState("");
+  const [vocalsUrl, setVocalsUrl] = useState<string | null>(null);
+  const [vocalsName, setVocalsName] = useState("");
+  const instUrlRef = useRef<string | null>(null);
+  const vocalsUrlRef = useRef<string | null>(null);
   const hydratedContent = useRef(false);
 
   const baseSong = getStaticSong(id);
@@ -193,6 +204,27 @@ function EditSongView({ id }: { id: string }) {
     [song, upsert]
   );
 
+  const setLegato = useCallback(
+    (index: number, stringIndex: number | null) => {
+      if (!song) return;
+      const list = [...(song.diagrams ?? [])];
+      if (!list[index]) return;
+      const d = list[index];
+      if (stringIndex === null) {
+        list[index] = { ...d, legatoTo: undefined };
+      } else {
+        const current = d.legatoTo ?? [];
+        const has = current.includes(stringIndex);
+        const next = has
+          ? current.filter((s) => s !== stringIndex)
+          : [...current, stringIndex].sort((a, b) => a - b);
+        list[index] = { ...d, legatoTo: next.length > 0 ? next : undefined };
+      }
+      upsert({ ...song, diagrams: list });
+    },
+    [song, upsert]
+  );
+
   const addSilence = useCallback(() => {
     if (!song) return;
     const silence: SavedChordShape = {
@@ -238,6 +270,78 @@ function EditSongView({ id }: { id: string }) {
     },
     [song, upsert]
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const stems = await loadAudioStems(id);
+      if (cancelled || !stems) return;
+      if (stems.noVocals) {
+        const url = getAudioStemUrl(stems.noVocals);
+        if (url) {
+          instUrlRef.current = url;
+          setInstUrl(url);
+          setInstName("Instrumental");
+        }
+      }
+      if (stems.vocals) {
+        const url = getAudioStemUrl(stems.vocals);
+        if (url) {
+          vocalsUrlRef.current = url;
+          setVocalsUrl(url);
+          setVocalsName("Voix");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (instUrlRef.current) {
+        URL.revokeObjectURL(instUrlRef.current);
+        instUrlRef.current = null;
+      }
+      if (vocalsUrlRef.current) {
+        URL.revokeObjectURL(vocalsUrlRef.current);
+        vocalsUrlRef.current = null;
+      }
+    };
+  }, [id]);
+
+  const handleStemUpload = async (kind: "noVocals" | "vocals", file: File) => {
+    const setUrl =
+      kind === "noVocals"
+        ? setInstUrl
+        : setVocalsUrl;
+    const setName = kind === "noVocals" ? setInstName : setVocalsName;
+    const urlRef = kind === "noVocals" ? instUrlRef : vocalsUrlRef;
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    const url = getAudioStemUrl(file);
+    if (!url) return;
+    urlRef.current = url;
+    setUrl(url);
+    setName(file.name);
+    try {
+      await saveAudioStem(id, kind, file);
+    } catch (err) {
+      console.error("[ChordFlow] Éditeur : échec de sauvegarde du stem", err);
+    }
+  };
+
+  const handleStemClear = async (kind: "noVocals" | "vocals") => {
+    const setUrl = kind === "noVocals" ? setInstUrl : setVocalsUrl;
+    const setName = kind === "noVocals" ? setInstName : setVocalsName;
+    const urlRef = kind === "noVocals" ? instUrlRef : vocalsUrlRef;
+    if (urlRef.current) {
+      URL.revokeObjectURL(urlRef.current);
+      urlRef.current = null;
+    }
+    setUrl(null);
+    setName("");
+    try {
+      await saveAudioStem(id, kind, null);
+    } catch (err) {
+      console.error("[ChordFlow] Éditeur : échec de retrait du stem", err);
+    }
+  };
 
   const bpm = song?.bpm ?? 90;
   const secondsFor = (beats: number) => (beats * 60) / bpm;
@@ -388,14 +492,95 @@ function EditSongView({ id }: { id: string }) {
                 </div>
               </div>
               <SynthPlayer diagrams={diagrams} bpm={bpm} />
-              <button
-                onClick={() => setConductorOpen(true)}
-                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-500 text-black hover:bg-amber-400 transition-colors w-fit"
-                title="Lancer la lecture plein écran avec les diagrammes qui défilent"
-              >
-                <Mic2 className="w-3.5 h-3.5" />
-                Chef d&apos;orchestre
-              </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => setConductorOpen(true)}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-500 text-black hover:bg-amber-400 transition-colors w-fit"
+                  title="Lancer la lecture plein écran avec les diagrammes qui défilent"
+                >
+                  <Mic2 className="w-3.5 h-3.5" />
+                  Chef d&apos;orchestre
+                </button>
+                <label
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
+                  title={
+                    instUrl
+                      ? "Changer le stem instrumental (sans voix)"
+                      : "Importer un stem instrumental (sans voix) : le Chef d'orchestre le jouera avec les accords pour vérifier le rythme"
+                  }
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  {instUrl ? "Changer : instrumental" : "Stem instrumental"}
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void handleStemUpload("noVocals", file);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                {instUrl && (
+                  <>
+                    <button
+                      onClick={() => void handleStemClear("noVocals")}
+                      className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-red-400 hover:bg-red-500/10 transition-colors w-fit cursor-pointer"
+                      title="Retirer le stem instrumental"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Retirer
+                    </button>
+                    <span className="flex items-center gap-1.5 text-[11px] text-purple-400 bg-purple-500/10 border border-purple-500/30 rounded-full px-2.5 py-1">
+                      <Music4 className="w-3 h-3" />
+                      {instName || "Instrumental"} chargé
+                    </span>
+                  </>
+                )}
+                <label
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
+                  title={
+                    vocalsUrl
+                      ? "Changer le stem vocal (voix seule)"
+                      : "Importer un stem vocal (voix seule) : le Chef d'orchestre le jouera avec les accords"
+                  }
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  {vocalsUrl ? "Changer : voix" : "Stem voix"}
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void handleStemUpload("vocals", file);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                {vocalsUrl && (
+                  <>
+                    <button
+                      onClick={() => void handleStemClear("vocals")}
+                      className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-red-400 hover:bg-red-500/10 transition-colors w-fit cursor-pointer"
+                      title="Retirer le stem vocal"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Retirer
+                    </button>
+                    <span className="flex items-center gap-1.5 text-[11px] text-purple-400 bg-purple-500/10 border border-purple-500/30 rounded-full px-2.5 py-1">
+                      <Music4 className="w-3 h-3" />
+                      {vocalsName || "Voix"} chargé
+                    </span>
+                  </>
+                )}
+                {(instUrl || vocalsUrl) && (
+                  <span className="text-[11px] text-zinc-600">
+                    Volume de chaque piste réglable dans le Chef d&apos;orchestre
+                  </span>
+                )}
+              </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() => setShowBuilder((v) => !v)}
@@ -457,7 +642,23 @@ function EditSongView({ id }: { id: string }) {
                     className="bg-zinc-900 border border-zinc-700 rounded-xl p-3 flex flex-col sm:flex-row items-center gap-4"
                   >
                     <div className="w-40 flex-shrink-0">
-                      <ChordShapeView shape={d} />
+                      <ChordShapeView
+                        shape={d}
+                        onNoteClick={
+                          legatoEdit === i
+                            ? (s) => {
+                                setLegato(i, s);
+                                setLegatoEdit(null);
+                              }
+                            : undefined
+                        }
+                        legatoStrings={d.legatoTo}
+                      />
+                      {legatoEdit === i && (
+                        <p className="text-[10px] text-sky-400 mt-1 italic text-center">
+                          Cliquez la note à lier vers {diagrams[i + 1]?.label}
+                        </p>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-amber-400">
@@ -534,6 +735,63 @@ function EditSongView({ id }: { id: string }) {
                             <span className="text-zinc-400">{formatBeats(beatsFor(d))}</span>{" "}
                             · {secondsFor(beatsFor(d)).toFixed(2)} s
                           </span>
+                          {i < diagrams.length - 1 &&
+                            !diagrams[i + 1].bar &&
+                            !diagrams[i + 1].silence && (
+                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                <button
+                                  onClick={() => {
+                                    setLegatoEdit(legatoEdit === i ? null : i);
+                                  }}
+                                  className={`text-[10px] px-2 py-1 rounded font-semibold transition-colors ${
+                                    legatoEdit === i
+                                      ? "bg-sky-500 text-black"
+                                      : (d.legatoTo?.length ?? 0) > 0
+                                        ? "bg-sky-500/15 text-sky-300 border border-sky-500/40 hover:bg-sky-500/25"
+                                        : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
+                                  }`}
+                                  title="Créer un legato (hammer-on / pull-off) vers l'accord suivant — cliquez une ou plusieurs notes du diagramme"
+                                >
+                                  {legatoEdit === i
+                                    ? "Cliquez les notes →"
+                                    : (d.legatoTo?.length ?? 0) > 0
+                                      ? `Legato ✓ (${d.legatoTo?.length ?? 0})`
+                                      : "Legato"}
+                                </button>
+                                {legatoEdit === i && (
+                                  <button
+                                    onClick={() => {
+                                      setLegatoEdit(null);
+                                    }}
+                                    className="text-[10px] px-2 py-1 rounded bg-zinc-700 text-zinc-300 hover:bg-zinc-600 transition-colors"
+                                  >
+                                    Terminé
+                                  </button>
+                                )}
+                                {legatoBetween(d, diagrams[i + 1])?.map((lg) => (
+                                  <span
+                                    key={lg.string}
+                                    onClick={() => {
+                                      if (legatoEdit === i) setLegato(i, lg.string);
+                                    }}
+                                    className={`text-[10px] font-mono text-sky-300 bg-sky-500/10 border border-sky-500/30 rounded px-1.5 py-0.5 whitespace-nowrap ${
+                                      legatoEdit === i ? "cursor-pointer hover:bg-sky-500/25" : ""
+                                    }`}
+                                    title={
+                                      legatoEdit === i
+                                        ? "Cliquez pour retirer cette liaison"
+                                        : lg.kind === "H"
+                                          ? `Hammer-on corde ${["E", "A", "D", "G", "B", "e"][lg.string]} (${lg.fromFret}→${lg.toFret})`
+                                          : `Pull-off corde ${["E", "A", "D", "G", "B", "e"][lg.string]} (${lg.fromFret}→${lg.toFret})`
+                                    }
+                                  >
+                                    {lg.kind === "H"
+                                      ? `H ${lg.fromFret}→${lg.toFret} · ${["E", "A", "D", "G", "B", "e"][lg.string]}`
+                                      : `P ${lg.fromFret}→${lg.toFret} · ${["E", "A", "D", "G", "B", "e"][lg.string]}`}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                         </>
                       )}
                     </div>
@@ -591,6 +849,8 @@ function EditSongView({ id }: { id: string }) {
           content={content}
           officialPlain={song?.officialPlain}
           officialSynced={song?.officialSynced}
+          instrumentalUrl={instUrl}
+          vocalsUrl={vocalsUrl}
           onClose={() => setConductorOpen(false)}
         />
       )}

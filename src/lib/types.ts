@@ -71,6 +71,7 @@ export interface SavedChordShape {
   silence?: boolean;
   bar?: boolean;
   repeats?: number;
+  legatoTo?: number[];
 }
 
 export interface AnalyzedSong {
