@@ -8,7 +8,7 @@ import ChordShapeView from "@/components/ChordShapeView";
 import SynthPlayer from "@/components/SynthPlayer";
 import Conductor from "@/components/Conductor";
 import { loadAudioStems, saveAudioStem, getAudioStemUrl } from "@/lib/audio-store";
-import { legatoBetween } from "@/lib/chord-synth";
+import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure } from "@/lib/chord-synth";
 import { getSongTab } from "@/lib/mock-data";
 import { useSharedSong } from "@/lib/use-shared-song";
 import type { SavedChordShape, SongTab } from "@/lib/types";
@@ -181,6 +181,19 @@ function EditSongView({ id }: { id: string }) {
     },
     [song, upsert]
   );
+
+  const setTimeSignature = useCallback(
+    (top: number, bottom: 2 | 4 | 8) => {
+      if (!song) return;
+      upsert({ ...song, timeSignature: { top, bottom } });
+    },
+    [song, upsert]
+  );
+
+  const clearTimeSignature = useCallback(() => {
+    if (!song) return;
+    upsert({ ...song, timeSignature: undefined });
+  }, [song, upsert]);
 
   const setDuration = useCallback(
     (index: number, beats: number) => {
@@ -374,6 +387,30 @@ function EditSongView({ id }: { id: string }) {
     return total + section;
   })();
 
+  const measureState = (() => {
+    const list = song?.diagrams ?? [];
+    const mi = measureInfoFromSignature(song?.timeSignature);
+    const hasSignature = Boolean(song?.timeSignature);
+    const out: { measure: number; beat: number; downbeat: boolean }[] = [];
+    let sectionBeats = 0;
+    let cursor = 0;
+    for (const d of list) {
+      if (d.bar) {
+        sectionBeats = 0;
+        out.push({ measure: -1, beat: -1, downbeat: false });
+        continue;
+      }
+      const beats = beatsFor(d);
+      const m = hasSignature ? measureForBeat(cursor, mi) : -1;
+      const b = hasSignature ? beatInMeasure(cursor, mi) : -1;
+      const downbeat = hasSignature && b === 0;
+      out.push({ measure: m, beat: b, downbeat });
+      cursor += beats;
+      sectionBeats += beats;
+    }
+    return { hasSignature, mi, rows: out };
+  })();
+
   if (!song) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
@@ -470,7 +507,33 @@ function EditSongView({ id }: { id: string }) {
                   Convention : 1 beat = 1 temps = 1 noire · 2 temps = 1 blanche · 4 temps = 1 ronde
                 </span>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-zinc-500">BPM</span>
+                  <span className="text-xs text-zinc-500">Signature</span>
+                  <select
+                    value={
+                      song.timeSignature
+                        ? `${song.timeSignature.top}/${song.timeSignature.bottom}`
+                        : ""
+                    }
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (!v) {
+                        clearTimeSignature();
+                        return;
+                      }
+                      const [top, bottom] = v.split("/").map(Number);
+                      setTimeSignature(top, bottom as 2 | 4 | 8);
+                    }}
+                    className="bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-amber-500/60 cursor-pointer"
+                    title="Signature de mesure (optionnelle) — regroupe les diagrammes en mesures"
+                  >
+                    <option value="">— aucune —</option>
+                    <option value="2/4">2/4</option>
+                    <option value="3/4">3/4</option>
+                    <option value="4/4">4/4</option>
+                    <option value="6/8">6/8</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-1.5">
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => setBpm(bpm - 1)}
@@ -653,6 +716,19 @@ function EditSongView({ id }: { id: string }) {
                     key={d.id}
                     className="bg-zinc-900 border border-zinc-700 rounded-xl p-3 flex flex-col sm:flex-row items-center gap-4"
                   >
+                    {!(d.bar) && measureState.hasSignature && (
+                      <div className="w-40 flex-shrink-0 h-6 flex items-center justify-center">
+                        {measureState.rows[i].downbeat ? (
+                          <span className="text-[10px] font-mono font-bold text-amber-400 bg-amber-400/10 border border-amber-400/30 rounded-full px-2 py-0.5">
+                            Mesure {measureState.rows[i].measure + 1}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-mono text-zinc-600 px-2 py-0.5">
+                            {measureState.rows[i].beat + 1}/{measureState.mi.top}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <div className="w-40 flex-shrink-0">
                       <ChordShapeView
                         shape={d}
@@ -888,6 +964,7 @@ function EditSongView({ id }: { id: string }) {
         <Conductor
           diagrams={diagrams}
           bpm={bpm}
+          timeSignature={song?.timeSignature}
           content={content}
           officialPlain={song?.officialPlain}
           officialSynced={song?.officialSynced}

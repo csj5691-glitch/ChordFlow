@@ -30,6 +30,7 @@ export interface SongTab {
   sections?: ChordSection[];
   diagrams?: SavedChordShape[];
   bpm?: number;
+  timeSignature?: { top: number; bottom: 2 | 4 | 8 };
   key?: string;
   capo?: number;
   tuning?: string;

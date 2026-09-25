@@ -3,15 +3,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X, Square, Play, RotateCcw } from "lucide-react";
-import { renderSequence, beatsForShape, legatoStringName, type SynthEvent } from "@/lib/chord-synth";
+import { renderSequence, beatsForShape, legatoStringName, measureInfoFromSignature, measureForBeat, beatInMeasure, type SynthEvent } from "@/lib/chord-synth";
 import { parseChordContent } from "@/lib/chord-parser";
 import { decodeHtmlEntities } from "@/lib/ug-scraper";
-import type { SavedChordShape } from "@/lib/types";
+import type { SavedChordShape, SongTab } from "@/lib/types";
 import ChordShapeView from "@/components/ChordShapeView";
 
 interface ConductorProps {
   diagrams: SavedChordShape[];
   bpm: number;
+  timeSignature?: SongTab["timeSignature"];
   content: string;
   officialPlain?: string;
   officialSynced?: string;
@@ -59,6 +60,7 @@ function extractOfficialLyrics(synced?: string, plain?: string): LyricLine[] {
 export default function Conductor({
   diagrams,
   bpm,
+  timeSignature,
   content,
   officialPlain,
   officialSynced,
@@ -67,6 +69,10 @@ export default function Conductor({
   onClose,
 }: ConductorProps) {
   const events = useMemo(() => renderSequence(diagrams, bpm), [diagrams, bpm]);
+  const measureInfo = useMemo(
+    () => measureInfoFromSignature(timeSignature),
+    [timeSignature]
+  );
   const lyricSections = useMemo(() => extractLyrics(content), [content]);
   const officialLines = useMemo(
     () => extractOfficialLyrics(officialSynced, officialPlain),
@@ -461,6 +467,13 @@ export default function Conductor({
                   {cur.sectionLabel}
                 </span>
               )}
+              <span className="text-[11px] font-mono text-zinc-400 bg-zinc-800/60 border border-zinc-700/60 rounded-full px-2.5 py-0.5">
+                Mesure {measureForBeat((cur.start * bpm) / 60, measureInfo) + 1}
+                {" · temps "}
+                {Math.max(1, Math.round(beatInMeasure((cur.start * bpm) / 60, measureInfo)))}
+                <span className="text-zinc-600">/{measureInfo.top}</span>
+                <span className="text-zinc-600"> · {measureInfo.top}/{measureInfo.bottom}</span>
+              </span>
             </div>
             <p
               className={`text-2xl font-black tracking-tight ${

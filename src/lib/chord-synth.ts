@@ -61,6 +61,36 @@ export function legatoBetween(from: SavedChordShape, to: SavedChordShape): Legat
 
 export const legatoStringName = (s: number) => STRING_NAMES[s] ?? "?";
 
+export interface MeasureInfo {
+  beatsPerMeasure: number;
+  top: number;
+  bottom: 2 | 4 | 8;
+}
+
+export function beatUnit(bottom: 2 | 4 | 8): number {
+  return 4 / bottom;
+}
+
+export function measureInfoFromSignature(
+  ts?: { top: number; bottom: 2 | 4 | 8 } | null
+): MeasureInfo {
+  const top = ts?.top ?? 4;
+  const bottom = ts?.bottom ?? 4;
+  return { top, bottom, beatsPerMeasure: top * beatUnit(bottom) };
+}
+
+export function measureForBeat(beats: number, info: MeasureInfo): number {
+  if (info.beatsPerMeasure <= 0) return 0;
+  return Math.floor(beats / info.beatsPerMeasure);
+}
+
+export function beatInMeasure(beats: number, info: MeasureInfo): number {
+  const per = info.beatsPerMeasure;
+  const inMsr = beats - Math.floor(beats / per) * per;
+  const eps = 1e-6;
+  return Math.abs(inMsr - Math.round(inMsr)) < eps ? Math.round(inMsr) : inMsr;
+}
+
 export function renderSequence(
   diagrams: SavedChordShape[],
   bpm: number
