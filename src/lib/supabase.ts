@@ -6,6 +6,7 @@ import {
   getCustomSongs as getLocalSongs,
   saveCustomSong as saveLocalSong,
   deleteCustomSong as deleteLocalSong,
+  migrateSong,
 } from "./custom-songs";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -36,12 +37,26 @@ export async function loadSharedSongs(): Promise<SongTab[]> {
   const { data, error } = await sb.from("songs").select("data").order("updated_at", { ascending: false });
   if (error) return getLocalSongs();
   const rows = (data as { data: unknown }[] | null) ?? [];
-  return rows
-    .map((r) => {
-      const s = r.data as SongTab;
-      return typeof s === "object" && s !== null && s.id ? s : null;
-    })
-    .filter((s): s is SongTab => s !== null);
+  const migrated: SongTab[] = [];
+  for (const r of rows) {
+    const s = r.data as SongTab;
+    if (typeof s !== "object" || s === null || !s.id) continue;
+    const m = migrateSong(s);
+    migrated.push(m);
+    if (m !== s) {
+      await sb.from("songs").upsert(
+        {
+          id: m.id,
+          title: m.title,
+          artist: m.artist,
+          data: m,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id" }
+      );
+    }
+  }
+  return migrated;
 }
 
 export async function saveSharedSong(song: SongTab): Promise<void> {

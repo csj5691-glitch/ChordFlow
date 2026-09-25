@@ -4,13 +4,37 @@ import { SongTab } from "./types";
 
 const STORAGE_KEY = "chordflow-custom-songs";
 
+const SECTION_LABEL_MIGRATION: Record<string, string> = {
+  Verset: "Couplet",
+  "Pré-verset": "Pré-couplet",
+};
+
+export function migrateSong(song: SongTab): SongTab {
+  const diagrams = (song.diagrams ?? []).map((d) =>
+    d.sectionLabel && SECTION_LABEL_MIGRATION[d.sectionLabel]
+      ? { ...d, sectionLabel: SECTION_LABEL_MIGRATION[d.sectionLabel] }
+      : d
+  );
+  if (diagrams.every((d, i) => d === (song.diagrams ?? [])[i])) return song;
+  return { ...song, diagrams };
+}
+
 export function getCustomSongs(): SongTab[] {
   if (typeof window === "undefined") return [];
+  let songs: SongTab[] = [];
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    songs = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
   } catch {
     return [];
   }
+  let changed = false;
+  const migrated = songs.map((s) => {
+    const m = migrateSong(s);
+    if (m !== s) changed = true;
+    return m;
+  });
+  if (changed) localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+  return migrated;
 }
 
 export function getCustomSong(id: string): SongTab | null {
