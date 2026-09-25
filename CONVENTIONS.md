@@ -61,6 +61,10 @@ Pointage : `dotted: true` multiplie par 1.5 (`beatsForShape`).
 ## 4. Diagrammes (accords)
 
 - Fret 0 = corde à vide ; `muted` = corde muette (X).
+- **Deux sens distincts du mute (X)** :
+  - X **sans doigté/barré** = corde non jouée → **silence** en lecture (skip).
+  - X **avec doigté ou barré** = corde jouée étouffée (dead note) → la hauteur de la
+    frette est conservée mais très **atténuée et courte** (`SynthEvent.mutedNotes`).
 - `baseFret` = frette de départ du diagramme, `barreOn`/`barreCount` = barré.
 - Doigtés : 1 index, 2 majeur, 3 annulaire, 4 auriculaire, **5 = Pouce (T)**.
 - Capo : appliqué au calcul des fréquences, pas aux frettes du diagramme.

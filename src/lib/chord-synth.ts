@@ -9,6 +9,7 @@ export interface SynthEvent {
   id: string;
   label: string;
   notes: number[];
+  mutedNotes?: number[];
   start: number;
   duration: number;
   silence: boolean;
@@ -115,10 +116,12 @@ export function renderSequence(
           if (d.ending === 2 && !isLast) continue;
         }
         const dur = beatsForShape(d) * beatSec;
+        const { notes, mutedNotes } = shapeNotes(d);
         const ev: SynthEvent = {
           id: `${d.id}-${r}`,
           label: d.label,
-          notes: shapeNotes(d),
+          notes,
+          mutedNotes,
           start: cursor,
           duration: dur,
           silence: d.silence === true,
@@ -153,18 +156,24 @@ export function renderSequence(
   return events;
 }
 
-function shapeNotes(d: SavedChordShape): number[] {
+function shapeNotes(d: SavedChordShape): { notes: number[]; mutedNotes: number[] } {
   const notes: number[] = [];
+  const mutedNotes: number[] = [];
   for (let s = 0; s < STRING_COUNT; s++) {
-    if (d.muted && d.muted[s] === true) continue;
     let pos = 0;
     const fp = d.fingers.find((f) => f.string === s);
     if (fp) pos = fp.fret;
-    if (d.barreOn && s >= STRING_COUNT - (d.barreCount || STRING_COUNT)) {
-      pos = Math.max(d.baseFret || 1, pos);
-    }
+    const inBarre =
+      d.barreOn && s >= STRING_COUNT - (d.barreCount || STRING_COUNT);
+    if (inBarre) pos = Math.max(d.baseFret || 1, pos);
     pos = Math.max(d.capo || 0, pos);
+    if (d.muted && d.muted[s] === true) {
+      if (fp || inBarre) {
+        mutedNotes.push(STRING_BASE_FREQ[s] * Math.pow(2, pos / 12));
+      }
+      continue;
+    }
     notes.push(STRING_BASE_FREQ[s] * Math.pow(2, pos / 12));
   }
-  return notes.length > 0 ? notes : [0];
+  return { notes: notes.length > 0 ? notes : [0], mutedNotes };
 }

@@ -221,7 +221,14 @@ export default function Conductor({
     when: number
   ) => {
     const dur = Math.max(0.08, ev.duration);
-    if (ev.silence || ev.notes.length === 0 || ev.notes[0] === 0) return;
+    if (
+      ev.silence ||
+      ((ev.notes.length === 0 || ev.notes[0] === 0) &&
+        !(ev.mutedNotes && ev.mutedNotes.length > 0))
+    ) {
+      return;
+    }
+    if (ev.notes.length > 0 && ev.notes[0] !== 0) {
     for (const freq of ev.notes) {
       const osc = ctx.createOscillator();
       osc.type = "triangle";
@@ -240,6 +247,24 @@ export default function Conductor({
       lp.connect(master);
       osc.start(when);
       osc.stop(when + dur + 0.05);
+    }
+    }
+
+    if (ev.mutedNotes && ev.mutedNotes.length > 0) {
+      const mDur = Math.min(0.08, dur);
+      for (const f of ev.mutedNotes) {
+        const osc = ctx.createOscillator();
+        osc.type = "triangle";
+        osc.frequency.value = f;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, when);
+        g.gain.linearRampToValueAtTime(0.1, when + 0.01);
+        g.gain.linearRampToValueAtTime(0, when + mDur);
+        osc.connect(g);
+        g.connect(master);
+        osc.start(when);
+        osc.stop(when + mDur + 0.02);
+      }
     }
   };
 
@@ -404,7 +429,10 @@ export default function Conductor({
           >
             {events.map((ev, i) => {
               const active = i === index;
-              const isSilence = ev.silence || ev.notes.length === 0 || ev.notes[0] === 0;
+              const isSilence =
+                ev.silence ||
+                ((ev.notes.length === 0 || ev.notes[0] === 0) &&
+                  !(ev.mutedNotes && ev.mutedNotes.length > 0));
               return (
                 <div
                   key={ev.id + i}
@@ -484,7 +512,11 @@ export default function Conductor({
             </div>
             <p
               className={`text-2xl font-black tracking-tight ${
-                cur.silence || cur.notes[0] === 0 ? "text-zinc-500" : "text-amber-400"
+                cur.silence ||
+                (cur.notes[0] === 0 &&
+                  !(cur.mutedNotes && cur.mutedNotes.length > 0))
+                  ? "text-zinc-500"
+                  : "text-amber-400"
               }`}
             >
               {cur.silence ? "Silence" : cur.label}

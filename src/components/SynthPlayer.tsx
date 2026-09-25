@@ -46,9 +46,14 @@ export default function SynthPlayer({ diagrams, bpm }: SynthPlayerProps) {
     when: number
   ) => {
     const dur = Math.max(0.08, ev.duration);
-    if (ev.silence || ev.notes.length === 0 || ev.notes[0] === 0) {
+    if (
+      ev.silence ||
+      ((ev.notes.length === 0 || ev.notes[0] === 0) &&
+        !(ev.mutedNotes && ev.mutedNotes.length > 0))
+    ) {
       return;
     }
+    if (ev.notes.length > 0 && ev.notes[0] !== 0) {
     const saw = ctx.createOscillator();
     saw.type = "sawtooth";
     const osc2 = ctx.createOscillator();
@@ -87,6 +92,24 @@ export default function SynthPlayer({ diagrams, bpm }: SynthPlayerProps) {
     saw.stop(when + dur + 0.05);
     osc2.start(when);
     osc2.stop(when + dur + 0.05);
+    }
+
+    if (ev.mutedNotes && ev.mutedNotes.length > 0) {
+      const mDur = Math.min(0.08, dur);
+      for (const f of ev.mutedNotes) {
+        const o = ctx.createOscillator();
+        o.type = "triangle";
+        o.frequency.value = f;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, when);
+        g.gain.linearRampToValueAtTime(0.12, when + 0.01);
+        g.gain.linearRampToValueAtTime(0, when + mDur);
+        o.connect(g);
+        g.connect(master);
+        o.start(when);
+        o.stop(when + mDur + 0.02);
+      }
+    }
   };
 
   const play = useCallback(async () => {
