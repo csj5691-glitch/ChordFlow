@@ -261,6 +261,7 @@ export default function ChordShapeView({ shape, onNoteClick, legatoStrings }: Ch
         const last = STRING_COUNT - 1;
         const x1 = PADDING + first * STRING_SPACING - 2;
         const x2 = PADDING + last * STRING_SPACING + 2;
+        const barreCy = NUT_Y + FRET_SPACING * 0.5;
         return (
           <g key="barre">
             <rect
@@ -284,6 +285,19 @@ export default function ChordShapeView({ shape, onNoteClick, legatoStrings }: Ch
             >
               1
             </text>
+            {Array.from({ length: last - first + 1 }, (_, i) => {
+              const s = first + i;
+              if (strIsMuted(shape, s)) {
+                const mx = PADDING + s * STRING_SPACING;
+                return (
+                  <g key={`barre-mute-${s}`} className="fill-red-500 stroke-red-500">
+                    <line x1={mx - 5} y1={barreCy - 5} x2={mx + 5} y2={barreCy + 5} stroke="#ef4444" strokeWidth={2.5} />
+                    <line x1={mx - 5} y1={barreCy + 5} x2={mx + 5} y2={barreCy - 5} stroke="#ef4444" strokeWidth={2.5} />
+                  </g>
+                );
+              }
+              return null;
+            })}
           </g>
         );
       })()}
