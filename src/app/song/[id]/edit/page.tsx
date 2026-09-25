@@ -256,6 +256,7 @@ function EditSongView({ id }: { id: string }) {
       duration: 0,
       bar: true,
       repeats: 1,
+      sectionLabel: "Section",
     };
     upsert({ ...song, diagrams: [...(song.diagrams ?? []), bar] });
   }, [song, upsert]);
@@ -265,7 +266,18 @@ function EditSongView({ id }: { id: string }) {
       if (!song) return;
       const list = [...(song.diagrams ?? [])];
       if (!list[index]) return;
-      list[index] = { ...list[index], repeats: Math.min(32, Math.max(1, repeats)) };
+      list[index] = { ...list[index], repeats: Math.min(32, Math.max(0, repeats)) };
+      upsert({ ...song, diagrams: list });
+    },
+    [song, upsert]
+  );
+
+  const setSectionLabel = useCallback(
+    (index: number, sectionLabel: string) => {
+      if (!song) return;
+      const list = [...(song.diagrams ?? [])];
+      if (!list[index]) return;
+      list[index] = { ...list[index], sectionLabel };
       upsert({ ...song, diagrams: list });
     },
     [song, upsert]
@@ -353,7 +365,7 @@ function EditSongView({ id }: { id: string }) {
     let total = 0;
     for (const d of list) {
       if (d.bar) {
-        total += section * (d.repeats ?? 1);
+        total += section * Math.max(1, d.repeats ?? 1);
         section = 0;
       } else {
         section += beatsFor(d);
@@ -662,49 +674,79 @@ function EditSongView({ id }: { id: string }) {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-amber-400">
-                        {d.bar ? "Double barre" : d.label}
+                        {d.bar
+                          ? d.sectionLabel
+                            ? d.sectionLabel
+                            : "Double barre"
+                          : d.label}
                       </p>
                       <p className="text-[11px] text-zinc-500">
                         {d.bar
-                          ? `Rejoue la section précédente ${(d.repeats ?? 1)} fois`
+                          ? (d.repeats ?? 1) === 0
+                            ? "Délimite la fin de la section"
+                            : `Rejoue la section précédente ${(d.repeats ?? 1)} fois`
                           : `Position ${i + 1}`}
                       </p>
                     </div>
                     <div className="flex flex-col items-center gap-1.5 flex-shrink-0">
                       {d.bar ? (
-                        <div className="flex flex-col items-center gap-1">
-                          <span className="text-[10px] text-zinc-500">
-                            Répéter la section ×
-                          </span>
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => setRepeats(i, (d.repeats ?? 1) - 1)}
-                              disabled={(d.repeats ?? 1) <= 1}
-                              className="w-7 h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold"
-                              title="Moins de répétitions"
-                            >
-                              −
-                            </button>
-                            <input
-                              type="number"
-                              min={1}
-                              max={32}
-                              value={d.repeats ?? 1}
-                              onChange={(e) => {
-                                const v = parseInt(e.target.value, 10);
-                                if (!Number.isNaN(v)) setRepeats(i, v);
-                              }}
-                              className="w-12 h-7 rounded-md bg-zinc-950 border border-zinc-700 text-center text-sm text-amber-400 font-semibold focus:outline-none focus:border-amber-500/60"
-                            />
-                            <button
-                              onClick={() => setRepeats(i, (d.repeats ?? 1) + 1)}
-                              disabled={(d.repeats ?? 1) >= 32}
-                              className="w-7 h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold"
-                              title="Plus de répétitions"
-                            >
-                              +
-                            </button>
+                        <div className="flex flex-col items-center gap-1.5">
+                          <select
+                            value={d.sectionLabel ?? "Section"}
+                            onChange={(e) => setSectionLabel(i, e.target.value)}
+                            className="bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-amber-500/60 cursor-pointer"
+                            title="Type de section délimitée par cette double barre"
+                          >
+                            <option value="Section">Section</option>
+                            <option value="Intro">Intro</option>
+                            <option value="Verset">Verset</option>
+                            <option value="Pré-refrain">Pré-refrain</option>
+                            <option value="Refrain">Refrain</option>
+                            <option value="Pré-verset">Pré-verset</option>
+                            <option value="Pont">Pont</option>
+                            <option value="Solo">Solo</option>
+                            <option value="Outro">Outro</option>
+                          </select>
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="text-[10px] text-zinc-500">
+                              Répéter la section ×
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => setRepeats(i, (d.repeats ?? 1) - 1)}
+                                disabled={(d.repeats ?? 1) <= 0}
+                                className="w-7 h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold"
+                                title="Moins de répétitions"
+                              >
+                                −
+                              </button>
+                              <input
+                                type="number"
+                                min={0}
+                                max={32}
+                                value={d.repeats ?? 1}
+                                onChange={(e) => {
+                                  const v = parseInt(e.target.value, 10);
+                                  if (!Number.isNaN(v)) setRepeats(i, v);
+                                }}
+                                className="w-12 h-7 rounded-md bg-zinc-950 border border-zinc-700 text-center text-sm text-amber-400 font-semibold focus:outline-none focus:border-amber-500/60"
+                                title="0 = délimiter la section ; 1+ = répéter la section"
+                              />
+                              <button
+                                onClick={() => setRepeats(i, (d.repeats ?? 1) + 1)}
+                                disabled={(d.repeats ?? 1) >= 32}
+                                className="w-7 h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold"
+                                title="Plus de répétitions"
+                              >
+                                +
+                              </button>
+                            </div>
                           </div>
+                          {(d.repeats ?? 1) === 0 && (
+                            <span className="text-[10px] text-emerald-400">
+                              Définit la section, jouée 1×
+                            </span>
+                          )}
                         </div>
                       ) : (
                         <>

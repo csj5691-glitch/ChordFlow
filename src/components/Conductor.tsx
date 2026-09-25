@@ -455,6 +455,13 @@ export default function Conductor({
 
         {cur && (
           <div className="flex flex-col items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-center">
+              {cur.sectionLabel && (
+                <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-300/80 bg-amber-400/10 border border-amber-400/30 rounded-full px-2.5 py-0.5">
+                  {cur.sectionLabel}
+                </span>
+              )}
+            </div>
             <p
               className={`text-2xl font-black tracking-tight ${
                 cur.silence || cur.notes[0] === 0 ? "text-zinc-500" : "text-amber-400"

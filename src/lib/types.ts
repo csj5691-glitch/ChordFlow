@@ -71,6 +71,7 @@ export interface SavedChordShape {
   silence?: boolean;
   bar?: boolean;
   repeats?: number;
+  sectionLabel?: string;
   legatoTo?: number[];
 }
 

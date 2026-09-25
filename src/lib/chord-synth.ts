@@ -14,6 +14,7 @@ export interface SynthEvent {
   silence: boolean;
   shape: SavedChordShape;
   legato?: LegatoInfo[];
+  sectionLabel?: string;
 }
 
 export function beatsForShape(d: SavedChordShape): number {
@@ -69,9 +70,10 @@ export function renderSequence(
   let section: SavedChordShape[] = [];
   let cursor = 0;
 
-  const pushSection = (repeats: number) => {
-    if (repeats < 1) return;
-    for (let r = 0; r < repeats; r++) {
+  const pushSection = (repeats: number, label?: string) => {
+    if (repeats < 0) return;
+    const loops = Math.max(1, repeats);
+    for (let r = 0; r < loops; r++) {
       let prevShape: SavedChordShape | null = null;
       for (const d of section) {
         const dur = beatsForShape(d) * beatSec;
@@ -83,6 +85,7 @@ export function renderSequence(
           duration: dur,
           silence: d.silence === true,
           shape: d,
+          sectionLabel: r === 0 ? label : undefined,
         };
         if (prevShape && prevShape.legatoTo && prevShape.legatoTo.length > 0) {
           const lg = legatoBetween(prevShape, d);
@@ -98,7 +101,7 @@ export function renderSequence(
 
   for (const d of diagrams) {
     if (d.bar) {
-      pushSection(d.repeats ?? 1);
+      pushSection(d.repeats ?? 1, d.sectionLabel);
     } else {
       section.push(d);
     }
