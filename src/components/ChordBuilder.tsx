@@ -290,10 +290,13 @@ export default function ChordBuilder({ onChord, onShape, onSaveShape }: ChordBui
 
   const buildShape = useCallback((): SavedChordShape | null => {
     const hasNotes = pcs.length > 0;
-    if (!hasNotes) return null;
+    const hasFingers = fingers.length > 0;
+    const hasBarre = barreOn;
+    const hasMutes = muted.some(Boolean);
+    if (!hasNotes && !hasFingers && !hasBarre && !hasMutes) return null;
     return {
-      id: `${chordName}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      label: chordName || "?",
+      id: `${chordName || "mute"}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      label: chordName || "Mute",
       fingers: fingers.map((f) => ({ string: f.string, fret: f.fret + baseFret, finger: f.finger })),
       barreOn,
       barreCount,
@@ -301,8 +304,7 @@ export default function ChordBuilder({ onChord, onShape, onSaveShape }: ChordBui
       baseFret,
       capo,
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chordName, fingers, barreOn, barreCount, muted, baseFret, capo]);
+  }, [chordName, fingers, barreOn, barreCount, muted, baseFret, capo, pcs]);
 
   const saveShape = () => {
     const shape = buildShape();
@@ -331,13 +333,15 @@ export default function ChordBuilder({ onChord, onShape, onSaveShape }: ChordBui
   }, [chordName, fingers, barreOn, barreCount, muted, baseFret, capo]);
 
   const needsFingers = fingers.length === 0 && !barreOn;
+  const hasMute = muted.some(Boolean);
+  const hasShape = fingers.length > 0 || barreOn || hasMute;
 
   return (
     <div className="bg-zinc-800/40 border border-zinc-700/50 rounded-lg p-3">
       <div className="flex items-center justify-between gap-3 mb-2">
         <div>
           <p className="text-sm font-bold text-amber-400 flex items-center gap-2">
-            {chordName || "—"}
+            {chordName || (hasShape ? "Mute" : "—")}
             {chordName && (
               <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-green-400 bg-green-500/10 border border-green-500/40 rounded-full px-2 py-0.5">
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -346,9 +350,19 @@ export default function ChordBuilder({ onChord, onShape, onSaveShape }: ChordBui
                 Accord reconnu
               </span>
             )}
+            {hasShape && !chordName && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-red-400 bg-red-500/10 border border-red-500/40 rounded-full px-2 py-0.5">
+                Mute (dead note)
+              </span>
+            )}
           </p>
           <p className="text-[10px] text-zinc-500">
-            {hint || (needsFingers ? "Placez un barré ou des doigts sur le manche" : "Accord détecté")}
+            {hint ||
+              (needsFingers
+                ? hasMute
+                  ? "Cordes mutées sans doigté — ajoutez un doigté/barré pour une dead note, ou retirez les X"
+                  : "Placez un barré ou des doigts sur le manche"
+                : "Accord détecté")}
           </p>
           {pcs.length > 0 && (
             <p className="text-[10px] text-zinc-600 mt-0.5">
@@ -357,7 +371,7 @@ export default function ChordBuilder({ onChord, onShape, onSaveShape }: ChordBui
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {chordName && (
+          {hasShape && (
             <button
               onClick={saveShape}
               title={onSaveShape || onShape ? "Ajouter ce diagramme" : "Copier ce diagramme"}
