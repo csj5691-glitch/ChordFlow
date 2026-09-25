@@ -128,19 +128,30 @@ interface ChordBuilderProps {
   onChord?: (name: string) => void;
   onShape?: (shape: SavedChordShape) => void;
   onSaveShape?: (shape: SavedChordShape) => void;
+  initialShape?: SavedChordShape | null;
 }
 
 type Tool = 1 | 2 | 3 | 4 | 5;
 
-export default function ChordBuilder({ onChord, onShape, onSaveShape }: ChordBuilderProps) {
-  const [fingers, setFingers] = useState<PlacedFinger[]>([]);
-  const [barreOn, setBarreOn] = useState(false);
-  const [barreCount, setBarreCount] = useState(6);
-  const [muted, setMuted] = useState<boolean[]>(Array(STRING_COUNT).fill(false));
+export default function ChordBuilder({ onChord, onShape, onSaveShape, initialShape }: ChordBuilderProps) {
+  const [fingers, setFingers] = useState<PlacedFinger[]>(
+    initialShape
+      ? initialShape.fingers.map((f) => ({
+          string: f.string,
+          fret: f.fret - (initialShape.baseFret || 1),
+          finger: f.finger,
+        }))
+      : []
+  );
+  const [barreOn, setBarreOn] = useState(initialShape?.barreOn ?? false);
+  const [barreCount, setBarreCount] = useState(initialShape?.barreCount ?? 6);
+  const [muted, setMuted] = useState<boolean[]>(
+    initialShape?.muted ?? Array(STRING_COUNT).fill(false)
+  );
   const [tool, setTool] = useState<Tool>(1);
-  const [autoMode, setAutoMode] = useState(true);
-  const [baseFret, setBaseFret] = useState(1);
-  const [capo, setCapo] = useState(0);
+  const [autoMode, setAutoMode] = useState(initialShape ? false : true);
+  const [baseFret, setBaseFret] = useState(initialShape?.baseFret || 1);
+  const [capo, setCapo] = useState(initialShape?.capo ?? 0);
   const notifyRef = useRef(onChord);
   const shapeNotifyRef = useRef(onShape);
   const saveShapeRef = useRef(onSaveShape);

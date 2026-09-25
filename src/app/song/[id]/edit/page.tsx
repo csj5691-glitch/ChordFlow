@@ -36,6 +36,7 @@ import {
   Mic2,
   Music4,
   Upload,
+  Pencil,
 } from "lucide-react";
 
 function getStaticSong(id: string): SongTab | null {
@@ -91,6 +92,7 @@ function EditSongView({ id }: { id: string }) {
   const [legatoEdit, setLegatoEdit] = useState<number | null>(null);
   const [editableContent, setEditableContent] = useState<string | null>(null);
   const [showBuilder, setShowBuilder] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [copied, setCopied] = useState<SavedChordShape[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [conductorOpen, setConductorOpen] = useState(false);
@@ -131,15 +133,27 @@ function EditSongView({ id }: { id: string }) {
   const handleSaveBuilderShape = useCallback(
     (shape: SavedChordShape) => {
       setShowBuilder(false);
-      if (song) {
-        const next: SongTab = {
-          ...song,
-          diagrams: [...(song.diagrams ?? []), shape],
-        };
-        upsert(next);
+      if (!song) return;
+      const list = song.diagrams ?? [];
+      if (editingId) {
+        const idx = list.findIndex((d) => d.id === editingId);
+        if (idx >= 0) {
+          const next: SongTab = {
+            ...song,
+            diagrams: list.map((d) => (d.id === editingId ? { ...shape, id: d.id } : d)),
+          };
+          setEditingId(null);
+          upsert(next);
+          return;
+        }
       }
+      const next: SongTab = {
+        ...song,
+        diagrams: [...list, shape],
+      };
+      upsert(next);
     },
-    [song, upsert]
+    [song, editingId, upsert]
   );
 
   const removeDiagram = useCallback(
@@ -906,7 +920,11 @@ function EditSongView({ id }: { id: string }) {
 
               {showBuilder && (
                 <div id="chord-builder" className="mt-2">
-                  <ChordBuilder onSaveShape={handleSaveBuilderShape} />
+                  <ChordBuilder
+                    key={editingId ?? "new"}
+                    initialShape={editingId ? (song?.diagrams ?? []).find((d) => d.id === editingId) ?? null : null}
+                    onSaveShape={handleSaveBuilderShape}
+                  />
                 </div>
               )}
             </div>
@@ -1195,6 +1213,28 @@ function EditSongView({ id }: { id: string }) {
                         <span className="text-xs font-bold">
                           {selected.has(i) ? "✓" : String(i + 1)}
                         </span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingId(d.id);
+                          setShowBuilder(true);
+                          setTimeout(() => {
+                            document.getElementById("chord-builder")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          }, 50);
+                        }}
+                        disabled={Boolean(d.silence || d.bar || d.navKind)}
+                        className={`flex items-center gap-1 p-2 rounded-lg transition-colors ${
+                          d.silence || d.bar || d.navKind
+                            ? "bg-zinc-800/40 text-zinc-600 cursor-not-allowed"
+                            : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                        }`}
+                        title={
+                          d.silence || d.bar || d.navKind
+                            ? "Ce diagramme n'est pas un accord à éditer"
+                            : "Éditer ce diagramme"
+                        }
+                      >
+                        <Pencil className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => copyDiagrams(i)}
