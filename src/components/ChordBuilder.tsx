@@ -247,10 +247,7 @@ export default function ChordBuilder({ onChord, onShape, onSaveShape }: ChordBui
       if (y < NUT_Y) {
         const s = Math.round((x - PADDING) / STRING_SPACING);
         if (s >= 0 && s < STRING_COUNT) {
-          const fretted =
-            Boolean(fingers.find((f) => f.string === s)) ||
-            barreStrings().includes(s);
-          if (!fretted) toggleMute(s);
+          toggleMute(s);
         }
         return;
       }
@@ -262,7 +259,7 @@ export default function ChordBuilder({ onChord, onShape, onSaveShape }: ChordBui
 
       toggleFinger(s, f, autoMode ? 0 : tool);
     },
-    [autoMode, tool, toggleFinger, toggleMute, fingers, barreStrings]
+    [autoMode, tool, toggleFinger, toggleMute]
   );
 
   const clearAll = useCallback(() => {
@@ -641,9 +638,41 @@ export default function ChordBuilder({ onChord, onShape, onSaveShape }: ChordBui
         {fingers.map((f) => {
           const x = PADDING + f.string * STRING_SPACING;
           const isMutedStr = muted[f.string];
-          if (isMutedStr) return null;
           if (barreOn && f.fret === 0) return null;
           const cy = NUT_Y + f.fret * FRET_SPACING + FRET_SPACING / 2;
+          if (isMutedStr) {
+            return (
+              <g key={`dot-${f.string}-${f.fret}-${f.finger}`} opacity={0.45}>
+                <circle cx={x} cy={cy} r={9} fill="#f59e0b" />
+                <text
+                  x={x}
+                  y={cy + 4}
+                  textAnchor="middle"
+                  className="fill-black"
+                  fontSize="11"
+                  fontWeight="bold"
+                >
+                  {f.finger === 5 ? "T" : f.finger}
+                </text>
+                <line
+                  x1={x - 5}
+                  y1={cy - 5}
+                  x2={x + 5}
+                  y2={cy + 5}
+                  stroke="#ef4444"
+                  strokeWidth={2}
+                />
+                <line
+                  x1={x - 5}
+                  y1={cy + 5}
+                  x2={x + 5}
+                  y2={cy - 5}
+                  stroke="#ef4444"
+                  strokeWidth={2}
+                />
+              </g>
+            );
+          }
           return (
             <g key={`dot-${f.string}-${f.fret}-${f.finger}`}>
               <circle cx={x} cy={cy} r={9} fill="#f59e0b" />
@@ -667,22 +696,26 @@ export default function ChordBuilder({ onChord, onShape, onSaveShape }: ChordBui
       </p>
 
       <div className="flex items-center justify-center gap-2 mt-3 flex-wrap">
-        {STRING_NAMES.map((name, sIdx) => {
+{STRING_NAMES.map((name, sIdx) => {
           const isMutedStr = muted[sIdx];
           const fp = fingerAt(sIdx);
           const inBarre = barreStrings().includes(sIdx);
           const fretted = Boolean(fp) || inBarre;
           let label: string;
           let title: string;
-          if (isMutedStr) {
-            label = "X";
-            title = "Corde mutée — clic pour ouvrir";
-          } else if (fp) {
+          if (fp) {
             label = fp.finger === 5 ? "T" : `${fp.finger}`;
-            title = `Corde jouée (${fp.finger === 5 ? "pouce" : `doigt ${fp.finger}`})`;
+            title = isMutedStr
+              ? "Doigté gardé, corde muette (X) — clic pour réouvrir"
+              : `Corde jouée (${fp.finger === 5 ? "pouce" : `doigt ${fp.finger}`}) — clic pour muter`;
           } else if (inBarre) {
             label = "1";
-            title = "Corde barrée (index)";
+            title = isMutedStr
+              ? "Barré gardé, corde muette (X) — clic pour réouvrir"
+              : "Corde barrée (index) — clic pour muter";
+          } else if (isMutedStr) {
+            label = "X";
+            title = "Corde muette — clic pour ouvrir";
           } else {
             label = "o";
             title = "Corde ouverte — clic pour muter";
@@ -690,13 +723,13 @@ export default function ChordBuilder({ onChord, onShape, onSaveShape }: ChordBui
           return (
             <button
               key={`mute-${sIdx}`}
-              onClick={() => !fretted && toggleMute(sIdx)}
+              onClick={() => toggleMute(sIdx)}
               title={title}
               className={`w-9 h-9 rounded-lg text-[11px] font-mono font-bold border flex items-center justify-center transition-colors ${
                 isMutedStr
                   ? "bg-red-900/50 border-red-500/50 text-red-300 hover:bg-red-900/70"
                   : fretted
-                    ? "bg-amber-900/40 border-amber-500/40 text-amber-300 cursor-default"
+                    ? "bg-amber-900/40 border-amber-500/40 text-amber-300 hover:bg-amber-900/60"
                     : "bg-green-900/40 border-green-500/40 text-green-300 hover:bg-green-900/60"
               }`}
             >

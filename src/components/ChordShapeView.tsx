@@ -290,7 +290,7 @@ export default function ChordShapeView({ shape, onNoteClick, legatoStrings }: Ch
 
       {shape.fingers.map((f) => {
         const x = PADDING + f.string * STRING_SPACING;
-        if (strIsMuted(shape, f.string)) return null;
+        const fMuted = strIsMuted(shape, f.string);
         const row = f.fret - baseFret;
         if (row < 0 || row >= FRET_COUNT) return null;
         const cy = NUT_Y + row * FRET_SPACING + FRET_SPACING / 2;
@@ -300,6 +300,7 @@ export default function ChordShapeView({ shape, onNoteClick, legatoStrings }: Ch
             key={`dot-${f.string}-${f.fret}-${f.finger}`}
             onClick={onNoteClick ? () => onNoteClick(f.string) : undefined}
             style={onNoteClick ? { cursor: "pointer" } : undefined}
+            opacity={fMuted ? 0.45 : 1}
           >
             <circle cx={x} cy={cy} r={9} fill="#f59e0b" />
             <text
@@ -312,6 +313,12 @@ export default function ChordShapeView({ shape, onNoteClick, legatoStrings }: Ch
             >
 {f.finger === 5 ? "T" : f.finger}
             </text>
+            {fMuted && (
+              <>
+                <line x1={x - 5} y1={cy - 5} x2={x + 5} y2={cy + 5} stroke="#ef4444" strokeWidth={2} />
+                <line x1={x - 5} y1={cy + 5} x2={x + 5} y2={cy - 5} stroke="#ef4444" strokeWidth={2} />
+              </>
+            )}
             {isLegatoSrc && (
               <circle cx={x} cy={cy} r={14} fill="none" stroke="#38bdf8" strokeWidth={2.5} />
             )}
