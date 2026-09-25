@@ -79,6 +79,33 @@ export const BAR_KINDS: {
   { kind: "bothRepeat", label: "Début + fin répétition", symbol: "𝄆||𝄇" },
 ];
 
+export type NavKind =
+  | "segno"
+  | "coda"
+  | "fine"
+  | "dc"
+  | "ds"
+  | "dcAlCoda"
+  | "dsAlCoda"
+  | "dcAlFine"
+  | "dsAlFine";
+
+export const NAV_KINDS: {
+  kind: NavKind;
+  label: string;
+  name: string;
+}[] = [
+  { kind: "segno", label: "Segno", name: "𝄋" },
+  { kind: "coda", label: "Coda", name: "𝄌" },
+  { kind: "fine", label: "Fine", name: "Fine" },
+  { kind: "dc", label: "Da Capo (D.C.)", name: "D.C." },
+  { kind: "ds", label: "Dal Segno (D.S.)", name: "D.S." },
+  { kind: "dcAlCoda", label: "D.C. al Coda", name: "D.C. al Coda" },
+  { kind: "dsAlCoda", label: "D.S. al Coda", name: "D.S. al Coda" },
+  { kind: "dcAlFine", label: "D.C. al Fine", name: "D.C. al Fine" },
+  { kind: "dsAlFine", label: "D.S. al Fine", name: "D.S. al Fine" },
+];
+
 export interface SavedChordShape {
   id: string;
   label: string;
@@ -93,6 +120,7 @@ export interface SavedChordShape {
   silence?: boolean;
   bar?: boolean;
   barKind?: BarKind;
+  navKind?: NavKind;
   repeats?: number;
   sectionLabel?: string;
   legatoTo?: number[];

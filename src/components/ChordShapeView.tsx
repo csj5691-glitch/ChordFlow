@@ -3,6 +3,7 @@
 
 import type { SavedChordShape } from "@/lib/types";
 import { BarGlyph } from "@/components/BarGlyph";
+import { NavGlyph } from "@/components/NavGlyph";
 
 const STRING_NAMES = ["E", "A", "D", "G", "B", "e"];
 const STRING_COUNT = 6;
@@ -91,6 +92,17 @@ export default function ChordShapeView({ shape, onNoteClick, legatoStrings }: Ch
         <span className="font-mono text-[10px] text-zinc-500">
           {shape.label || "||"}
         </span>
+      </div>
+    );
+  }
+
+  if (shape.navKind) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-1 py-2">
+        <NavGlyph
+          kind={shape.navKind}
+          className="text-amber-500 w-10 h-9"
+        />
       </div>
     );
   }

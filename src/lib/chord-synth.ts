@@ -132,6 +132,9 @@ export function renderSequence(
   };
 
   for (const d of diagrams) {
+    if (d.navKind) {
+      continue;
+    }
     if (d.bar) {
       pushSection(d.repeats ?? 1, d.sectionLabel, d.barKind);
     } else {

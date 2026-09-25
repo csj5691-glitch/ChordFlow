@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import ChordBuilder from "@/components/ChordBuilder";
 import ChordShapeView from "@/components/ChordShapeView";
 import { BarGlyph } from "@/components/BarGlyph";
+import { NavGlyph } from "@/components/NavGlyph";
 import SynthPlayer from "@/components/SynthPlayer";
 import Conductor from "@/components/Conductor";
 import { loadAudioStems, saveAudioStem, getAudioStemUrl } from "@/lib/audio-store";
@@ -14,7 +15,9 @@ import { getSongTab } from "@/lib/mock-data";
 import { useSharedSong } from "@/lib/use-shared-song";
 import {
   BAR_KINDS,
+  NAV_KINDS,
   type BarKind,
+  type NavKind,
   type SavedChordShape,
   type SongTab,
 } from "@/lib/types";
@@ -293,6 +296,24 @@ function EditSongView({ id }: { id: string }) {
     [song, upsert]
   );
 
+  const addNav = useCallback((kind: NavKind) => {
+    if (!song) return;
+    const meta = NAV_KINDS.find((n) => n.kind === kind) ?? NAV_KINDS[0];
+    const nav: SavedChordShape = {
+      id: `nav-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      label: meta.label,
+      fingers: [],
+      barreOn: false,
+      barreCount: 6,
+      muted: [],
+      baseFret: 1,
+      capo: 0,
+      duration: 0,
+      navKind: kind,
+    };
+    upsert({ ...song, diagrams: [...(song.diagrams ?? []), nav] });
+  }, [song, upsert]);
+
   const setRepeats = useCallback(
     (index: number, repeats: number) => {
       if (!song) return;
@@ -399,6 +420,8 @@ function EditSongView({ id }: { id: string }) {
       if (d.bar) {
         total += section * Math.max(1, d.repeats ?? 1);
         section = 0;
+      } else if (d.navKind) {
+        // marqueur sans durée
       } else {
         section += beatsFor(d);
       }
@@ -414,7 +437,7 @@ function EditSongView({ id }: { id: string }) {
     let sectionBeats = 0;
     let cursor = 0;
     for (const d of list) {
-      if (d.bar) {
+      if (d.bar || d.navKind) {
         sectionBeats = 0;
         out.push({ measure: -1, beat: -1, downbeat: false });
         continue;
@@ -705,6 +728,21 @@ function EditSongView({ id }: { id: string }) {
                     {bk.label.split(" ")[0]}
                   </button>
                 ))}
+                <span className="text-[10px] text-zinc-600 select-none">Renvois</span>
+                {NAV_KINDS.map((nk) => (
+                  <button
+                    key={nk.kind}
+                    onClick={() => addNav(nk.kind)}
+                    className="flex flex-col items-center gap-0.5 text-[10px] font-semibold px-2 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-amber-300 transition-colors w-fit"
+                    title={nk.label}
+                  >
+                    <NavGlyph
+                      kind={nk.kind}
+                      className="text-zinc-300 w-10 h-8"
+                    />
+                    {nk.label.split(" ")[0]}
+                  </button>
+                ))}
                 {copied && (
                   <span className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-2.5 py-1">
                     <Copy className="w-3 h-3" />
@@ -775,19 +813,25 @@ function EditSongView({ id }: { id: string }) {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-amber-400">
-                        {d.bar
-                          ? d.sectionLabel && d.sectionLabel !== "Section"
-                            ? d.sectionLabel
-                            : BAR_KINDS.find((b) => b.kind === (d.barKind ?? "double"))
-                                ?.label ?? "Barre"
-                          : d.label}
+                        {d.navKind
+                          ? NAV_KINDS.find((n) => n.kind === d.navKind)?.label ??
+                            d.label
+                          : d.bar
+                            ? d.sectionLabel && d.sectionLabel !== "Section"
+                              ? d.sectionLabel
+                              : BAR_KINDS.find(
+                                  (b) => b.kind === (d.barKind ?? "double")
+                                )?.label ?? "Barre"
+                            : d.label}
                       </p>
                       <p className="text-[11px] text-zinc-500">
-                        {d.bar
-                          ? (d.repeats ?? 1) === 0
-                            ? "Délimite la fin de la section"
-                            : `Rejoue la section précédente ${(d.repeats ?? 1)} fois`
-                          : `Position ${i + 1}`}
+                        {d.navKind
+                          ? "Marqueur de renvoi (sans durée)"
+                          : d.bar
+                            ? (d.repeats ?? 1) === 0
+                              ? "Délimite la fin de la section"
+                              : `Rejoue la section précédente ${(d.repeats ?? 1)} fois`
+                            : `Position ${i + 1}`}
                       </p>
                     </div>
                     <div className="flex flex-col items-center gap-1.5 flex-shrink-0">
