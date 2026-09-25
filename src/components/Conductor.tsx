@@ -8,6 +8,7 @@ import { parseChordContent } from "@/lib/chord-parser";
 import { decodeHtmlEntities } from "@/lib/ug-scraper";
 import type { SavedChordShape, SongTab } from "@/lib/types";
 import ChordShapeView from "@/components/ChordShapeView";
+import { BarGlyph } from "@/components/BarGlyph";
 
 interface ConductorProps {
   diagrams: SavedChordShape[];
@@ -462,6 +463,12 @@ export default function Conductor({
         {cur && (
           <div className="flex flex-col items-center gap-2">
             <div className="flex items-center gap-2 flex-wrap justify-center">
+              {cur.barKind && (
+                <BarGlyph
+                  kind={cur.barKind}
+                  className="text-amber-500 w-8 h-7"
+                />
+              )}
               {cur.sectionLabel && (
                 <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-300/80 bg-amber-400/10 border border-amber-400/30 rounded-full px-2.5 py-0.5">
                   {cur.sectionLabel}

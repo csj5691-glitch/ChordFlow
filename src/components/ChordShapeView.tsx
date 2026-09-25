@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
 import type { SavedChordShape } from "@/lib/types";
+import { BarGlyph } from "@/components/BarGlyph";
 
 const STRING_NAMES = ["E", "A", "D", "G", "B", "e"];
 const STRING_COUNT = 6;
@@ -78,41 +79,19 @@ export default function ChordShapeView({ shape, onNoteClick, legatoStrings }: Ch
   }
 
   if (shape.bar) {
-    const cx = SVG_WIDTH / 2;
+    const kind = shape.barKind ?? "double";
+    const isRepeat =
+      kind === "beginRepeat" || kind === "endRepeat" || kind === "bothRepeat";
     return (
-      <svg
-        width="100%"
-        height="auto"
-        viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
-        className="mx-auto max-w-full h-auto"
-        preserveAspectRatio="xMidYMid meet"
-      >
-        <line
-          x1={cx - 7}
-          y1={MARKER_Y}
-          x2={cx - 7}
-          y2={NUT_Y + FRET_COUNT * FRET_SPACING}
-          stroke="#52525b"
-          strokeWidth={2}
+      <div className="flex flex-col items-center justify-center h-full gap-1 py-2">
+        <BarGlyph
+          kind={kind}
+          className={isRepeat ? "text-amber-500 w-10 h-9" : "text-zinc-400 w-10 h-9"}
         />
-        <line
-          x1={cx + 4}
-          y1={MARKER_Y}
-          x2={cx + 4}
-          y2={NUT_Y + FRET_COUNT * FRET_SPACING}
-          stroke="#52525b"
-          strokeWidth={5}
-        />
-        <text
-          x={cx + 4}
-          y={NUT_Y + FRET_COUNT * FRET_SPACING + 10}
-          textAnchor="middle"
-          className="fill-zinc-500"
-          fontSize="11"
-        >
+        <span className="font-mono text-[10px] text-zinc-500">
           {shape.label || "||"}
-        </text>
-      </svg>
+        </span>
+      </div>
     );
   }
 

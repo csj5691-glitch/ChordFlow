@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
-import type { SavedChordShape } from "./types";
+import type { SavedChordShape, BarKind } from "./types";
 
 const STRING_BASE_FREQ = [82.4069, 110.0, 146.832, 195.998, 246.942, 329.628];
 const STRING_COUNT = 6;
@@ -15,6 +15,7 @@ export interface SynthEvent {
   shape: SavedChordShape;
   legato?: LegatoInfo[];
   sectionLabel?: string;
+  barKind?: BarKind;
 }
 
 export function beatsForShape(d: SavedChordShape): number {
@@ -100,7 +101,7 @@ export function renderSequence(
   let section: SavedChordShape[] = [];
   let cursor = 0;
 
-  const pushSection = (repeats: number, label?: string) => {
+  const pushSection = (repeats: number, label?: string, barKind?: BarKind) => {
     if (repeats < 0) return;
     const loops = Math.max(1, repeats);
     for (let r = 0; r < loops; r++) {
@@ -116,6 +117,7 @@ export function renderSequence(
           silence: d.silence === true,
           shape: d,
           sectionLabel: r === 0 ? label : undefined,
+          barKind: r === 0 ? barKind : undefined,
         };
         if (prevShape && prevShape.legatoTo && prevShape.legatoTo.length > 0) {
           const lg = legatoBetween(prevShape, d);
@@ -131,7 +133,7 @@ export function renderSequence(
 
   for (const d of diagrams) {
     if (d.bar) {
-      pushSection(d.repeats ?? 1, d.sectionLabel);
+      pushSection(d.repeats ?? 1, d.sectionLabel, d.barKind);
     } else {
       section.push(d);
     }

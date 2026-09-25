@@ -43,7 +43,12 @@ Pointage : `dotted: true` multiplie par 1.5 (`beatsForShape`).
 
 ## 3. Structure de chanson et sections
 
-- `SavedChordShape.bar: true` = double barre séparant des sections (`sectionLabel`).
+- `SavedChordShape.bar: true` = barre de mesure séparant des sections.
+- `barKind` : type de barre de notation musicale (glyphes SVG dessinés dans `BarGlyph.tsx`) :
+  - `standard` : barre simple `│`
+  - `double` : barre double `‖` (défaut)
+  - `end` : barre finale (fin de morceau)
+  - `beginRepeat` / `endRepeat` / `bothRepeat` : signes de répétition `𝄆 ‖ ‖ 𝄇`
 - `repeats` sur une barre = nombre de fois que la **section précédente** est rejouée.
 - `repeats: 0` = délimite la section, jouée 1× (utilisé pour marquer le début d'une section).
 - Lecture : `renderSequence` aplatit les sections/répétitions (`Math.max(1, repeats)`).

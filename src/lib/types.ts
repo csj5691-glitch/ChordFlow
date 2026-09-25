@@ -58,6 +58,27 @@ export interface SavedChordFinger {
   finger: number;
 }
 
+export type BarKind =
+  | "standard"
+  | "double"
+  | "end"
+  | "beginRepeat"
+  | "endRepeat"
+  | "bothRepeat";
+
+export const BAR_KINDS: {
+  kind: BarKind;
+  label: string;
+  symbol: string;
+}[] = [
+  { kind: "standard", label: "Barre simple", symbol: "|" },
+  { kind: "double", label: "Barre double", symbol: "||" },
+  { kind: "end", label: "Barre finale", symbol: "‖|" },
+  { kind: "beginRepeat", label: "Début répétition", symbol: "𝄆||" },
+  { kind: "endRepeat", label: "Fin répétition", symbol: "||𝄇" },
+  { kind: "bothRepeat", label: "Début + fin répétition", symbol: "𝄆||𝄇" },
+];
+
 export interface SavedChordShape {
   id: string;
   label: string;
@@ -71,6 +92,7 @@ export interface SavedChordShape {
   dotted?: boolean;
   silence?: boolean;
   bar?: boolean;
+  barKind?: BarKind;
   repeats?: number;
   sectionLabel?: string;
   legatoTo?: number[];

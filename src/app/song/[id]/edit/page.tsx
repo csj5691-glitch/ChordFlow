@@ -5,13 +5,19 @@ import { use, useState, useCallback, useRef, useEffect, useSyncExternalStore } f
 import { useRouter } from "next/navigation";
 import ChordBuilder from "@/components/ChordBuilder";
 import ChordShapeView from "@/components/ChordShapeView";
+import { BarGlyph } from "@/components/BarGlyph";
 import SynthPlayer from "@/components/SynthPlayer";
 import Conductor from "@/components/Conductor";
 import { loadAudioStems, saveAudioStem, getAudioStemUrl } from "@/lib/audio-store";
 import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure } from "@/lib/chord-synth";
 import { getSongTab } from "@/lib/mock-data";
 import { useSharedSong } from "@/lib/use-shared-song";
-import type { SavedChordShape, SongTab } from "@/lib/types";
+import {
+  BAR_KINDS,
+  type BarKind,
+  type SavedChordShape,
+  type SongTab,
+} from "@/lib/types";
 import {
   ArrowLeft,
   FileText,
@@ -24,7 +30,6 @@ import {
   Save,
   Copy,
   Clipboard,
-  SeparatorVertical,
   Mic2,
   Music4,
   Upload,
@@ -255,11 +260,12 @@ function EditSongView({ id }: { id: string }) {
     upsert({ ...song, diagrams: [...(song.diagrams ?? []), silence] });
   }, [song, upsert]);
 
-  const addBar = useCallback(() => {
+  const addBar = useCallback((kind: BarKind = "double") => {
     if (!song) return;
+    const meta = BAR_KINDS.find((b) => b.kind === kind) ?? BAR_KINDS[1];
     const bar: SavedChordShape = {
       id: `bar-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      label: "||",
+      label: meta.symbol,
       fingers: [],
       barreOn: false,
       barreCount: 6,
@@ -268,11 +274,24 @@ function EditSongView({ id }: { id: string }) {
       capo: 0,
       duration: 0,
       bar: true,
+      barKind: kind,
       repeats: 1,
       sectionLabel: "Section",
     };
     upsert({ ...song, diagrams: [...(song.diagrams ?? []), bar] });
   }, [song, upsert]);
+
+  const setBarKind = useCallback(
+    (index: number, kind: BarKind) => {
+      if (!song) return;
+      const list = [...(song.diagrams ?? [])];
+      if (!list[index]) return;
+      const meta = BAR_KINDS.find((b) => b.kind === kind) ?? BAR_KINDS[1];
+      list[index] = { ...list[index], barKind: kind, label: meta.symbol };
+      upsert({ ...song, diagrams: list });
+    },
+    [song, upsert]
+  );
 
   const setRepeats = useCallback(
     (index: number, repeats: number) => {
@@ -672,14 +691,20 @@ function EditSongView({ id }: { id: string }) {
                   <Pause className="w-3.5 h-3.5" />
                   Silence
                 </button>
-                <button
-                  onClick={addBar}
-                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-700 text-zinc-200 hover:bg-zinc-600 transition-colors w-fit"
-                  title="Double barre : la section précédente sera répétée"
-                >
-                  <SeparatorVertical className="w-3.5 h-3.5" />
-                  Double barre
-                </button>
+                {BAR_KINDS.map((bk) => (
+                  <button
+                    key={bk.kind}
+                    onClick={() => addBar(bk.kind)}
+                    className="flex flex-col items-center gap-0.5 text-[10px] font-semibold px-2 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-amber-300 transition-colors w-fit"
+                    title={bk.label}
+                  >
+                    <BarGlyph
+                      kind={bk.kind}
+                      className="text-zinc-300 w-10 h-9"
+                    />
+                    {bk.label.split(" ")[0]}
+                  </button>
+                ))}
                 {copied && (
                   <span className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-2.5 py-1">
                     <Copy className="w-3 h-3" />
@@ -751,9 +776,10 @@ function EditSongView({ id }: { id: string }) {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-amber-400">
                         {d.bar
-                          ? d.sectionLabel
+                          ? d.sectionLabel && d.sectionLabel !== "Section"
                             ? d.sectionLabel
-                            : "Double barre"
+                            : BAR_KINDS.find((b) => b.kind === (d.barKind ?? "double"))
+                                ?.label ?? "Barre"
                           : d.label}
                       </p>
                       <p className="text-[11px] text-zinc-500">
@@ -766,13 +792,25 @@ function EditSongView({ id }: { id: string }) {
                     </div>
                     <div className="flex flex-col items-center gap-1.5 flex-shrink-0">
                       {d.bar ? (
-                        <div className="flex flex-col items-center gap-1.5">
-                          <select
-                            value={d.sectionLabel ?? "Section"}
-                            onChange={(e) => setSectionLabel(i, e.target.value)}
-                            className="bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-amber-500/60 cursor-pointer"
-                            title="Type de section délimitée par cette double barre"
-                          >
+<div className="flex flex-col items-center gap-1.5">
+                        <select
+                          value={d.barKind ?? "double"}
+                          onChange={(e) => setBarKind(i, e.target.value as BarKind)}
+                          className="bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-amber-500/60 cursor-pointer"
+                          title="Type de barre de mesure"
+                        >
+                          {BAR_KINDS.map((bk) => (
+                            <option key={bk.kind} value={bk.kind}>
+                              {bk.label}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={d.sectionLabel ?? "Section"}
+                          onChange={(e) => setSectionLabel(i, e.target.value)}
+                          className="bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-amber-500/60 cursor-pointer"
+                          title="Type de section délimitée par cette barre"
+                        >
                             <option value="Section">Section</option>
                             <option value="Intro">Intro</option>
                             <option value="Verset">Verset</option>
