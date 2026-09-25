@@ -762,13 +762,6 @@ function EditSongView({ id }: { id: string }) {
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <button
-                  onClick={() => setShowBuilder((v) => !v)}
-                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-sky-500 text-black hover:bg-sky-400 transition-colors w-fit"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  {showBuilder ? "Masquer le créateur" : "Créer un diagramme"}
-                </button>
-                <button
                   onClick={addSilence}
                   className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-700 text-zinc-200 hover:bg-zinc-600 transition-colors w-fit"
                   title="Ajouter un silence à la séquence"
@@ -912,7 +905,7 @@ function EditSongView({ id }: { id: string }) {
               </div>
 
               {showBuilder && (
-                <div className="mt-2">
+                <div id="chord-builder" className="mt-2">
                   <ChordBuilder onSaveShape={handleSaveBuilderShape} />
                 </div>
               )}
@@ -1249,6 +1242,26 @@ function EditSongView({ id }: { id: string }) {
           </div>
         )}
       </main>
+      {!conductorOpen && (
+        <button
+          onClick={() => {
+            setShowBuilder((v) => {
+              const next = !v;
+              if (next) {
+                setTimeout(() => {
+                  document.getElementById("chord-builder")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }, 50);
+              }
+              return next;
+            });
+          }}
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-full bg-sky-500 text-black hover:bg-sky-400 shadow-lg shadow-sky-500/30 transition-colors"
+          title={showBuilder ? "Masquer le créateur de diagramme" : "Créer un nouveau diagramme"}
+        >
+          <Plus className="w-4 h-4" />
+          {showBuilder ? "Masquer le créateur" : "Créer un diagramme"}
+        </button>
+      )}
       {conductorOpen && (
         <Conductor
           diagrams={diagrams}
