@@ -225,6 +225,17 @@ function EditSongView({ id }: { id: string }) {
     [song, upsert]
   );
 
+  const setEnding = useCallback(
+    (index: number, ending: 1 | 2 | undefined) => {
+      if (!song) return;
+      const list = [...(song.diagrams ?? [])];
+      if (!list[index]) return;
+      list[index] = { ...list[index], ending };
+      upsert({ ...song, diagrams: list });
+    },
+    [song, upsert]
+  );
+
   const setLegato = useCallback(
     (index: number, stringIndex: number | null) => {
       if (!song) return;
@@ -414,19 +425,32 @@ function EditSongView({ id }: { id: string }) {
 
   const totalBeats = (() => {
     const list = song?.diagrams ?? [];
-    let section = 0;
+    let sectionBeats = 0;
+    let ending1 = 0;
+    let ending2 = 0;
     let total = 0;
     for (const d of list) {
       if (d.bar) {
-        total += section * Math.max(1, d.repeats ?? 1);
-        section = 0;
+        const loops = Math.max(1, d.repeats ?? 1);
+        if (loops > 1 && (ending1 > 0 || ending2 > 0)) {
+          total += sectionBeats * loops + ending1 * (loops - 1);
+        } else {
+          total += sectionBeats * loops;
+        }
+        sectionBeats = 0;
+        ending1 = 0;
+        ending2 = 0;
       } else if (d.navKind) {
         // marqueur sans durée
+      } else if (d.ending === 1) {
+        ending1 += beatsFor(d);
+      } else if (d.ending === 2) {
+        ending2 += beatsFor(d);
       } else {
-        section += beatsFor(d);
+        sectionBeats += beatsFor(d);
       }
     }
-    return total + section;
+    return total + sectionBeats;
   })();
 
   const measureState = (() => {
@@ -434,11 +458,9 @@ function EditSongView({ id }: { id: string }) {
     const mi = measureInfoFromSignature(song?.timeSignature);
     const hasSignature = Boolean(song?.timeSignature);
     const out: { measure: number; beat: number; downbeat: boolean }[] = [];
-    let sectionBeats = 0;
     let cursor = 0;
     for (const d of list) {
       if (d.bar || d.navKind) {
-        sectionBeats = 0;
         out.push({ measure: -1, beat: -1, downbeat: false });
         continue;
       }
@@ -448,7 +470,6 @@ function EditSongView({ id }: { id: string }) {
       const downbeat = hasSignature && b === 0;
       out.push({ measure: m, beat: b, downbeat });
       cursor += beats;
-      sectionBeats += beats;
     }
     return { hasSignature, mi, rows: out };
   })();
@@ -909,9 +930,21 @@ function EditSongView({ id }: { id: string }) {
                       ) : (
                         <>
                           <div className="flex items-center gap-1">
-                            <select
-                              value={d.duration ?? 1}
-                              onChange={(e) => setDuration(i, parseFloat(e.target.value))}
+                          <select
+                            value={d.ending ? String(d.ending) : ""}
+                            onChange={(e) =>
+                              setEnding(i, e.target.value ? (parseInt(e.target.value, 10) as 1 | 2) : undefined)
+                            }
+                            className="bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-amber-500/60 cursor-pointer"
+                            title="Fin alternative : ce diagramme n'est joué qu'au tour indiqué quand la barre de reprise répète cette section (1 = 1ʳᵉ fin, 2 = dernière fin)"
+                          >
+                            <option value="">Fin —</option>
+                            <option value="1">1.</option>
+                            <option value="2">2.</option>
+                          </select>
+                          <select
+                            value={d.duration ?? 1}
+                            onChange={(e) => setDuration(i, parseFloat(e.target.value))}
                               className="bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-amber-500/60 cursor-pointer"
                               title="Durée de cet accord"
                             >

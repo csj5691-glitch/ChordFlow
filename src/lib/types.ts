@@ -121,6 +121,7 @@ export interface SavedChordShape {
   bar?: boolean;
   barKind?: BarKind;
   navKind?: NavKind;
+  ending?: 1 | 2;
   repeats?: number;
   sectionLabel?: string;
   legatoTo?: number[];

@@ -51,6 +51,9 @@ Pointage : `dotted: true` multiplie par 1.5 (`beatsForShape`).
   - `beginRepeat` / `endRepeat` / `bothRepeat` : signes de répétition `𝄆 ‖ ‖ 𝄇`
 - `repeats` sur une barre = nombre de fois que la **section précédente** est rejouée.
 - `repeats: 0` = délimite la section, jouée 1× (utilisé pour marquer le début d'une section).
+- **Fins alternatives (`ending: 1 | 2`)** : sur un diagramme d'une section répétée — le tour 1
+  joue les fins `1.`, le dernier tour joue les fins `2.`. Effet **uniquement** si la barre qui
+  suit la section a `repeats ≥ 2` (au moins 2 passages). Sans répétition, toutes les fins jouent.
 - **Renvois (`navKind`)** : marqueurs de direction sans durée (`SavedChordShape.navKind`), ignorés par la lecture — Segno 𝄋, Coda 𝄌, Fine, D.C., D.S., D.C./D.S. al Coda, D.C./D.S. al Fine. Glyphes SVG dans `NavGlyph.tsx`.
 - Lecture : `renderSequence` aplatit les sections/répétitions (`Math.max(1, repeats)`).
 - Labels de sections : Section, Intro, Verset, Pré-refrain, Refrain, Pré-verset, Pont, Solo, Outro.

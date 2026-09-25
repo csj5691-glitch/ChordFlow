@@ -116,7 +116,17 @@ export default function ChordShapeView({ shape, onNoteClick, legatoStrings }: Ch
   };
 
   return (
-    <svg
+    <div className="relative">
+      {shape.ending && (
+        <span
+          className={`absolute -top-1 right-0 text-[10px] font-mono font-bold px-1 rounded ${
+            shape.ending === 1 ? "bg-sky-500/20 text-sky-300" : "bg-amber-500/20 text-amber-300"
+          }`}
+        >
+          {shape.ending}.
+        </span>
+      )}
+      <svg
       width="100%"
       height="auto"
       viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
@@ -309,5 +319,6 @@ export default function ChordShapeView({ shape, onNoteClick, legatoStrings }: Ch
         );
       })}
     </svg>
+    </div>
   );
 }

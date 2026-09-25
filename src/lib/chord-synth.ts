@@ -104,9 +104,16 @@ export function renderSequence(
   const pushSection = (repeats: number, label?: string, barKind?: BarKind) => {
     if (repeats < 0) return;
     const loops = Math.max(1, repeats);
+    const hasEndings = section.some((d) => d.ending != null);
+    const useEndings = loops > 1 && hasEndings;
     for (let r = 0; r < loops; r++) {
+      const isLast = r === loops - 1;
       let prevShape: SavedChordShape | null = null;
       for (const d of section) {
+        if (useEndings) {
+          if (d.ending === 1 && isLast) continue;
+          if (d.ending === 2 && !isLast) continue;
+        }
         const dur = beatsForShape(d) * beatSec;
         const ev: SynthEvent = {
           id: `${d.id}-${r}`,
