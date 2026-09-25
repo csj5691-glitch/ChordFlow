@@ -91,7 +91,8 @@ function EditSongView({ id }: { id: string }) {
   const [legatoEdit, setLegatoEdit] = useState<number | null>(null);
   const [editableContent, setEditableContent] = useState<string | null>(null);
   const [showBuilder, setShowBuilder] = useState(false);
-  const [copied, setCopied] = useState<SavedChordShape | null>(null);
+  const [copied, setCopied] = useState<SavedChordShape[]>([]);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [conductorOpen, setConductorOpen] = useState(false);
   const [toolbarMenu, setToolbarMenu] = useState<"bar" | "nav" | null>(null);
   const [expandedBar, setExpandedBar] = useState<string | null>(null);
@@ -156,7 +157,8 @@ function EditSongView({ id }: { id: string }) {
   const clearDiagrams = useCallback(() => {
     if (!song) return;
     upsert({ ...song, diagrams: [] });
-    setCopied(null);
+    setCopied([]);
+    setSelected(new Set());
   }, [song, upsert]);
 
   const moveDiagram = useCallback(
@@ -171,26 +173,50 @@ function EditSongView({ id }: { id: string }) {
     [song, upsert]
   );
 
-  const copyDiagram = useCallback((index: number) => {
-    if (!song) return;
-    const d = song.diagrams?.[index];
-    if (!d) return;
-    setCopied(d);
-  }, [song]);
+  const copyDiagrams = useCallback(
+    (index?: number) => {
+      if (!song) return;
+      const list = song.diagrams ?? [];
+      const indices =
+        selected.size > 0
+          ? [...selected].sort((a, b) => a - b)
+          : index !== undefined
+            ? [index]
+            : [];
+      const picked = indices
+        .filter((i) => i >= 0 && i < list.length)
+        .map((i) => list[i]);
+      if (picked.length === 0) return;
+      setCopied(picked.map((d) => ({ ...d, id: `${d.id}-copy` })));
+    },
+    [song, selected]
+  );
 
-  const pasteDiagram = useCallback(
+  const pasteDiagrams = useCallback(
     (index: number) => {
-      if (!song || !copied) return;
+      if (!song || copied.length === 0) return;
       const list = [...(song.diagrams ?? [])];
-      const paste: SavedChordShape = {
-        ...copied,
-        id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      };
-      list.splice(index + 1, 0, paste);
+      const pasted = copied.map((d) => ({
+        ...d,
+        id: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      }));
+      list.splice(index + 1, 0, ...pasted);
       upsert({ ...song, diagrams: list });
     },
     [song, copied, upsert]
   );
+
+  const toggleSelected = useCallback((index: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  }, []);
 
   const saveContent = useCallback(() => {
     if (!song) return;
@@ -848,11 +874,30 @@ function EditSongView({ id }: { id: string }) {
                     </div>
                   )}
                 </div>
-                {copied && (
+                {copied.length > 0 && (
                   <span className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-2.5 py-1">
                     <Copy className="w-3 h-3" />
-                    {copied.label} copié
+                    {copied.length} {copied.length > 1 ? "diagrammes" : "diagramme"} copié{copied.length > 1 ? "s" : ""}
                   </span>
+                )}
+                {selected.size > 0 && (
+                  <button
+                    onClick={() => setSelected(new Set())}
+                    className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit"
+                    title="Effacer la sélection"
+                  >
+                    {selected.size} sélectionné{selected.size > 1 ? "s" : ""} — effacer
+                  </button>
+                )}
+                {selected.size > 0 && (
+                  <button
+                    onClick={() => copyDiagrams()}
+                    className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-sky-500 text-black hover:bg-sky-400 transition-colors w-fit"
+                    title="Copier les diagrammes sélectionnés"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    Copier la sélection
+                  </button>
                 )}
                 {diagrams.length > 0 && (
                   <button
@@ -1142,15 +1187,32 @@ function EditSongView({ id }: { id: string }) {
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       <button
-                        onClick={() => copyDiagram(i)}
+                        onClick={() => toggleSelected(i)}
+                        className={`flex items-center justify-center w-9 h-9 rounded-lg border transition-colors ${
+                          selected.has(i)
+                            ? "bg-sky-500 border-sky-400 text-black"
+                            : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
+                        }`}
+                        title={
+                          selected.has(i)
+                            ? "Désélectionner ce diagramme"
+                            : "Sélectionner ce diagramme (copie multiple)"
+                        }
+                      >
+                        <span className="text-xs font-bold">
+                          {selected.has(i) ? "✓" : String(i + 1)}
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => copyDiagrams(i)}
                         className="flex items-center gap-1 p-2 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
-                        title="Copier ce diagramme"
+                        title="Copier ce diagramme (ou la sélection si des coches sont actives)"
                       >
                         <Copy className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => pasteDiagram(i)}
-                        disabled={!copied}
+                        onClick={() => pasteDiagrams(i)}
+                        disabled={copied.length === 0}
                         className="flex items-center gap-1 p-2 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                         title="Coller après ce diagramme"
                       >
