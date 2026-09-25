@@ -56,7 +56,7 @@ Pointage : `dotted: true` multiplie par 1.5 (`beatsForShape`).
   suit la section a `repeats ≥ 2` (au moins 2 passages). Sans répétition, toutes les fins jouent.
 - **Renvois (`navKind`)** : marqueurs de direction sans durée (`SavedChordShape.navKind`), ignorés par la lecture — Segno 𝄋, Coda 𝄌, Fine, D.C., D.S., D.C./D.S. al Coda, D.C./D.S. al Fine. Glyphes SVG dans `NavGlyph.tsx`.
 - Lecture : `renderSequence` aplatit les sections/répétitions (`Math.max(1, repeats)`).
-- Labels de sections : Section, Intro, Verset, Pré-refrain, Refrain, Pré-verset, Pont, Solo, Outro.
+- Labels de sections : Section, Intro, Couplet, Pré-refrain, Refrain, Pré-couplet, Pont, Solo, Outro.
 
 ## 4. Diagrammes (accords)
 

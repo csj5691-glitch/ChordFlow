@@ -1033,10 +1033,10 @@ function EditSongView({ id }: { id: string }) {
                               >
                                 <option value="Section">Section</option>
                                 <option value="Intro">Intro</option>
-                                <option value="Verset">Verset</option>
+                                <option value="Couplet">Couplet</option>
                                 <option value="Pré-refrain">Pré-refrain</option>
                                 <option value="Refrain">Refrain</option>
-                                <option value="Pré-verset">Pré-verset</option>
+                                <option value="Pré-couplet">Pré-couplet</option>
                                 <option value="Pont">Pont</option>
                                 <option value="Solo">Solo</option>
                                 <option value="Outro">Outro</option>
