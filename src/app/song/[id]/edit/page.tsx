@@ -62,6 +62,12 @@ const DURATION_OPTIONS = [
   { label: "carrée · 8 temps", note: "carrée", beats: 8 },
 ] as const;
 
+const NAV_GROUPS: { title: string; kinds: NavKind[] }[] = [
+  { title: "Marqueurs", kinds: ["segno", "coda", "fine"] },
+  { title: "Directions", kinds: ["dc", "ds"] },
+  { title: "Combinaisons", kinds: ["dcAlCoda", "dsAlCoda", "dcAlFine", "dsAlFine"] },
+];
+
 function formatBeats(beats: number): string {
   const base = DURATION_OPTIONS.find((o) => o.beats === beats);
   if (base) return base.note;
@@ -87,6 +93,8 @@ function EditSongView({ id }: { id: string }) {
   const [showBuilder, setShowBuilder] = useState(false);
   const [copied, setCopied] = useState<SavedChordShape | null>(null);
   const [conductorOpen, setConductorOpen] = useState(false);
+  const [toolbarMenu, setToolbarMenu] = useState<"bar" | "nav" | null>(null);
+  const [expandedBar, setExpandedBar] = useState<string | null>(null);
   const [instUrl, setInstUrl] = useState<string | null>(null);
   const [instName, setInstName] = useState("");
   const [vocalsUrl, setVocalsUrl] = useState<string | null>(null);
@@ -109,6 +117,13 @@ function EditSongView({ id }: { id: string }) {
       setEditableContent(song.content);
     }
   }, [song]);
+
+  useEffect(() => {
+    if (!toolbarMenu) return;
+    const close = () => setToolbarMenu(null);
+    window.addEventListener("pointerdown", close);
+    return () => window.removeEventListener("pointerdown", close);
+  }, [toolbarMenu]);
 
   const content = editableContent ?? song?.content ?? "";
 
@@ -735,35 +750,104 @@ function EditSongView({ id }: { id: string }) {
                   <Pause className="w-3.5 h-3.5" />
                   Silence
                 </button>
-                {BAR_KINDS.map((bk) => (
+                <div className="relative">
                   <button
-                    key={bk.kind}
-                    onClick={() => addBar(bk.kind)}
-                    className="flex flex-col items-center gap-0.5 text-[10px] font-semibold px-2 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-amber-300 transition-colors w-fit"
-                    title={bk.label}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => setToolbarMenu(toolbarMenu === "bar" ? null : "bar")}
+                    className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit ${
+                      toolbarMenu === "bar"
+                        ? "bg-amber-500 text-black"
+                        : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                    }`}
+                    title="Ajouter une barre de mesure"
                   >
-                    <BarGlyph
-                      kind={bk.kind}
-                      className="text-zinc-300 w-10 h-9"
-                    />
-                    {bk.label.split(" ")[0]}
+                    <BarGlyph kind="double" className="w-5 h-4 text-current" />
+                    Barre
+                    {toolbarMenu === "bar" ? (
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    )}
                   </button>
-                ))}
-                <span className="text-[10px] text-zinc-600 select-none">Renvois</span>
-                {NAV_KINDS.map((nk) => (
+                  {toolbarMenu === "bar" && (
+                    <div
+                      onPointerDown={(e) => e.stopPropagation()}
+                      className="absolute z-20 left-0 mt-1 w-52 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl p-2 flex flex-col gap-1"
+                    >
+                      <span className="text-[10px] text-zinc-500 px-2 pt-1 select-none">
+                        Barres de mesure
+                      </span>
+                      {BAR_KINDS.map((bk) => (
+                        <button
+                          key={bk.kind}
+                          onClick={() => {
+                            addBar(bk.kind);
+                            setToolbarMenu(null);
+                          }}
+                          className="flex items-center gap-2 text-xs font-semibold px-2 py-1.5 rounded-md bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-amber-300 transition-colors text-left w-full"
+                        >
+                          <span className="w-8 flex justify-center">
+                            <BarGlyph kind={bk.kind} className="w-7 h-6 text-zinc-300" />
+                          </span>
+                          {bk.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="relative">
                   <button
-                    key={nk.kind}
-                    onClick={() => addNav(nk.kind)}
-                    className="flex flex-col items-center gap-0.5 text-[10px] font-semibold px-2 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-amber-300 transition-colors w-fit"
-                    title={nk.label}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => setToolbarMenu(toolbarMenu === "nav" ? null : "nav")}
+                    className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit ${
+                      toolbarMenu === "nav"
+                        ? "bg-amber-500 text-black"
+                        : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                    }`}
+                    title="Ajouter un renvoi (segno, coda, fine, D.C., D.S.)"
                   >
-                    <NavGlyph
-                      kind={nk.kind}
-                      className="text-zinc-300 w-10 h-8"
-                    />
-                    {nk.label.split(" ")[0]}
+                    <NavGlyph kind="segno" className="w-5 h-5 text-current" />
+                    Renvoi
+                    {toolbarMenu === "nav" ? (
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    )}
                   </button>
-                ))}
+                  {toolbarMenu === "nav" && (
+                    <div
+                      onPointerDown={(e) => e.stopPropagation()}
+                      className="absolute z-20 left-0 mt-1 w-56 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl p-2 flex flex-col gap-1"
+                    >
+                      {NAV_GROUPS.map((g) => (
+                        <div key={g.title} className="flex flex-col gap-1">
+                          <span className="text-[10px] text-zinc-500 px-2 pt-1 select-none">
+                            {g.title}
+                          </span>
+                          {g.kinds.map((kind) => {
+                            const nk = NAV_KINDS.find((k) => k.kind === kind);
+                            if (!nk) return null;
+                            return (
+                              <button
+                                key={nk.kind}
+                                onClick={() => {
+                                  addNav(nk.kind);
+                                  setToolbarMenu(null);
+                                }}
+                                className="flex items-center gap-2 text-xs font-semibold px-2 py-1.5 rounded-md bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-amber-300 transition-colors text-left w-full"
+                              >
+                                <span className="w-8 flex justify-center">
+                                  <NavGlyph kind={nk.kind} className="w-6 h-5 text-zinc-300" />
+                                </span>
+                                {nk.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 {copied && (
                   <span className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-2.5 py-1">
                     <Copy className="w-3 h-3" />
@@ -857,74 +941,102 @@ function EditSongView({ id }: { id: string }) {
                     </div>
                     <div className="flex flex-col items-center gap-1.5 flex-shrink-0">
                       {d.bar ? (
-<div className="flex flex-col items-center gap-1.5">
-                        <select
-                          value={d.barKind ?? "double"}
-                          onChange={(e) => setBarKind(i, e.target.value as BarKind)}
-                          className="bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-amber-500/60 cursor-pointer"
-                          title="Type de barre de mesure"
-                        >
-                          {BAR_KINDS.map((bk) => (
-                            <option key={bk.kind} value={bk.kind}>
-                              {bk.label}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          value={d.sectionLabel ?? "Section"}
-                          onChange={(e) => setSectionLabel(i, e.target.value)}
-                          className="bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-amber-500/60 cursor-pointer"
-                          title="Type de section délimitée par cette barre"
-                        >
-                            <option value="Section">Section</option>
-                            <option value="Intro">Intro</option>
-                            <option value="Verset">Verset</option>
-                            <option value="Pré-refrain">Pré-refrain</option>
-                            <option value="Refrain">Refrain</option>
-                            <option value="Pré-verset">Pré-verset</option>
-                            <option value="Pont">Pont</option>
-                            <option value="Solo">Solo</option>
-                            <option value="Outro">Outro</option>
-                          </select>
-                          <div className="flex flex-col items-center gap-1">
-                            <span className="text-[10px] text-zinc-500">
-                              Répéter la section ×
-                            </span>
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => setRepeats(i, (d.repeats ?? 1) - 1)}
-                                disabled={(d.repeats ?? 1) <= 0}
-                                className="w-7 h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold"
-                                title="Moins de répétitions"
+                        <div className="flex flex-col items-center gap-1.5">
+                          <span className="text-[10px] text-zinc-500 font-mono">
+                            {BAR_KINDS.find((b) => b.kind === (d.barKind ?? "double"))?.symbol ?? "||"}{" "}
+                            × {(d.repeats ?? 1) === 0 ? 1 : d.repeats}
+                          </span>
+                          <button
+                            onClick={() => setExpandedBar(expandedBar === d.id ? null : d.id)}
+                            className={`flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1.5 rounded-lg transition-colors w-full justify-center ${
+                              expandedBar === d.id
+                                ? "bg-amber-500/15 text-amber-300 border border-amber-500/40 hover:bg-amber-500/25"
+                                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                            }`}
+                            title={
+                              expandedBar === d.id
+                                ? "Replier les réglages de la barre"
+                                : "Déplier les réglages (type, section, répétitions)"
+                            }
+                          >
+                            {expandedBar === d.id ? (
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            )}
+                            {expandedBar === d.id ? "Replier" : "Régler"}
+                          </button>
+                          {expandedBar === d.id && (
+                            <>
+                              <select
+                                value={d.barKind ?? "double"}
+                                onChange={(e) => setBarKind(i, e.target.value as BarKind)}
+                                className="bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-amber-500/60 cursor-pointer w-full"
+                                title="Type de barre de mesure"
                               >
-                                −
-                              </button>
-                              <input
-                                type="number"
-                                min={0}
-                                max={32}
-                                value={d.repeats ?? 1}
-                                onChange={(e) => {
-                                  const v = parseInt(e.target.value, 10);
-                                  if (!Number.isNaN(v)) setRepeats(i, v);
-                                }}
-                                className="w-12 h-7 rounded-md bg-zinc-950 border border-zinc-700 text-center text-sm text-amber-400 font-semibold focus:outline-none focus:border-amber-500/60"
-                                title="0 = délimiter la section ; 1+ = répéter la section"
-                              />
-                              <button
-                                onClick={() => setRepeats(i, (d.repeats ?? 1) + 1)}
-                                disabled={(d.repeats ?? 1) >= 32}
-                                className="w-7 h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold"
-                                title="Plus de répétitions"
+                                {BAR_KINDS.map((bk) => (
+                                  <option key={bk.kind} value={bk.kind}>
+                                    {bk.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <select
+                                value={d.sectionLabel ?? "Section"}
+                                onChange={(e) => setSectionLabel(i, e.target.value)}
+                                className="bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-amber-500/60 cursor-pointer w-full"
+                                title="Type de section délimitée par cette barre"
                               >
-                                +
-                              </button>
-                            </div>
-                          </div>
-                          {(d.repeats ?? 1) === 0 && (
-                            <span className="text-[10px] text-emerald-400">
-                              Définit la section, jouée 1×
-                            </span>
+                                <option value="Section">Section</option>
+                                <option value="Intro">Intro</option>
+                                <option value="Verset">Verset</option>
+                                <option value="Pré-refrain">Pré-refrain</option>
+                                <option value="Refrain">Refrain</option>
+                                <option value="Pré-verset">Pré-verset</option>
+                                <option value="Pont">Pont</option>
+                                <option value="Solo">Solo</option>
+                                <option value="Outro">Outro</option>
+                              </select>
+                              <div className="flex flex-col items-center gap-1">
+                                <span className="text-[10px] text-zinc-500">
+                                  Répéter la section ×
+                                </span>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => setRepeats(i, (d.repeats ?? 1) - 1)}
+                                    disabled={(d.repeats ?? 1) <= 0}
+                                    className="w-7 h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold"
+                                    title="Moins de répétitions"
+                                  >
+                                    −
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={32}
+                                    value={d.repeats ?? 1}
+                                    onChange={(e) => {
+                                      const v = parseInt(e.target.value, 10);
+                                      if (!Number.isNaN(v)) setRepeats(i, v);
+                                    }}
+                                    className="w-12 h-7 rounded-md bg-zinc-950 border border-zinc-700 text-center text-sm text-amber-400 font-semibold focus:outline-none focus:border-amber-500/60"
+                                    title="0 = délimiter la section ; 1+ = répéter la section"
+                                  />
+                                  <button
+                                    onClick={() => setRepeats(i, (d.repeats ?? 1) + 1)}
+                                    disabled={(d.repeats ?? 1) >= 32}
+                                    className="w-7 h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold"
+                                    title="Plus de répétitions"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              </div>
+                              {(d.repeats ?? 1) === 0 && (
+                                <span className="text-[10px] text-emerald-400">
+                                  Définit la section, jouée 1×
+                                </span>
+                              )}
+                            </>
                           )}
                         </div>
                       ) : (
