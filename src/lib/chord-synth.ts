@@ -27,14 +27,14 @@ export function beatsForShape(d: SavedChordShape): number {
 const STRING_NAMES = ["E", "A", "D", "G", "B", "e"];
 
 export function fretForString(d: SavedChordShape, s: number): number {
-  if (d.muted && d.muted[s] === true) return -1;
   let pos = 0;
   const fp = d.fingers.find((f) => f.string === s);
   if (fp) pos = fp.fret;
-  if (d.barreOn && s >= STRING_COUNT - (d.barreCount || STRING_COUNT)) {
-    pos = Math.max(d.baseFret || 1, pos);
-  }
+  const inBarre =
+    d.barreOn && s >= STRING_COUNT - (d.barreCount || STRING_COUNT);
+  if (inBarre) pos = Math.max(d.baseFret || 1, pos);
   pos = Math.max(d.capo || 0, pos);
+  if (d.muted && d.muted[s] === true && !fp && !inBarre) return -1;
   return pos;
 }
 
