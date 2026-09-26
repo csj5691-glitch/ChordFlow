@@ -47,7 +47,7 @@ async def separate_audio(file: UploadFile = File(...), stem: str = Query("vocals
         out_dir.mkdir()
 
         try:
-            separate(str(src), str(out_dir), model="htdemucs_6s", providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
+            separate(str(src), str(out_dir), model="htdemucs_6s", providers=["CPUExecutionProvider"])
         except Exception as e:
             raise HTTPException(500, f"separation failed: {e}") from e
 
