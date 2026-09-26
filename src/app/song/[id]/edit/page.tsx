@@ -10,6 +10,7 @@ import { NavGlyph } from "@/components/NavGlyph";
 import SynthPlayer from "@/components/SynthPlayer";
 import Conductor from "@/components/Conductor";
 import { loadAudioStems, saveAudioStem, getAudioStemUrl } from "@/lib/audio-store";
+import { importGuitarProFile } from "@/lib/gp-import";
 import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure } from "@/lib/chord-synth";
 import { getSongTab } from "@/lib/mock-data";
 import { useSharedSong } from "@/lib/use-shared-song";
@@ -102,6 +103,9 @@ function EditSongView({ id }: { id: string }) {
   const [instName, setInstName] = useState("");
   const [vocalsUrl, setVocalsUrl] = useState<string | null>(null);
   const [vocalsName, setVocalsName] = useState("");
+  const [gpImporting, setGpImporting] = useState(false);
+  const [gpError, setGpError] = useState<string | null>(null);
+  const [gpWarnings, setGpWarnings] = useState<string[]>([]);
   const instUrlRef = useRef<string | null>(null);
   const vocalsUrlRef = useRef<string | null>(null);
   const hydratedContent = useRef(false);
@@ -457,6 +461,33 @@ function EditSongView({ id }: { id: string }) {
     }
   };
 
+  const handleGpImport = async (file: File) => {
+    setGpImporting(true);
+    setGpError(null);
+    setGpWarnings([]);
+    try {
+      const result = await importGuitarProFile(file);
+      if (!song) {
+        setGpError("Chanson introuvable.");
+        return;
+      }
+      setGpWarnings(result.warnings);
+      upsert({
+        ...song,
+        title: song.title || result.song.title,
+        artist: song.artist || result.song.artist,
+        bpm: song.bpm ?? result.song.bpm ?? 90,
+        timeSignature: song.timeSignature ?? result.song.timeSignature,
+        diagrams: [...(song.diagrams ?? []), ...result.diagrams],
+      });
+    } catch (err) {
+      console.error("[ChordFlow] Éditeur : échec d'import Guitar Pro", err);
+      setGpError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGpImporting(false);
+    }
+  };
+
   const handleStemClear = async (kind: "noVocals" | "vocals") => {
     const setUrl = kind === "noVocals" ? setInstUrl : setVocalsUrl;
     const setName = kind === "noVocals" ? setInstName : setVocalsName;
@@ -773,7 +804,37 @@ function EditSongView({ id }: { id: string }) {
                     Volume de chaque piste réglable dans le Chef d&apos;orchestre
                   </span>
                 )}
+                <label
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
+                  title="Importer un fichier Guitar Pro (.gp/.gp5/.gpx) : la tablature est convertie en diagrammes et ajoutée à la séquence"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  {gpImporting ? "Import…" : "Import GP"}
+                  <input
+                    type="file"
+                    accept=".gp,.gpx,.gp5,.gp4,.gp3,.gtp"
+                    className="hidden"
+                    disabled={gpImporting}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file && !gpImporting) void handleGpImport(file);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
               </div>
+              {gpError && (
+                <p className="text-[11px] text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-1.5">
+                  {gpError}
+                </p>
+              )}
+              {gpWarnings.length > 0 && (
+                <ul className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-1.5 flex flex-col gap-0.5">
+                  {gpWarnings.map((w) => (
+                    <li key={w}>{w}</li>
+                  ))}
+                </ul>
+              )}
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={addSilence}
