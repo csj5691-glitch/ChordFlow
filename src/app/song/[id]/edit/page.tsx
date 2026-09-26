@@ -10,7 +10,11 @@ import { NavGlyph } from "@/components/NavGlyph";
 import SynthPlayer from "@/components/SynthPlayer";
 import Conductor from "@/components/Conductor";
 import { loadAudioStems, saveAudioStem, getAudioStemUrl } from "@/lib/audio-store";
-import { importGuitarProFile } from "@/lib/gp-import";
+import {
+  analyzeGuitarProFile,
+  importGuitarProTrack,
+  type GpTrackInfo,
+} from "@/lib/gp-import";
 import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure } from "@/lib/chord-synth";
 import { getSongTab } from "@/lib/mock-data";
 import { useSharedSong } from "@/lib/use-shared-song";
@@ -106,6 +110,9 @@ function EditSongView({ id }: { id: string }) {
   const [gpImporting, setGpImporting] = useState(false);
   const [gpError, setGpError] = useState<string | null>(null);
   const [gpWarnings, setGpWarnings] = useState<string[]>([]);
+  const [gpTracks, setGpTracks] = useState<GpTrackInfo[]>([]);
+  const [gpPendingFile, setGpPendingFile] = useState<File | null>(null);
+  const [gpImportingTrack, setGpImportingTrack] = useState<number | null>(null);
   const instUrlRef = useRef<string | null>(null);
   const vocalsUrlRef = useRef<string | null>(null);
   const hydratedContent = useRef(false);
@@ -461,17 +468,37 @@ function EditSongView({ id }: { id: string }) {
     }
   };
 
-  const handleGpImport = async (file: File) => {
+  const handleGpPickFile = async (file: File) => {
     setGpImporting(true);
     setGpError(null);
     setGpWarnings([]);
+    setGpTracks([]);
+    setGpPendingFile(null);
     try {
-      const result = await importGuitarProFile(file);
+      const tracks = await analyzeGuitarProFile(file);
+      setGpTracks(tracks);
+      setGpPendingFile(file);
+    } catch (err) {
+      console.error("[ChordFlow] Éditeur : échec d'analyse Guitar Pro", err);
+      setGpError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGpImporting(false);
+    }
+  };
+
+  const handleGpImportTrack = async (trackIndex: number) => {
+    if (gpImportingTrack !== null || !gpPendingFile) return;
+    setGpImportingTrack(trackIndex);
+    setGpError(null);
+    setGpWarnings([]);
+    try {
+      const result = await importGuitarProTrack(gpPendingFile, trackIndex);
       if (!song) {
         setGpError("Chanson introuvable.");
         return;
       }
-      setGpWarnings(result.warnings);
+      const warnings = result.warnings;
+      if (warnings.length > 0) setGpWarnings(warnings);
       upsert({
         ...song,
         title: song.title || result.song.title,
@@ -480,12 +507,19 @@ function EditSongView({ id }: { id: string }) {
         timeSignature: song.timeSignature ?? result.song.timeSignature,
         diagrams: [...(song.diagrams ?? []), ...result.diagrams],
       });
+      setGpTracks([]);
+      setGpPendingFile(null);
     } catch (err) {
       console.error("[ChordFlow] Éditeur : échec d'import Guitar Pro", err);
       setGpError(err instanceof Error ? err.message : String(err));
     } finally {
-      setGpImporting(false);
+      setGpImportingTrack(null);
     }
+  };
+
+  const handleGpCancel = () => {
+    setGpTracks([]);
+    setGpPendingFile(null);
   };
 
   const handleStemClear = async (kind: "noVocals" | "vocals") => {
@@ -806,10 +840,10 @@ function EditSongView({ id }: { id: string }) {
                 )}
                 <label
                   className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
-                  title="Importer un fichier Guitar Pro (.gp/.gp5/.gpx) : la tablature est convertie en diagrammes et ajoutée à la séquence"
+                  title="Importer un fichier Guitar Pro (.gp/.gp5/.gpx) : choisir la piste à convertir en diagrammes"
                 >
                   <Upload className="w-3.5 h-3.5" />
-                  {gpImporting ? "Import…" : "Import GP"}
+                  {gpImporting ? "Lecture…" : "Import GP"}
                   <input
                     type="file"
                     accept=".gp,.gpx,.gp5,.gp4,.gp3,.gtp"
@@ -817,7 +851,7 @@ function EditSongView({ id }: { id: string }) {
                     disabled={gpImporting}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
-                      if (file && !gpImporting) void handleGpImport(file);
+                      if (file && !gpImporting) void handleGpPickFile(file);
                       e.target.value = "";
                     }}
                   />
@@ -834,6 +868,48 @@ function EditSongView({ id }: { id: string }) {
                     <li key={w}>{w}</li>
                   ))}
                 </ul>
+              )}
+              {gpPendingFile && gpTracks.length > 0 && (
+                <div className="flex flex-col gap-2 rounded-lg bg-zinc-800/70 border border-zinc-700 p-3">
+                  <p className="text-[11px] text-zinc-300 font-semibold">
+                    Sélectionner la piste à importer
+                  </p>
+                  <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto">
+                    {gpTracks.map((t) => (
+                      <button
+                        key={t.index}
+                        disabled={gpImportingTrack !== null}
+                        onClick={() => void handleGpImportTrack(t.index)}
+                        className="flex items-center justify-between gap-2 text-left text-xs px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-200 hover:bg-zinc-700 transition-colors disabled:opacity-50"
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <Music4 className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                          <span className="truncate">{t.name}</span>
+                        </span>
+                        <span className="flex items-center gap-3 text-[10px] text-zinc-500 shrink-0">
+                          {t.stringCount} cordes
+                          {t.isPercussion && <span className="text-red-400">Percussion</span>}
+                          {t.chordCount > 0 && <span className="text-amber-300">{t.chordCount} accords</span>}
+                          <span>{t.noteCount} notes</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-zinc-500">
+                      {gpImportingTrack !== null
+                        ? "Import en cours…"
+                        : "Les accords nommés du fichier sont reconnus automatiquement."}
+                    </span>
+                    <button
+                      disabled={gpImportingTrack !== null}
+                      onClick={handleGpCancel}
+                      className="text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-50"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </div>
               )}
               <div className="flex items-center gap-2 flex-wrap">
                 <button

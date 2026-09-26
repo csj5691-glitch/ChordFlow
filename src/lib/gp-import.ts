@@ -4,6 +4,8 @@ import type { SavedChordShape, SongTab } from "./types";
 import { importer, model } from "@coderline/alphatab";
 
 const STRING_COUNT = 6;
+// How many cases the chord diagram grid shows per shape (ChordShapeView).
+const FRET_FLOOR = 5;
 
 // Monotonic counter guarantees unique ids even when many shapes are
 // generated in the same millisecond (imports run in tight loops).
@@ -13,10 +15,24 @@ function gpId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${gpIdCounter.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
+export interface GpTrackInfo {
+  index: number;
+  name: string;
+  stringCount: number;
+  isPercussion: boolean;
+  noteCount: number;
+  chordCount: number;
+}
+
 export interface GpImportResult {
   song: SongTab;
   diagrams: SavedChordShape[];
   warnings: string[];
+}
+
+export interface GpAnalysis {
+  score: model.Score;
+  tracks: GpTrackInfo[];
 }
 
 const DURATION_TO_BEATS: Partial<Record<model.Duration, number>> = {
@@ -41,10 +57,42 @@ function durationToBeats(duration: model.Duration, dots: number, tupletNumerator
   return +beats.toFixed(4);
 }
 
-export async function importGuitarProFile(file: File): Promise<GpImportResult> {
+async function loadScore(file: File): Promise<model.Score> {
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const score: model.Score = importer.ScoreLoader.loadScoreFromBytes(bytes);
+  return importer.ScoreLoader.loadScoreFromBytes(bytes);
+}
 
+function listTracks(score: model.Score): GpTrackInfo[] {
+  return score.tracks.map((t, index) => {
+    const staff = t.staves[0];
+    let noteCount = 0;
+    let chordCount = 0;
+    for (const bar of staff?.bars ?? []) {
+      for (const voice of bar.voices) {
+        for (const beat of voice.beats) {
+          if (beat.chord) chordCount += 1;
+          noteCount += beat.notes.length;
+        }
+      }
+    }
+    return {
+      index,
+      name: t.name || `Piste ${index + 1}`,
+      stringCount: staff?.tuning.length ?? 0,
+      isPercussion: staff?.isPercussion ?? false,
+      noteCount,
+      chordCount,
+    };
+  });
+}
+
+export async function analyzeGuitarProFile(file: File): Promise<GpTrackInfo[]> {
+  const score = await loadScore(file);
+  return listTracks(score);
+}
+
+export async function importGuitarProTrack(file: File, trackIndex: number): Promise<GpImportResult> {
+  const score = await loadScore(file);
   const warnings: string[] = [];
   const title = score.title || file.name.replace(/\.(gp\d?|gpx|gtp)$/i, "");
   const artist = score.artist || "";
@@ -55,22 +103,17 @@ export async function importGuitarProFile(file: File): Promise<GpImportResult> {
     bottom: Math.max(2, firstSignature?.timeSignatureDenominator ?? 4) as 2 | 4 | 8,
   };
 
-  // Pick first 6-string non-percussion track
-  let track = null as model.Score["tracks"][number] | null;
-  for (const t of score.tracks) {
-    const staff = t.staves[0];
-    if (!staff || staff.isPercussion) continue;
-    if (staff.tuning.length !== 6) {
-      warnings.push(`Piste « ${t.name || "?"} » : ${staff.tuning.length} cordes ignorée (on attend 6).`);
-      continue;
-    }
-    track = t;
-    break;
-  }
+  const track = score.tracks[trackIndex];
   if (!track) {
-    throw new Error("Aucune piste guitare à 6 cordes trouvée dans la tablature.");
+    throw new Error("Piste introuvable dans la tablature.");
   }
   const staff = track.staves[0];
+  if (!staff || staff.isPercussion) {
+    throw new Error(`La piste « ${track.name || "?"} » est une piste de percussion.`);
+  }
+  if (staff.tuning.length !== 6) {
+    throw new Error(`La piste « ${track.name || "?"} » a ${staff.tuning.length} cordes (on attend 6).`);
+  }
 
   const diagrams: SavedChordShape[] = [];
   // AlphaTab numbers strings 1..n where 1 = the lowest string (bottom line /
@@ -80,28 +123,57 @@ export async function importGuitarProFile(file: File): Promise<GpImportResult> {
   const STRING_INDEX = new Map<number, number>();
   for (let i = 1; i <= nStrings; i++) STRING_INDEX.set(i, nStrings - i);
 
+  let pendingRestBeats = 0;
+
+  const flushRest = () => {
+    if (pendingRestBeats > 0) {
+      diagrams.push(restShape(pendingRestBeats));
+      pendingRestBeats = 0;
+    }
+  };
+
   for (let mbIdx = 0; mbIdx < score.masterBars.length; mbIdx++) {
     const bar = staff.bars[mbIdx];
     if (!bar) continue;
     const masterBar = score.masterBars[mbIdx];
 
-    // Repeat / section marks at bar level
     if (masterBar.isRepeatStart) {
+      flushRest();
       diagrams.push(barShape("beginRepeat"));
     }
     const section = masterBar.section;
     if (section?.marker) {
+      flushRest();
       diagrams.push(sectionShape(section.marker));
     }
+
+    const barChords: SavedChordShape[] = [];
 
     for (const voice of bar.voices) {
       if (voice.beats.length === 0 && !voice.isEmpty) continue;
       for (const beat of voice.beats) {
         if (beat.isRest || beat.isEmpty) {
-          if (beat.isRest) diagrams.push(restShape());
+          if (beat.isRest) {
+            pendingRestBeats += durationToBeats(beat.duration, beat.dots, beat.tupletNumerator, beat.tupletDenominator);
+          }
           continue;
         }
         if (beat.notes.length === 0) continue;
+
+        const duration = durationToBeats(beat.duration, beat.dots, beat.tupletNumerator, beat.tupletDenominator);
+        const text = beat.text || undefined;
+
+        // Prefer the named chord diagram stored in the file (Guitar Pro / GPIF)
+        // when present: it carries the exact frets and the known name.
+        const gpChord = beat.chord;
+        if (gpChord && gpChord.strings.length === nStrings && gpChord.showDiagram) {
+          const chord = chordShapeFromGp(gpChord, duration, text);
+          if (chord) {
+            flushRest();
+            barChords.push(chord);
+          }
+          continue;
+        }
 
         const fingers: { string: number; fret: number; finger: number }[] = [];
         const mutedOn = Array(6).fill(false);
@@ -123,22 +195,23 @@ export async function importGuitarProFile(file: File): Promise<GpImportResult> {
 
         if (fingers.length === 0 && !mutedOn.some(Boolean)) continue;
 
-        diagrams.push(
-          chordShape(
-            fingers,
-            mutedOn,
-            legatoTo,
-            durationToBeats(beat.duration, beat.dots, beat.tupletNumerator, beat.tupletDenominator),
-            beat.text || undefined
-          )
-        );
+        flushRest();
+        barChords.push(chordShape(fingers, mutedOn, legatoTo, duration, text));
       }
     }
 
     if (masterBar.isRepeatEnd) {
+      flushRest();
       diagrams.push(barShape("endRepeat"));
     }
+
+    // Flush bar-level chords after repeat marks so measure flow reads clearly.
+    if (barChords.length > 0) {
+      diagrams.push(...barChords);
+    }
   }
+
+  flushRest();
 
   if (diagrams.length === 0) {
     throw new Error("Aucune note convertible trouvée dans la tablature.");
@@ -156,6 +229,21 @@ export async function importGuitarProFile(file: File): Promise<GpImportResult> {
   };
 
   return { song, diagrams, warnings };
+}
+
+// Kept for backward compatibility: uses the first usable 6-string track.
+export async function importGuitarProFile(file: File): Promise<GpImportResult> {
+  const score = await loadScore(file);
+  const tracks = listTracks(score);
+  const usable = tracks.find((t) => !t.isPercussion && t.stringCount === 6 && t.noteCount > 0);
+  if (!usable) {
+    throw new Error("Aucune piste guitare à 6 cordes trouvée dans la tablature.");
+  }
+  const result = await importGuitarProTrack(file, usable.index);
+  if (result.diagrams.length === 0) {
+    throw new Error("Aucune note convertible trouvée dans la tablature.");
+  }
+  return result;
 }
 
 function barShape(kind: "beginRepeat" | "endRepeat"): SavedChordShape {
@@ -190,7 +278,7 @@ function sectionShape(marker: string): SavedChordShape {
   };
 }
 
-function restShape(): SavedChordShape {
+function restShape(duration = 1): SavedChordShape {
   return {
     id: gpId("gp-rest"),
     label: "Pause",
@@ -200,9 +288,33 @@ function restShape(): SavedChordShape {
     muted: [],
     baseFret: 1,
     capo: 0,
-    duration: 1,
+    duration,
     silence: true,
   };
+}
+
+function chordShapeFromGp(gpChord: model.Chord, duration: number, text?: string): SavedChordShape | null {
+  // gpChord.strings[i]: fret per string, i = highest string first, -1 = not played.
+  // Frets are ABSOLUTE (GPIF stores baseFret + relative fret). ChordFlow's
+  // `fingers[].fret` is absolute too; `baseFret` is the top fret of the diagram.
+  const fingers: { string: number; fret: number; finger: number }[] = [];
+  const muted = Array(6).fill(false);
+  const n = gpChord.strings.length;
+
+  for (let i = 0; i < n; i++) {
+    const fret = gpChord.strings[i];
+    const flowString = n - 1 - i;
+    if (fret < 0) {
+      muted[flowString] = true;
+      continue;
+    }
+    if (fret === 0) continue;
+    fingers.push({ string: flowString, fret, finger: 0 });
+  }
+
+  if (fingers.length === 0 && !muted.some(Boolean)) return null;
+
+  return chordShape(fingers, muted, [], duration, gpChord.name || text || "", gpChord.firstFret);
 }
 
 function chordShape(
@@ -210,7 +322,8 @@ function chordShape(
   muted: boolean[],
   legatoTo: number[],
   duration: number,
-  chordName?: string
+  chordName?: string,
+  baseFretHint?: number
 ): SavedChordShape {
   // Barre detection: >=3 fretted strings sharing the same fret = barre
   let barreOn = false;
@@ -252,7 +365,14 @@ function chordShape(
     }
   }
 
-  const baseFret = barreOn ? barreFret : 1;
+  let baseFret = barreOn ? barreFret : (baseFretHint ?? 1);
+  if (!barreOn && baseFret < 1) baseFret = 1;
+  if (!barreOn) {
+    // Keep diagrams readable when frets sit high on the neck without a barre:
+    // draw the grid from the lowest fretted fret instead of fret 1.
+    const minFret = played.reduce((acc, f) => Math.min(acc, f.fret), Infinity);
+    if (minFret > baseFret + FRET_FLOOR - 1) baseFret = minFret;
+  }
   return {
     id: gpId("gp-chord"),
     label: chordName || "",
