@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
-import { SongTab } from "./types";
+import { SavedChordShape, SongTab } from "./types";
 
 const STORAGE_KEY = "chordflow-custom-songs";
 
@@ -9,13 +9,33 @@ const SECTION_LABEL_MIGRATION: Record<string, string> = {
   "Pré-verset": "Pré-couplet",
 };
 
+function ensureUniqueDiagramIds(diagrams: SavedChordShape[]): SavedChordShape[] {
+  const seen = new Set<string>();
+  let changed = false;
+  const out = diagrams.map((d, i) => {
+    if (!d.id) {
+      changed = true;
+      return { ...d, id: `diag-${Date.now().toString(36)}-${i}` };
+    }
+    if (seen.has(d.id)) {
+      changed = true;
+      return { ...d, id: `${d.id}-${i}` };
+    }
+    seen.add(d.id);
+    return d;
+  });
+  return changed ? out : diagrams;
+}
+
 export function migrateSong(song: SongTab): SongTab {
-  const diagrams = (song.diagrams ?? []).map((d) =>
+  const original = song.diagrams ?? [];
+  const migrated = original.map((d) =>
     d.sectionLabel && SECTION_LABEL_MIGRATION[d.sectionLabel]
       ? { ...d, sectionLabel: SECTION_LABEL_MIGRATION[d.sectionLabel] }
       : d
   );
-  if (diagrams.every((d, i) => d === (song.diagrams ?? [])[i])) return song;
+  const diagrams = ensureUniqueDiagramIds(migrated);
+  if (diagrams.every((d, i) => d === original[i])) return song;
   return { ...song, diagrams };
 }
 
