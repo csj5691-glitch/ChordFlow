@@ -48,7 +48,9 @@ export default function SynthPlayer({ diagrams, bpm, onCurrentIndexChange }: Syn
     master: GainNode,
     when: number
   ) => {
-    const dur = Math.max(0.2, ev.duration);
+    const dur = ev.duration;
+      const release = 0.4;
+      const end = when + dur + release;
     if (
       ev.silence ||
       ((ev.notes.length === 0 || ev.notes[0] === 0) &&
@@ -69,17 +71,19 @@ export default function SynthPlayer({ diagrams, bpm, onCurrentIndexChange }: Syn
 
       const fundGain = ctx.createGain();
       fundGain.gain.setValueAtTime(0.8, when);
-      fundGain.gain.linearRampToValueAtTime(0, when + dur);
+      fundGain.gain.setValueAtTime(0.8, when + dur - 0.05);
+      fundGain.gain.linearRampToValueAtTime(0, end);
 
       const harmGain = ctx.createGain();
       harmGain.gain.setValueAtTime(0.15, when);
-      harmGain.gain.linearRampToValueAtTime(0, when + dur * 0.4);
+      harmGain.gain.setValueAtTime(0.15, when + dur - 0.05);
+      harmGain.gain.linearRampToValueAtTime(0, end);
 
       // Very gentle low-pass for warmth only
       const lp = ctx.createBiquadFilter();
       lp.type = "lowpass";
       lp.frequency.setValueAtTime(6000, when);
-      lp.frequency.linearRampToValueAtTime(2000, when + dur);
+      lp.frequency.linearRampToValueAtTime(2000, end);
       lp.Q.value = 0.5;
 
       fund.connect(fundGain);
@@ -88,9 +92,9 @@ export default function SynthPlayer({ diagrams, bpm, onCurrentIndexChange }: Syn
       harmGain.connect(lp);
       lp.connect(master);
       fund.start(when);
-      fund.stop(when + dur + 0.1);
+      fund.stop(end + 0.05);
       harm.start(when);
-      harm.stop(when + dur * 0.4 + 0.1);
+      harm.stop(end * 0.6 + 0.05);
 
       ev.notes.slice(1).forEach((f) => {
         const o = ctx.createOscillator();
@@ -98,27 +102,28 @@ export default function SynthPlayer({ diagrams, bpm, onCurrentIndexChange }: Syn
         o.frequency.value = f;
         const g = ctx.createGain();
         g.gain.setValueAtTime(0.3, when);
-        g.gain.linearRampToValueAtTime(0, when + dur);
+        g.gain.setValueAtTime(0.3, when + dur - 0.05);
+        g.gain.linearRampToValueAtTime(0, end);
         o.connect(g);
         g.connect(master);
         o.start(when);
-        o.stop(when + dur + 0.1);
+        o.stop(end + 0.05);
       });
     }
 
     if (ev.mutedNotes && ev.mutedNotes.length > 0) {
-      const mDur = Math.min(0.2, dur);
+      const mEnd = when + ev.duration + 0.4;
       for (const f of ev.mutedNotes) {
         const o = ctx.createOscillator();
         o.type = "sine";
         o.frequency.value = f;
         const g = ctx.createGain();
         g.gain.setValueAtTime(0.4, when);
-        g.gain.linearRampToValueAtTime(0, when + mDur);
+        g.gain.linearRampToValueAtTime(0, mEnd);
         o.connect(g);
         g.connect(master);
         o.start(when);
-        o.stop(when + mDur + 0.02);
+        o.stop(mEnd + 0.05);
       }
     }
   };

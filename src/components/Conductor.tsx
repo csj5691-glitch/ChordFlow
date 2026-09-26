@@ -220,8 +220,10 @@ export default function Conductor({
     master: GainNode,
     when: number
   ) => {
-    const dur = Math.max(0.2, ev.duration);
-    if (
+    const dur = ev.duration;
+      const release = 0.4;
+      const end = when + dur + release;
+      if (
       ev.silence ||
       ((ev.notes.length === 0 || ev.notes[0] === 0) &&
         !(ev.mutedNotes && ev.mutedNotes.length > 0))
@@ -235,33 +237,34 @@ export default function Conductor({
       osc.frequency.value = freq;
       const gate = ctx.createGain();
       gate.gain.setValueAtTime(0.8, when);
-      gate.gain.linearRampToValueAtTime(0, when + dur);
+      gate.gain.setValueAtTime(0.8, when + dur - 0.05);
+      gate.gain.linearRampToValueAtTime(0, end);
       const lp = ctx.createBiquadFilter();
       lp.type = "lowpass";
       lp.frequency.setValueAtTime(6000, when);
-      lp.frequency.linearRampToValueAtTime(2000, when + dur);
+      lp.frequency.linearRampToValueAtTime(2000, end);
       lp.Q.value = 0.5;
       osc.connect(gate);
       gate.connect(lp);
       lp.connect(master);
       osc.start(when);
-      osc.stop(when + dur + 0.1);
+      osc.stop(end + 0.05);
     }
     }
 
     if (ev.mutedNotes && ev.mutedNotes.length > 0) {
-      const mDur = Math.min(0.2, dur);
+      const mEnd = when + ev.duration + 0.4;
       for (const f of ev.mutedNotes) {
         const osc = ctx.createOscillator();
         osc.type = "sine";
         osc.frequency.value = f;
         const g = ctx.createGain();
         g.gain.setValueAtTime(0.5, when);
-        g.gain.linearRampToValueAtTime(0, when + mDur);
+        g.gain.linearRampToValueAtTime(0, mEnd);
         osc.connect(g);
         g.connect(master);
         osc.start(when);
-        osc.stop(when + mDur + 0.1);
+        osc.stop(mEnd + 0.1);
       }
     }
   };
