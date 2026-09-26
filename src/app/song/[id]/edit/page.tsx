@@ -15,6 +15,7 @@ import {
   importGuitarProTrack,
   type GpTrackInfo,
 } from "@/lib/gp-import";
+import { chordsToDiagrams } from "@/lib/chords-to-diagrams";
 import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure } from "@/lib/chord-synth";
 import { getSongTab } from "@/lib/mock-data";
 import { useSharedSong } from "@/lib/use-shared-song";
@@ -113,6 +114,7 @@ function EditSongView({ id }: { id: string }) {
   const [gpTracks, setGpTracks] = useState<GpTrackInfo[]>([]);
   const [gpPendingFile, setGpPendingFile] = useState<File | null>(null);
   const [gpImportingTrack, setGpImportingTrack] = useState<number | null>(null);
+  const [chartsConverting, setChartsConverting] = useState(false);
   const instUrlRef = useRef<string | null>(null);
   const vocalsUrlRef = useRef<string | null>(null);
   const hydratedContent = useRef(false);
@@ -531,6 +533,52 @@ function EditSongView({ id }: { id: string }) {
     setGpPendingFile(null);
   };
 
+  const handleChordsToDiagrams = async () => {
+    if (!song) {
+      setGpError("Chanson introuvable.");
+      return;
+    }
+    const text = editableContent ?? song.content;
+    if (!text || !text.trim()) {
+      setGpError("Ajoutez d'abord une grille d'accords dans le contenu de la chanson.");
+      return;
+    }
+    setChartsConverting(true);
+    setGpError(null);
+    setGpWarnings([]);
+    try {
+      const { diagrams, skipped } = chordsToDiagrams(text);
+      if (diagrams.length === 0) {
+        setGpError(
+          "Aucun accord reconnu dans la grille. Vérifiez le contenu (ex. [Verse] puis « Em  C  G  D/F# »)."
+        );
+        return;
+      }
+      const warnings: string[] = [];
+      if (skipped.length > 0) {
+        warnings.push(`Accords non reconnus (ignorés) : ${skipped.join(", ")}`);
+      }
+      const drops = await upsert({
+        ...song,
+        diagrams: [...(song.diagrams ?? []), ...diagrams],
+      });
+      if (drops.length > 0) {
+        warnings.push(
+          ...drops.map(
+            (t) =>
+              `Espace local saturé : « ${t} » a été retirée de cet appareil pour enregistrer la chanson (elle reste sur le serveur partagé).`
+          )
+        );
+      }
+      if (warnings.length > 0) setGpWarnings(warnings);
+    } catch (err) {
+      console.error("[ChordFlow] Éditeur : échec de conversion de la grille en diagrammes", err);
+      setGpError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setChartsConverting(false);
+    }
+  };
+
   const handleStemClear = async (kind: "noVocals" | "vocals") => {
     const setUrl = kind === "noVocals" ? setInstUrl : setVocalsUrl;
     const setName = kind === "noVocals" ? setInstName : setVocalsName;
@@ -865,6 +913,15 @@ function EditSongView({ id }: { id: string }) {
                     }}
                   />
                 </label>
+                <button
+                  onClick={() => void handleChordsToDiagrams()}
+                  disabled={chartsConverting}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-lime-300 hover:bg-lime-500/10 transition-colors w-fit cursor-pointer disabled:opacity-50"
+                  title="Convertir la grille d'accords du contenu en séquence de diagrammes"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  {chartsConverting ? "Conversion…" : "Grille → Diagrammes"}
+                </button>
               </div>
               {gpError && (
                 <p className="text-[11px] text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-1.5">
