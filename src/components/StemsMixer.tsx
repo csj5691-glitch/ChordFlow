@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AudioWaveform, Loader2, Pause, Play, Square } from "lucide-react";
+import { AudioWaveform, Check, Loader2, Pause, Play, Square } from "lucide-react";
 
 const STEMS = [
   { id: "vocals", label: "Voix", color: "bg-violet-500" },
@@ -15,9 +15,17 @@ const STEMS = [
 
 type StemId = (typeof STEMS)[number]["id"];
 
+type StemStatus = "idle" | "loading" | "ready" | "error";
+
 export default function StemsMixer() {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<Record<StemId, StemStatus>>({
+    vocals: "idle",
+    drums: "idle",
+    bass: "idle",
+    guitar: "idle",
+    piano: "idle",
+    other: "idle",
+  });
   const [stemUrls, setStemUrls] = useState<Record<StemId, string | null>>({
     vocals: null,
     drums: null,
@@ -35,6 +43,7 @@ export default function StemsMixer() {
     other: 0.8,
   });
   const [playing, setPlaying] = useState(false);
+  const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRefs = useRef<Record<StemId, HTMLAudioElement | null>>({
     vocals: null,
@@ -44,13 +53,8 @@ export default function StemsMixer() {
     piano: null,
     other: null,
   });
-  const timeoutsRef = useRef<number[]>([]);
 
-  const cleanupUrls = useCallback(() => {
-    for (const key of Object.keys(stemUrls) as StemId[]) {
-      if (stemUrls[key]) URL.revokeObjectURL(stemUrls[key]!);
-    }
-  }, [stemUrls]);
+  const readyCount = STEMS.filter((s) => status[s.id] === "ready").length;
 
   useEffect(() => {
     return () => {
@@ -61,70 +65,72 @@ export default function StemsMixer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    return () => {
-      for (const t of timeoutsRef.current) window.clearTimeout(t);
-    };
-  }, []);
-
   const handleFile = useCallback(
     async (file: File) => {
       setBusy(true);
-      setError(null);
       setPlaying(false);
-      cleanupUrls();
-      try {
-        const form = new FormData();
-        form.set("file", file, file.name);
-        const res = await fetch("/api/stems", { method: "POST", body: form });
-        if (!res.ok) {
-          const data = await res.json().catch(() => null);
-          throw new Error(data?.error ?? `erreur ${res.status}`);
-        }
-        const zipBlob = await res.blob();
-        const entries = await readZip(zipBlob);
-        const newUrls: Record<StemId, string | null> = {
-          vocals: null,
-          drums: null,
-          bass: null,
-          guitar: null,
-          piano: null,
-          other: null,
-        };
-        for (const stem of STEMS) {
-          const blob = entries[stem.id];
-          if (blob) newUrls[stem.id] = URL.createObjectURL(blob);
-        }
-        setStemUrls(newUrls);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "échec extraction");
-        setStemUrls({
-          vocals: null,
-          drums: null,
-          bass: null,
-          guitar: null,
-          piano: null,
-          other: null,
-        });
-      } finally {
-        setBusy(false);
-        if (inputRef.current) inputRef.current.value = "";
+      for (const key of Object.keys(stemUrls) as StemId[]) {
+        if (stemUrls[key]) URL.revokeObjectURL(stemUrls[key]!);
       }
+      setStemUrls({
+        vocals: null,
+        drums: null,
+        bass: null,
+        guitar: null,
+        piano: null,
+        other: null,
+      });
+      setStatus({
+        vocals: "idle",
+        drums: "idle",
+        bass: "idle",
+        guitar: "idle",
+        piano: "idle",
+        other: "idle",
+      });
+
+      const buffer = await file.arrayBuffer();
+      const blob = new Blob([buffer], { type: file.type });
+
+      await Promise.all(
+        STEMS.map(async (stem) => {
+          setStatus((prev) => ({ ...prev, [stem.id]: "loading" }));
+          try {
+            const form = new FormData();
+            form.set("file", blob, file.name);
+            const res = await fetch(`/api/stems?stem=${stem.id}`, {
+              method: "POST",
+              body: form,
+            });
+            if (!res.ok) {
+              const data = await res.json().catch(() => null);
+              throw new Error(data?.error ?? `erreur ${res.status}`);
+            }
+            const audioBlob = await res.blob();
+            const url = URL.createObjectURL(audioBlob);
+            setStemUrls((prev) => ({ ...prev, [stem.id]: url }));
+            setStatus((prev) => ({ ...prev, [stem.id]: "ready" }));
+          } catch {
+            setStatus((prev) => ({ ...prev, [stem.id]: "error" }));
+          }
+        }),
+      );
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = "";
     },
-    [cleanupUrls],
+    [stemUrls],
   );
 
   const play = useCallback(() => {
-    const offset = 0;
     for (const stem of STEMS) {
       const el = audioRefs.current[stem.id];
-      if (!el || !stemUrls[stem.id]) continue;
-      el.currentTime = offset;
+      if (!el || status[stem.id] !== "ready") continue;
+      el.currentTime = 0;
       el.volume = volumes[stem.id];
       void el.play().catch(() => {});
     }
     setPlaying(true);
-  }, [stemUrls, volumes]);
+  }, [status, volumes]);
 
   const pause = useCallback(() => {
     for (const stem of STEMS) {
@@ -153,17 +159,11 @@ export default function StemsMixer() {
     }
   }, [playing, pause, play]);
 
-  const handleVolumeChange = useCallback(
-    (stem: StemId, value: number) => {
-      setVolumes((prev) => ({ ...prev, [stem]: value }));
-      const el = audioRefs.current[stem];
-      if (el) el.volume = value;
-    },
-    [],
-  );
-
-  const allReady = STEMS.every((s) => stemUrls[s.id]);
-  const readyCount = STEMS.filter((s) => stemUrls[s.id]).length;
+  const handleVolumeChange = useCallback((stem: StemId, value: number) => {
+    setVolumes((prev) => ({ ...prev, [stem]: value }));
+    const el = audioRefs.current[stem];
+    if (el) el.volume = value;
+  }, []);
 
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 flex flex-col gap-4">
@@ -172,7 +172,7 @@ export default function StemsMixer() {
         Mixeur 6 pistes (Demucs)
       </div>
       <p className="text-xs text-zinc-500">
-        Upload un fichier audio — le service local sépare en 6 pistes synchronisées.
+        Upload un fichier audio — séparation en 6 pistes synchronisées.
       </p>
 
       <input
@@ -190,18 +190,18 @@ export default function StemsMixer() {
       {busy && (
         <div className="flex items-center gap-2 text-xs text-amber-300 animate-pulse">
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          Séparation en cours (peut prendre 1–3 min)…
+          Séparation en cours ({readyCount}/6 pistes)…
         </div>
       )}
-      {error && <p className="text-xs text-red-400">{error}</p>}
 
-      {allReady && (
+      {readyCount > 0 && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={toggle}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 text-black text-xs font-semibold hover:bg-emerald-400 transition-colors"
+              disabled={readyCount === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 text-black text-xs font-semibold hover:bg-emerald-400 transition-colors disabled:opacity-40"
             >
               {playing ? (
                 <>
@@ -226,41 +226,77 @@ export default function StemsMixer() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {STEMS.map((stem) => (
-              <div
-                key={stem.id}
-                className="flex items-center gap-2 rounded-lg bg-zinc-800/60 px-2 py-1.5"
-              >
-                <span
-                  className={`w-2 h-2 rounded-full ${stem.color} flex-shrink-0`}
-                />
-                <span className="text-xs text-zinc-300 w-20 flex-shrink-0">
-                  {stem.label}
-                </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={volumes[stem.id]}
-                  onChange={(e) =>
-                    handleVolumeChange(stem.id, parseFloat(e.target.value))
-                  }
-                  className="flex-1 h-1 accent-emerald-500 cursor-pointer"
-                />
-                <span className="text-[10px] text-zinc-500 font-mono w-8 text-right">
-                  {Math.round(volumes[stem.id] * 100)}%
-                </span>
-              </div>
-            ))}
+            {STEMS.map((stem) => {
+              const st = status[stem.id];
+              return (
+                <div
+                  key={stem.id}
+                  className="flex items-center gap-2 rounded-lg bg-zinc-800/60 px-2 py-1.5"
+                >
+                  <span className={`w-2 h-2 rounded-full ${stem.color} flex-shrink-0`} />
+                  <span className="text-xs text-zinc-300 w-20 flex-shrink-0">
+                    {stem.label}
+                  </span>
+                  {st === "loading" && (
+                    <Loader2 className="w-3 h-3 animate-spin text-amber-400 flex-shrink-0" />
+                  )}
+                  {st === "ready" && (
+                    <Check className="w-3 h-3 text-emerald-400 flex-shrink-0" />
+                  )}
+                  {st === "error" && (
+                    <span className="text-[10px] text-red-400 flex-shrink-0">erreur</span>
+                  )}
+                  {st === "ready" && (
+                    <>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={volumes[stem.id]}
+                        onChange={(e) =>
+                          handleVolumeChange(stem.id, parseFloat(e.target.value))
+                        }
+                        className="flex-1 h-1 accent-emerald-500 cursor-pointer"
+                      />
+                      <span className="text-[10px] text-zinc-500 font-mono w-8 text-right">
+                        {Math.round(volumes[stem.id] * 100)}%
+                      </span>
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {!allReady && readyCount > 0 && (
-        <p className="text-xs text-zinc-500">
-          {readyCount}/6 pistes disponibles
-        </p>
+      {busy && readyCount < 6 && (
+        <div className="flex flex-col gap-1">
+          {STEMS.map((stem) => (
+            <div key={stem.id} className="flex items-center gap-2 text-xs text-zinc-500">
+              <span className={`w-1.5 h-1.5 rounded-full ${
+                status[stem.id] === "loading"
+                  ? "bg-amber-400 animate-pulse"
+                  : status[stem.id] === "ready"
+                  ? "bg-emerald-400"
+                  : status[stem.id] === "error"
+                  ? "bg-red-400"
+                  : "bg-zinc-600"
+              }`} />
+              <span className="w-16">{stem.label}</span>
+              <span className="text-[10px]">
+                {status[stem.id] === "loading"
+                  ? "…"
+                  : status[stem.id] === "ready"
+                  ? "OK"
+                  : status[stem.id] === "error"
+                  ? "échec"
+                  : "en attente"}
+              </span>
+            </div>
+          ))}
+        </div>
       )}
 
       {STEMS.map((stem) => (
@@ -276,20 +312,4 @@ export default function StemsMixer() {
       ))}
     </div>
   );
-}
-
-async function readZip(
-  blob: Blob,
-): Promise<Record<string, Blob>> {
-  const JSZip = (await import("jszip")).default;
-  const zip = await JSZip.loadAsync(blob);
-  const result: Record<string, Blob> = {};
-  for (const [path, entry] of Object.entries(zip.files)) {
-    if (entry.dir) continue;
-    const name = path.split("/").pop()?.replace(".wav", "").toLowerCase();
-    if (!name) continue;
-    const data = await entry.async("blob");
-    result[name] = data;
-  }
-  return result;
 }

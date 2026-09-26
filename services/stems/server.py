@@ -1,11 +1,13 @@
+import io
 import os
 import tempfile
 import zipfile
 from pathlib import Path
 
+import soundfile as sf
 import uvicorn
 from demucs_onnx import separate
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
@@ -27,7 +29,10 @@ def health():
 
 
 @app.post("/separate")
-async def separate_audio(file: UploadFile = File(...)):
+async def separate_audio(file: UploadFile = File(...), stem: str = Query("vocals")):
+    if stem not in STEM_NAMES:
+        raise HTTPException(402, f"stem must be one of {STEM_NAMES}")
+
     suffix = Path(file.filename or "audio.mp3").suffix or ".mp3"
     data = await file.read()
     if not data:
@@ -46,19 +51,19 @@ async def separate_audio(file: UploadFile = File(...)):
         except Exception as e:
             raise HTTPException(500, f"separation failed: {e}") from e
 
-        zip_path = Path(tmp) / "stems.zip"
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
-            for stem in STEM_NAMES:
-                wav = out_dir / f"{stem}.wav"
-                if wav.exists():
-                    zf.write(wav, arcname=f"{stem}.wav")
+        stem_path = out_dir / f"{stem}.wav"
+        if not stem_path.exists():
+            candidates = list(out_dir.glob("*.wav"))
+            if not candidates:
+                raise HTTPException(500, "no output generated")
+            stem_path = candidates[0]
 
-        zip_bytes = zip_path.read_bytes()
+        audio = stem_path.read_bytes()
 
     return Response(
-        content=zip_bytes,
-        media_type="application/zip",
-        headers={"X-Stems": ",".join(STEM_NAMES)},
+        content=audio,
+        media_type="audio/wav",
+        headers={"X-Stem": stem},
     )
 
 

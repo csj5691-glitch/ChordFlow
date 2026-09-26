@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const STEMS_SERVICE = process.env.STEMS_SERVICE_URL ?? "http://127.0.0.1:8765";
-const STEM_NAMES = ["vocals", "drums", "bass", "guitar", "piano", "other"];
+const STEM_CHOICES = ["vocals", "drums", "bass", "guitar", "piano", "other"] as const;
 
 export const runtime = "nodejs";
 export const maxDuration = 600;
@@ -13,6 +13,13 @@ export async function POST(req: NextRequest) {
   }
 
   const file = form.get("file");
+  const stem = (form.get("stem") as string | null) ?? "vocals";
+  if (!STEM_CHOICES.includes(stem as (typeof STEM_CHOICES)[number])) {
+    return NextResponse.json(
+      { error: `stem invalide (choix: ${STEM_CHOICES.join(", ")})` },
+      { status: 402 },
+    );
+  }
   if (!(file instanceof File) || file.size === 0) {
     return NextResponse.json({ error: "fichier audio manquant" }, { status: 400 });
   }
@@ -25,7 +32,7 @@ export async function POST(req: NextRequest) {
 
   let res: Response;
   try {
-    res = await fetch(`${STEMS_SERVICE}/separate`, {
+    res = await fetch(`${STEMS_SERVICE}/separate?stem=${encodeURIComponent(stem)}`, {
       method: "POST",
       body: upstream,
       signal: AbortSignal.timeout(590_000),
@@ -46,13 +53,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const zip = Buffer.from(await res.arrayBuffer());
-  return new NextResponse(zip, {
+  const audio = Buffer.from(await res.arrayBuffer());
+  return new NextResponse(audio, {
     status: 200,
     headers: {
-      "Content-Type": "application/zip",
-      "Content-Disposition": `attachment; filename="stems.zip"`,
-      "X-Stems": STEM_NAMES.join(","),
+      "Content-Type": "audio/wav",
+      "Content-Disposition": `attachment; filename="${stem}.wav"`,
     },
   });
 }
