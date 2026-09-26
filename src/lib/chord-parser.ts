@@ -2,7 +2,7 @@
 
 import { ChordSection } from "./types";
 
-const CHORD_REGEX = /^([A-G][#b]?(?:m|min|maj|dim|aug|sus[24]?|add[0-9]+|[0-9]+)?(?:\/[A-G][#b]?)?)\s*$/;
+const CHORD_REGEX = /^([A-G][#b]?(?:m[0-9]*|min[0-9]*|maj[0-9]*|dim|aug|sus[24]?|add[0-9]+|[0-9]+)?(?:\/[A-G][#b]?)?)\s*$/;
 
 export function parseChordContent(content: string): ChordSection[] {
   const rawLines = content.split("\n");
