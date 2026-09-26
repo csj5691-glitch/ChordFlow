@@ -54,44 +54,53 @@ export default function SynthPlayer({ diagrams, bpm }: SynthPlayerProps) {
       return;
     }
     if (ev.notes.length > 0 && ev.notes[0] !== 0) {
-    const saw = ctx.createOscillator();
-    saw.type = "sawtooth";
-    const osc2 = ctx.createOscillator();
-    osc2.type = "triangle";
-    const gate = ctx.createGain();
-    gate.gain.setValueAtTime(0, when);
-    gate.gain.linearRampToValueAtTime(0.9, when + 0.02);
-    gate.gain.setValueAtTime(0.9, when + Math.max(0.02, dur - 0.05));
-    gate.gain.linearRampToValueAtTime(0, when + dur);
-    const lp = ctx.createBiquadFilter();
-    lp.type = "lowpass";
-    lp.frequency.setValueAtTime(2200, when);
-    lp.frequency.linearRampToValueAtTime(600, when + dur);
+      // Dry acoustic-guitar pluck simulation:
+      // fundamental (triangle, warm) + octave harmonic (sine, bright attack)
+      // with fast exponential decay (no synth sustain).
+      const fund = ctx.createOscillator();
+      fund.type = "triangle";
+      fund.frequency.value = ev.notes[0];
 
-    saw.frequency.value = ev.notes[0];
-    osc2.frequency.value = ev.notes[0];
-    ev.notes.slice(1).forEach((f) => {
-      const o = ctx.createOscillator();
-      o.type = "sawtooth";
-      o.frequency.value = f;
-      const lg = ctx.createGain();
-      lg.gain.setValueAtTime(0.45, when);
-      lg.gain.linearRampToValueAtTime(0.45, when + Math.max(0.02, dur - 0.05));
-      lg.gain.linearRampToValueAtTime(0, when + dur);
-      o.connect(lg);
-      lg.connect(lp);
-      o.start(when);
-      o.stop(when + dur + 0.05);
-    });
+      const harm = ctx.createOscillator();
+      harm.type = "sine";
+      harm.frequency.value = ev.notes[0] * 2;
 
-    saw.connect(gate);
-    gate.connect(lp);
-    lp.connect(master);
-    osc2.connect(gate);
-    saw.start(when);
-    saw.stop(when + dur + 0.05);
-    osc2.start(when);
-    osc2.stop(when + dur + 0.05);
+      const fundGain = ctx.createGain();
+      fundGain.gain.setValueAtTime(0.6, when);
+      fundGain.gain.exponentialRampToValueAtTime(0.001, when + dur);
+
+      const harmGain = ctx.createGain();
+      harmGain.gain.setValueAtTime(0.2, when);
+      harmGain.gain.exponentialRampToValueAtTime(0.001, when + dur * 0.6);
+
+      // High-pass for the pick-attack transient
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass";
+      hp.frequency.value = 3000;
+      hp.Q.value = 1;
+
+      fund.connect(fundGain);
+      harm.connect(harmGain);
+      fundGain.connect(hp);
+      harmGain.connect(hp);
+      hp.connect(master);
+      fund.start(when);
+      fund.stop(when + dur + 0.05);
+      harm.start(when);
+      harm.stop(when + dur * 0.6 + 0.02);
+
+      ev.notes.slice(1).forEach((f) => {
+        const o = ctx.createOscillator();
+        o.type = "triangle";
+        o.frequency.value = f;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.3, when);
+        g.gain.exponentialRampToValueAtTime(0.001, when + dur);
+        o.connect(g);
+        g.connect(master);
+        o.start(when);
+        o.stop(when + dur + 0.05);
+      });
     }
 
     if (ev.mutedNotes && ev.mutedNotes.length > 0) {
@@ -102,7 +111,7 @@ export default function SynthPlayer({ diagrams, bpm }: SynthPlayerProps) {
         o.frequency.value = f;
         const g = ctx.createGain();
         g.gain.setValueAtTime(0, when);
-        g.gain.linearRampToValueAtTime(0.12, when + 0.01);
+        g.gain.linearRampToValueAtTime(0.1, when + 0.005);
         g.gain.linearRampToValueAtTime(0, when + mDur);
         o.connect(g);
         g.connect(master);
