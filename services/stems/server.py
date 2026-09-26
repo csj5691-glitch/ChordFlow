@@ -1,16 +1,22 @@
-import io
 import os
 import tempfile
 import zipfile
 from pathlib import Path
 
-import soundfile as sf
 import uvicorn
 from demucs_onnx import separate
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 app = FastAPI(title="ChordFlow Stems Service")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 STEM_NAMES = ["vocals", "drums", "bass", "guitar", "piano", "other"]
 
@@ -36,12 +42,12 @@ async def separate_audio(file: UploadFile = File(...)):
         out_dir.mkdir()
 
         try:
-            separate(str(src), str(out_dir), model="htdemucs_6s")
+            separate(str(src), str(out_dir), model="htdemucs_6s", providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
         except Exception as e:
             raise HTTPException(500, f"separation failed: {e}") from e
 
         zip_path = Path(tmp) / "stems.zip"
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
             for stem in STEM_NAMES:
                 wav = out_dir / f"{stem}.wav"
                 if wav.exists():
