@@ -7,6 +7,26 @@ const STRING_COUNT = 6;
 // How many cases the chord diagram grid shows per shape (ChordShapeView).
 const FRET_FLOOR = 5;
 
+// alphaTab has no instrument kind on a staff: a guitar is detected structurally
+// (6-string tablature, not percussion) and by excluding the bass family
+// programs explicitly (5/6-string basses would pass the 6-string check).
+const BASS_PROGRAMS_SUFFIX = 32;
+const BASS_PROGRAMS_END = 39;
+const DOUBLE_BASS_PROGRAM = 43;
+
+function isGuitarTrack(
+  track: model.Track,
+  staff: model.Staff | undefined
+): boolean {
+  if (!staff || staff.isPercussion) return false;
+  if (staff.tuning.length !== STRING_COUNT) return false;
+  if (!staff.showTablature) return false;
+  const program = track.playbackInfo?.program ?? 0;
+  if (program >= BASS_PROGRAMS_SUFFIX && program <= BASS_PROGRAMS_END) return false;
+  if (program === DOUBLE_BASS_PROGRAM) return false;
+  return true;
+}
+
 // Monotonic counter guarantees unique ids even when many shapes are
 // generated in the same millisecond (imports run in tight loops).
 let gpIdCounter = 0;
@@ -20,6 +40,7 @@ export interface GpTrackInfo {
   name: string;
   stringCount: number;
   isPercussion: boolean;
+  isGuitar: boolean;
   noteCount: number;
   chordCount: number;
 }
@@ -80,6 +101,7 @@ function listTracks(score: model.Score): GpTrackInfo[] {
       name: t.name || `Piste ${index + 1}`,
       stringCount: staff?.tuning.length ?? 0,
       isPercussion: staff?.isPercussion ?? false,
+      isGuitar: isGuitarTrack(t, staff),
       noteCount,
       chordCount,
     };
@@ -88,7 +110,11 @@ function listTracks(score: model.Score): GpTrackInfo[] {
 
 export async function analyzeGuitarProFile(file: File): Promise<GpTrackInfo[]> {
   const score = await loadScore(file);
-  return listTracks(score);
+  const tracks = listTracks(score).filter((t) => t.isGuitar);
+  if (tracks.length === 0) {
+    throw new Error("Aucune piste de guitare (6 cordes) trouvée dans la tablature.");
+  }
+  return tracks;
 }
 
 export async function importGuitarProTrack(file: File, trackIndex: number): Promise<GpImportResult> {
@@ -108,11 +134,8 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
     throw new Error("Piste introuvable dans la tablature.");
   }
   const staff = track.staves[0];
-  if (!staff || staff.isPercussion) {
-    throw new Error(`La piste « ${track.name || "?"} » est une piste de percussion.`);
-  }
-  if (staff.tuning.length !== 6) {
-    throw new Error(`La piste « ${track.name || "?"} » a ${staff.tuning.length} cordes (on attend 6).`);
+  if (!isGuitarTrack(track, staff)) {
+    throw new Error(`La piste « ${track.name || "?"} » n'est pas une guitare (6 cordes, tablature).`);
   }
 
   const diagrams: SavedChordShape[] = [];
@@ -277,13 +300,13 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
   return { song, diagrams: merged, warnings };
 }
 
-// Kept for backward compatibility: uses the first usable 6-string track.
+// Kept for backward compatibility: uses the first usable guitar track.
 export async function importGuitarProFile(file: File): Promise<GpImportResult> {
   const score = await loadScore(file);
-  const tracks = listTracks(score);
-  const usable = tracks.find((t) => !t.isPercussion && t.stringCount === 6 && t.noteCount > 0);
+  const tracks = listTracks(score).filter((t) => t.isGuitar && t.noteCount > 0);
+  const usable = tracks[0];
   if (!usable) {
-    throw new Error("Aucune piste guitare à 6 cordes trouvée dans la tablature.");
+    throw new Error("Aucune piste de guitare à 6 cordes trouvée dans la tablature.");
   }
   const result = await importGuitarProTrack(file, usable.index);
   if (result.diagrams.length === 0) {

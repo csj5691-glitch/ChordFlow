@@ -896,8 +896,8 @@ function EditSongView({ id }: { id: string }) {
                           <span className="truncate">{t.name}</span>
                         </span>
                         <span className="flex items-center gap-3 text-[10px] text-zinc-500 shrink-0">
+                          {t.isGuitar && <span className="text-emerald-300">Guitare</span>}
                           {t.stringCount} cordes
-                          {t.isPercussion && <span className="text-red-400">Percussion</span>}
                           {t.chordCount > 0 && <span className="text-amber-300">{t.chordCount} accords</span>}
                           <span>{t.noteCount} notes</span>
                         </span>
