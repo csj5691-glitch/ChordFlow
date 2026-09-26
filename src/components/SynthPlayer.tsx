@@ -69,12 +69,12 @@ export default function SynthPlayer({ diagrams, bpm, onCurrentIndexChange }: Syn
       harm.frequency.value = ev.notes[0] * 2;
 
       const fundGain = ctx.createGain();
-      fundGain.gain.setValueAtTime(0.7, when);
-      fundGain.gain.exponentialRampToValueAtTime(0.001, when + dur);
+      fundGain.gain.setValueAtTime(1.0, when);
+      fundGain.gain.linearRampToValueAtTime(0, when + dur);
 
       const harmGain = ctx.createGain();
-      harmGain.gain.setValueAtTime(0.25, when);
-      harmGain.gain.exponentialRampToValueAtTime(0.001, when + dur * 0.5);
+      harmGain.gain.setValueAtTime(0.3, when);
+      harmGain.gain.linearRampToValueAtTime(0, when + dur * 0.5);
 
       // Gentle low-pass for warmth, preserving guitar fundamentals (82-330Hz)
       const lp = ctx.createBiquadFilter();
@@ -136,8 +136,8 @@ export default function SynthPlayer({ diagrams, bpm, onCurrentIndexChange }: Syn
     if (!Ctor) return;
     const ctx = new Ctor();
     ctxRef.current = ctx;
-    const master = ctx.createGain();
-    master.gain.value = 0.35;
+const master = ctx.createGain();
+     master.gain.value = 1.0;
     master.connect(ctx.destination);
 
     const now = ctx.currentTime + 0.1;

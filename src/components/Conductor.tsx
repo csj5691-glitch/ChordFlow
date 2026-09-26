@@ -89,7 +89,7 @@ export default function Conductor({
   const [playing, setPlaying] = useState(false);
   const [index, setIndex] = useState(0);
   const [lyricIndex, setLyricIndex] = useState(0);
-  const [chordVolume, setChordVolume] = useState(0.4);
+  const [chordVolume, setChordVolume] = useState(1);
   const [instVolume, setInstVolume] = useState(1);
   const [vocalsVolume, setVocalsVolume] = useState(0.9);
   const [lyricOffset, setLyricOffset] = useState(0);
@@ -234,12 +234,12 @@ export default function Conductor({
       osc.type = "triangle";
       osc.frequency.value = freq;
       const gate = ctx.createGain();
-      gate.gain.setValueAtTime(0.8, when);
-      gate.gain.exponentialRampToValueAtTime(0.001, when + dur);
+      gate.gain.setValueAtTime(1.0, when);
+      gate.gain.linearRampToValueAtTime(0, when + dur);
       const lp = ctx.createBiquadFilter();
       lp.type = "lowpass";
-      lp.frequency.setValueAtTime(3000, when);
-      lp.frequency.linearRampToValueAtTime(800, when + dur);
+      lp.frequency.setValueAtTime(4000, when);
+      lp.frequency.linearRampToValueAtTime(1000, when + dur);
       osc.connect(gate);
       gate.connect(lp);
       lp.connect(master);
