@@ -213,7 +213,9 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
 
   flushRest();
 
-  if (diagrams.length === 0) {
+  const merged = mergeIdenticalChords(diagrams);
+
+  if (merged.length === 0) {
     throw new Error("Aucune note convertible trouvée dans la tablature.");
   }
 
@@ -225,10 +227,10 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
     content: "",
     bpm: score.tempo || 90,
     timeSignature,
-    diagrams,
+    diagrams: merged,
   };
 
-  return { song, diagrams, warnings };
+  return { song, diagrams: merged, warnings };
 }
 
 // Kept for backward compatibility: uses the first usable 6-string track.
@@ -291,6 +293,48 @@ function restShape(duration = 1): SavedChordShape {
     duration,
     silence: true,
   };
+}
+
+function shapeKey(d: SavedChordShape): string {
+  return JSON.stringify([
+    d.label,
+    d.fingers.map((f) => [f.string, f.fret, f.finger]),
+    d.muted,
+    d.barreOn,
+    d.barreCount,
+    d.baseFret,
+    d.capo,
+  ]);
+}
+
+// Consecutive identical chord strokes collapse into a single held chord:
+// keeps the sequence compact (and under the browser storage quota) while
+// keeping the exact same total duration for playback and the measure grid.
+function mergeIdenticalChords(diagrams: SavedChordShape[]): SavedChordShape[] {
+  const out: SavedChordShape[] = [];
+  const beats = (d: SavedChordShape) => (d.duration ?? 1) * (d.dotted ? 1.5 : 1);
+  for (const d of diagrams) {
+    const prev = out[out.length - 1];
+    const mergeable =
+      prev &&
+      !prev.bar &&
+      !prev.silence &&
+      !prev.navKind &&
+      !prev.legatoTo &&
+      !d.bar &&
+      !d.silence &&
+      !d.navKind &&
+      !d.legatoTo &&
+      prev.ending === undefined &&
+      d.ending === undefined &&
+      shapeKey(prev) === shapeKey(d);
+    if (mergeable) {
+      out[out.length - 1] = { ...prev, duration: +(beats(prev) + beats(d)).toFixed(4) };
+    } else {
+      out.push(d);
+    }
+  }
+  return out;
 }
 
 function chordShapeFromGp(gpChord: model.Chord, duration: number, text?: string): SavedChordShape | null {

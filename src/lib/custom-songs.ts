@@ -4,6 +4,29 @@ import { SavedChordShape, SongTab } from "./types";
 
 const STORAGE_KEY = "chordflow-custom-songs";
 
+export class StorageQuotaError extends Error {
+  constructor() {
+    super(
+      "Espace de stockage du navigateur saturé : la chanson est trop grosse pour être sauvegardée localement. Supprimez des chansons existantes ou importez un morceau plus court."
+    );
+    this.name = "StorageQuotaError";
+  }
+}
+
+function writeStorage(key: string, value: string): void {
+  try {
+    writeStorage(key, value);
+  } catch (err) {
+    if (
+      err instanceof DOMException &&
+      (err.name === "QuotaExceededError" || err.name === "NS_ERROR_DOM_QUOTA_REACHED")
+    ) {
+      throw new StorageQuotaError();
+    }
+    throw err;
+  }
+}
+
 const SECTION_LABEL_MIGRATION: Record<string, string> = {
   Verset: "Couplet",
   "Pré-verset": "Pré-couplet",
@@ -53,7 +76,7 @@ export function getCustomSongs(): SongTab[] {
     if (m !== s) changed = true;
     return m;
   });
-  if (changed) localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+  if (changed) writeStorage(STORAGE_KEY, JSON.stringify(migrated));
   return migrated;
 }
 
@@ -69,19 +92,19 @@ export function saveCustomSong(song: SongTab): void {
   } else {
     songs.push(song);
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(songs));
+  writeStorage(STORAGE_KEY, JSON.stringify(songs));
 }
 
 export function deleteCustomSong(id: string): void {
   const songs = getCustomSongs().filter((s) => s.id !== id);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(songs));
+  writeStorage(STORAGE_KEY, JSON.stringify(songs));
 }
 
 export function updateCustomSong(id: string, patch: Partial<SongTab>): void {
   const songs = getCustomSongs().map((s) =>
     s.id === id ? { ...s, ...patch } : s
   );
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(songs));
+  writeStorage(STORAGE_KEY, JSON.stringify(songs));
 }
 
 export function generateSongId(): string {
@@ -104,7 +127,7 @@ export function saveLineChords(songId: string, lineIndex: number, chords: string
   const all = JSON.parse(localStorage.getItem(CHORDS_KEY) || "{}");
   if (!all[songId]) all[songId] = {};
   all[songId][lineIndex] = chords;
-  localStorage.setItem(CHORDS_KEY, JSON.stringify(all));
+  writeStorage(CHORDS_KEY, JSON.stringify(all));
 }
 
 const SPACERS_KEY = "chordflow-line-spacers";
@@ -127,7 +150,7 @@ export function saveLineSpacers(songId: string, lineIndex: number, label: string
   } else {
     delete all[songId][lineIndex];
   }
-  localStorage.setItem(SPACERS_KEY, JSON.stringify(all));
+  writeStorage(SPACERS_KEY, JSON.stringify(all));
 }
 
 const EXTRA_LINES_KEY = "chordflow-extra-chord-lines";
@@ -151,5 +174,5 @@ export function loadExtraChordLines(songId: string): ExtraChordLine[] {
 export function saveExtraChordLines(songId: string, lines: ExtraChordLine[]): void {
   const all = JSON.parse(localStorage.getItem(EXTRA_LINES_KEY) || "{}");
   all[songId] = lines;
-  localStorage.setItem(EXTRA_LINES_KEY, JSON.stringify(all));
+  writeStorage(EXTRA_LINES_KEY, JSON.stringify(all));
 }
