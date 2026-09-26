@@ -297,8 +297,8 @@ export default function Conductor({
     if (!Ctor) return;
     const ctx = new Ctor();
     ctxRef.current = ctx;
-    const master = ctx.createGain();
-    master.gain.value = chordVolRef.current;
+const master = ctx.createGain();
+     master.gain.value = 2.0;
     master.connect(ctx.destination);
     chordMasterRef.current = master;
     const now = ctx.currentTime + 0.1;
