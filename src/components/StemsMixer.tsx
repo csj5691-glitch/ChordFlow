@@ -174,6 +174,9 @@ export default function StemsMixer() {
       <p className="text-xs text-zinc-500">
         Upload un fichier audio — séparation en 6 pistes synchronisées.
       </p>
+      <p className="text-[10px] text-zinc-600">
+        Formats supportés : WAV, MP3, FLAC, OGG, M4A, AAC — max 200 Mo
+      </p>
 
       <input
         ref={inputRef}
