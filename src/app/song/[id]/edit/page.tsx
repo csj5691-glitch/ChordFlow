@@ -63,7 +63,7 @@ type EditMode = "grid" | "diagrams";
 const DURATION_OPTIONS = [
   { label: "dble croche · ¼ temps", note: "double-croche", beats: 0.25 },
   { label: "croche · ½ temps", note: "croche", beats: 0.5 },
-  { label: "triple croche · ⅓ temps", note: "triplet-croche", beats: 1/3 },
+  { label: "1/8 de temps", note: "eighth-time", beats: 0.125 },
   { label: "noire · 1 temps", note: "noire", beats: 1 },
   { label: "blanche · 2 temps", note: "blanche", beats: 2 },
   { label: "ronde · 4 temps", note: "ronde", beats: 4 },
