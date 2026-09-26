@@ -15,7 +15,7 @@ export class StorageQuotaError extends Error {
 
 function writeStorage(key: string, value: string): void {
   try {
-    writeStorage(key, value);
+    localStorage.setItem(key, value);
   } catch (err) {
     if (
       err instanceof DOMException &&
