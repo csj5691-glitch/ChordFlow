@@ -48,7 +48,7 @@ export default function SynthPlayer({ diagrams, bpm, onCurrentIndexChange }: Syn
     master: GainNode,
     when: number
   ) => {
-    const dur = Math.max(0.12, ev.duration);
+    const dur = Math.max(0.2, ev.duration);
     if (
       ev.silence ||
       ((ev.notes.length === 0 || ev.notes[0] === 0) &&
@@ -57,11 +57,10 @@ export default function SynthPlayer({ diagrams, bpm, onCurrentIndexChange }: Syn
       return;
     }
     if (ev.notes.length > 0 && ev.notes[0] !== 0) {
-      // Dry acoustic-guitar pluck simulation:
-      // fundamental (triangle, warm) + octave harmonic (sine, bright attack)
-      // with fast exponential decay (no synth sustain).
+      // Dry acoustic-guitar pluck: sine wave (warm) + octave harmonic (sine, bright)
+      // with longer sustain so the note is perceptible.
       const fund = ctx.createOscillator();
-      fund.type = "triangle";
+      fund.type = "sine";
       fund.frequency.value = ev.notes[0];
 
       const harm = ctx.createOscillator();
@@ -69,19 +68,19 @@ export default function SynthPlayer({ diagrams, bpm, onCurrentIndexChange }: Syn
       harm.frequency.value = ev.notes[0] * 2;
 
       const fundGain = ctx.createGain();
-      fundGain.gain.setValueAtTime(1.0, when);
+      fundGain.gain.setValueAtTime(0.8, when);
       fundGain.gain.linearRampToValueAtTime(0, when + dur);
 
       const harmGain = ctx.createGain();
-      harmGain.gain.setValueAtTime(0.3, when);
-      harmGain.gain.linearRampToValueAtTime(0, when + dur * 0.5);
+      harmGain.gain.setValueAtTime(0.15, when);
+      harmGain.gain.linearRampToValueAtTime(0, when + dur * 0.4);
 
-      // Gentle low-pass for warmth, preserving guitar fundamentals (82-330Hz)
+      // Very gentle low-pass for warmth only
       const lp = ctx.createBiquadFilter();
       lp.type = "lowpass";
-      lp.frequency.setValueAtTime(4000, when);
-      lp.frequency.linearRampToValueAtTime(1200, when + dur);
-      lp.Q.value = 1;
+      lp.frequency.setValueAtTime(6000, when);
+      lp.frequency.linearRampToValueAtTime(2000, when + dur);
+      lp.Q.value = 0.5;
 
       fund.connect(fundGain);
       harm.connect(harmGain);
@@ -89,33 +88,32 @@ export default function SynthPlayer({ diagrams, bpm, onCurrentIndexChange }: Syn
       harmGain.connect(lp);
       lp.connect(master);
       fund.start(when);
-      fund.stop(when + dur + 0.05);
+      fund.stop(when + dur + 0.1);
       harm.start(when);
-      harm.stop(when + dur * 0.5 + 0.02);
+      harm.stop(when + dur * 0.4 + 0.1);
 
       ev.notes.slice(1).forEach((f) => {
         const o = ctx.createOscillator();
-        o.type = "triangle";
+        o.type = "sine";
         o.frequency.value = f;
         const g = ctx.createGain();
         g.gain.setValueAtTime(0.3, when);
-        g.gain.exponentialRampToValueAtTime(0.001, when + dur);
+        g.gain.linearRampToValueAtTime(0, when + dur);
         o.connect(g);
         g.connect(master);
         o.start(when);
-        o.stop(when + dur + 0.05);
+        o.stop(when + dur + 0.1);
       });
     }
 
     if (ev.mutedNotes && ev.mutedNotes.length > 0) {
-      const mDur = Math.min(0.08, dur);
+      const mDur = Math.min(0.2, dur);
       for (const f of ev.mutedNotes) {
         const o = ctx.createOscillator();
-        o.type = "triangle";
+        o.type = "sine";
         o.frequency.value = f;
         const g = ctx.createGain();
-        g.gain.setValueAtTime(0, when);
-        g.gain.linearRampToValueAtTime(0.1, when + 0.005);
+        g.gain.setValueAtTime(0.4, when);
         g.gain.linearRampToValueAtTime(0, when + mDur);
         o.connect(g);
         g.connect(master);
