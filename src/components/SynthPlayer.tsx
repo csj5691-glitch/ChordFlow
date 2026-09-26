@@ -48,8 +48,8 @@ export default function SynthPlayer({ diagrams, bpm, onCurrentIndexChange }: Syn
     master: GainNode,
     when: number
   ) => {
-    const dur = ev.duration;
-      const release = 0.4;
+    const dur = Math.max(0.35, ev.duration);
+      const release = 0.35;
       const end = when + dur + release;
     if (
       ev.silence ||
@@ -112,7 +112,7 @@ export default function SynthPlayer({ diagrams, bpm, onCurrentIndexChange }: Syn
     }
 
     if (ev.mutedNotes && ev.mutedNotes.length > 0) {
-      const mEnd = when + ev.duration + 0.4;
+      const mEnd = when + Math.max(0.35, ev.duration) + 0.35;
       for (const f of ev.mutedNotes) {
         const o = ctx.createOscillator();
         o.type = "sine";
