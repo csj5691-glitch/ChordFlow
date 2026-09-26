@@ -281,63 +281,15 @@ export default function StemsMixer() {
 async function readZip(
   blob: Blob,
 ): Promise<Record<string, Blob>> {
-  const ds = new DecompressionStream("deflate-raw");
-  const stream = blob.stream().pipeThrough(ds);
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    total += value.length;
-  }
-  const data = new Uint8Array(total);
-  let offset = 0;
-  for (const c of chunks) {
-    data.set(c, offset);
-    offset += c.length;
-  }
-  const view = new DataView(data.buffer);
-  const text = new TextDecoder();
+  const JSZip = (await import("jszip")).default;
+  const zip = await JSZip.loadAsync(blob);
   const result: Record<string, Blob> = {};
-
-  let pos = 0;
-  while (pos < data.length - 4) {
-    const sig = view.getUint32(pos, true);
-    if (sig !== 0x04034b50) break;
-    const compMethod = view.getUint16(pos + 8, true);
-    const compSize = view.getUint32(pos + 18, true);
-    const nameLen = view.getUint16(pos + 26, true);
-    const extraLen = view.getUint16(pos + 28, true);
-    const name = text.decode(data.subarray(pos + 30, pos + 30 + nameLen));
-    const dataStart = pos + 30 + nameLen + extraLen;
-    const fileData = data.subarray(dataStart, dataStart + compSize);
-
-    if (!name.endsWith("/")) {
-      const ds2 = new DecompressionStream("deflate-raw");
-      const stream2 = new Blob([fileData]).stream().pipeThrough(ds2);
-      const reader2 = stream2.getReader();
-      const chunks2: Uint8Array[] = [];
-      let total2 = 0;
-      while (true) {
-        const { done, value } = await reader2.read();
-        if (done) break;
-        chunks2.push(value);
-        total2 += value.length;
-      }
-      const raw = new Uint8Array(total2);
-      let off2 = 0;
-      for (const c of chunks2) {
-        raw.set(c, off2);
-        off2 += c.length;
-      }
-      const stemName = name.replace(".wav", "").toLowerCase();
-      result[stemName] = new Blob([raw], { type: "audio/wav" });
-    }
-
-    pos = dataStart + compSize;
+  for (const [path, entry] of Object.entries(zip.files)) {
+    if (entry.dir) continue;
+    const name = path.split("/").pop()?.replace(".wav", "").toLowerCase();
+    if (!name) continue;
+    const data = await entry.async("blob");
+    result[name] = data;
   }
-
   return result;
 }
