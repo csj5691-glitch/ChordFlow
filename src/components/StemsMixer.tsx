@@ -44,6 +44,7 @@ export default function StemsMixer() {
   });
   const [playing, setPlaying] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRefs = useRef<Record<StemId, HTMLAudioElement | null>>({
     vocals: null,
@@ -55,6 +56,15 @@ export default function StemsMixer() {
   });
 
   const readyCount = STEMS.filter((s) => status[s.id] === "ready").length;
+
+  useEffect(() => {
+    if (!busy) return;
+    const start = Date.now();
+    const interval = window.setInterval(() => {
+      setElapsed(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [busy]);
 
   useEffect(() => {
     return () => {
@@ -193,7 +203,7 @@ export default function StemsMixer() {
       {busy && (
         <div className="flex items-center gap-2 text-xs text-amber-300 animate-pulse">
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          Séparation en cours ({readyCount}/6 pistes)…
+          Séparation en cours — {readyCount}/6 pistes ({Math.round((readyCount / 6) * 100)}%) — {elapsed}s écoulées
         </div>
       )}
 
@@ -290,7 +300,7 @@ export default function StemsMixer() {
               <span className="w-16">{stem.label}</span>
               <span className="text-[10px]">
                 {status[stem.id] === "loading"
-                  ? "…"
+                  ? `en cours… ${elapsed}s`
                   : status[stem.id] === "ready"
                   ? "OK"
                   : status[stem.id] === "error"
