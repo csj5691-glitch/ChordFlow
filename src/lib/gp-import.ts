@@ -5,6 +5,14 @@ import { importer, model } from "@coderline/alphatab";
 
 const STRING_COUNT = 6;
 
+// Monotonic counter guarantees unique ids even when many shapes are
+// generated in the same millisecond (imports run in tight loops).
+let gpIdCounter = 0;
+function gpId(prefix: string): string {
+  gpIdCounter += 1;
+  return `${prefix}-${Date.now().toString(36)}-${gpIdCounter.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
 export interface GpImportResult {
   song: SongTab;
   diagrams: SavedChordShape[];
@@ -137,7 +145,7 @@ export async function importGuitarProFile(file: File): Promise<GpImportResult> {
   }
 
   const song: SongTab = {
-    id: `gp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    id: gpId("gp"),
     title,
     artist,
     type: "cover",
@@ -152,7 +160,7 @@ export async function importGuitarProFile(file: File): Promise<GpImportResult> {
 
 function barShape(kind: "beginRepeat" | "endRepeat"): SavedChordShape {
   return {
-    id: `gp-bar-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    id: gpId("gp-bar"),
     label: kind === "beginRepeat" ? "Répétition début" : "Répétition fin",
     fingers: [],
     barreOn: false,
@@ -168,7 +176,7 @@ function barShape(kind: "beginRepeat" | "endRepeat"): SavedChordShape {
 
 function sectionShape(marker: string): SavedChordShape {
   return {
-    id: `gp-section-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    id: gpId("gp-section"),
     label: marker,
     fingers: [],
     barreOn: false,
@@ -184,7 +192,7 @@ function sectionShape(marker: string): SavedChordShape {
 
 function restShape(): SavedChordShape {
   return {
-    id: `gp-rest-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    id: gpId("gp-rest"),
     label: "Pause",
     fingers: [],
     barreOn: false,
@@ -246,7 +254,7 @@ function chordShape(
 
   const baseFret = barreOn ? barreFret : 1;
   return {
-    id: `gp-chord-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    id: gpId("gp-chord"),
     label: chordName || "",
     fingers,
     barreOn,
