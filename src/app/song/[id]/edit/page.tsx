@@ -63,6 +63,7 @@ type EditMode = "grid" | "diagrams";
 const DURATION_OPTIONS = [
   { label: "dble croche · ¼ temps", note: "double-croche", beats: 0.25 },
   { label: "croche · ½ temps", note: "croche", beats: 0.5 },
+  { label: "triple croche · ⅓ temps", note: "triplet-croche", beats: 1/3 },
   { label: "noire · 1 temps", note: "noire", beats: 1 },
   { label: "blanche · 2 temps", note: "blanche", beats: 2 },
   { label: "ronde · 4 temps", note: "ronde", beats: 4 },
@@ -76,10 +77,11 @@ const NAV_GROUPS: { title: string; kinds: NavKind[] }[] = [
 ];
 
 function formatBeats(beats: number): string {
-  const base = DURATION_OPTIONS.find((o) => o.beats === beats);
+  const base = DURATION_OPTIONS.find((o) => Math.abs(o.beats - beats) < 1e-6);
   if (base) return base.note;
-  const dotted = DURATION_OPTIONS.find((o) => o.beats * 1.5 === beats);
-  return dotted ? `${dotted.note} pointée` : String(beats);
+  const dotted = DURATION_OPTIONS.find((o) => Math.abs(o.beats * 1.5 - beats) < 1e-6);
+  if (dotted) return `${dotted.note} pointée`;
+  return String(beats);
 }
 
 export default function EditSongPage({
