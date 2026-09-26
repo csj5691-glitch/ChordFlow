@@ -16,7 +16,7 @@ import YouTubeSearch from "@/components/YouTubeSearch";
 import SpotifyPlayer from "@/components/SpotifyPlayer";
 import SpotifySearch from "@/components/SpotifySearch";
 import InstrumentalMix from "@/components/InstrumentalMix";
-import StemsExtractor from "@/components/StemsExtractor";
+import StemsMixer from "@/components/StemsMixer";
 import AddSong from "@/components/AddSong";
 import { getSongTab } from "@/lib/mock-data";
 import { parseChordContent, sectionsToContent } from "@/lib/chord-parser";
@@ -1062,7 +1062,7 @@ function SongView({ id }: SongViewProps) {
             onVoiceVolume={setVoiceVolume}
           />
         )}
-        <StemsExtractor />
+        <StemsMixer />
 
         {audioSource === "youtube" && youtubeVideoId && (
           <>
