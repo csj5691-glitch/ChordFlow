@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { SongTab } from "./types";
 import { loadSharedSongs, saveSharedSong } from "./supabase";
-import { getCustomSong, saveCustomSong } from "./custom-songs";
+import { getCustomSong } from "./custom-songs";
 
 export function useSharedSong(id: string) {
   const [current, setCurrent] = useState<SongTab | null>(() => getCustomSong(id));
@@ -27,7 +27,6 @@ export function useSharedSong(id: string) {
 
   const upsert = useCallback((song: SongTab) => {
     setCurrent(song);
-    saveCustomSong(song);
     return saveSharedSong(song);
   }, []);
 

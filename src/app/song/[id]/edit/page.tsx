@@ -499,7 +499,7 @@ function EditSongView({ id }: { id: string }) {
       }
       const warnings = result.warnings;
       if (warnings.length > 0) setGpWarnings(warnings);
-      upsert({
+      const drops = await upsert({
         ...song,
         title: song.title || result.song.title,
         artist: song.artist || result.song.artist,
@@ -507,6 +507,15 @@ function EditSongView({ id }: { id: string }) {
         timeSignature: song.timeSignature ?? result.song.timeSignature,
         diagrams: [...(song.diagrams ?? []), ...result.diagrams],
       });
+      if (drops.length > 0) {
+        setGpWarnings([
+          ...warnings,
+          ...drops.map(
+            (t) =>
+              `Espace local saturé : « ${t} » a été retirée de cet appareil pour enregistrer la chanson (elle reste sur le serveur partagé).`
+          ),
+        ]);
+      }
       setGpTracks([]);
       setGpPendingFile(null);
     } catch (err) {

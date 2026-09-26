@@ -76,7 +76,13 @@ export function getCustomSongs(): SongTab[] {
     if (m !== s) changed = true;
     return m;
   });
-  if (changed) writeStorage(STORAGE_KEY, JSON.stringify(migrated));
+  if (changed) {
+    try {
+      writeStorage(STORAGE_KEY, JSON.stringify(migrated));
+    } catch {
+      // Best effort: a full store should not break reads.
+    }
+  }
   return migrated;
 }
 
@@ -84,15 +90,46 @@ export function getCustomSong(id: string): SongTab | null {
   return getCustomSongs().find((s) => s.id === id) || null;
 }
 
-export function saveCustomSong(song: SongTab): void {
+function songSize(song: SongTab): number {
+  return JSON.stringify(song).length;
+}
+
+// localStorage is a hard cap. When it fills up, drop the largest existing
+// songs (which mirror the shared server list) to make room for the song being
+// written. Returns the titles of the songs dropped from the local device.
+function persistSongsList(songs: SongTab[], protectId?: string): string[] {
+  const drops: string[] = [];
+  let next = songs;
+  for (;;) {
+    try {
+      writeStorage(STORAGE_KEY, JSON.stringify(next));
+      return drops;
+    } catch (err) {
+      if (!(err instanceof StorageQuotaError)) throw err;
+      let largestIdx = -1;
+      let largestSize = -1;
+      for (let i = 0; i < next.length; i++) {
+        const s = next[i];
+        if (s.id === protectId) continue;
+        const size = songSize(s);
+        if (size > largestSize) {
+          largestSize = size;
+          largestIdx = i;
+        }
+      }
+      if (largestIdx < 0) throw new StorageQuotaError();
+      const dropped = next[largestIdx];
+      drops.push(dropped.title || dropped.id);
+      next = next.filter((_, i) => i !== largestIdx);
+    }
+  }
+}
+
+export function saveCustomSong(song: SongTab): string[] {
   const songs = getCustomSongs();
   const idx = songs.findIndex((s) => s.id === song.id);
-  if (idx >= 0) {
-    songs[idx] = song;
-  } else {
-    songs.push(song);
-  }
-  writeStorage(STORAGE_KEY, JSON.stringify(songs));
+  const next = idx >= 0 ? songs.map((s, i) => (i === idx ? song : s)) : [...songs, song];
+  return persistSongsList(next, song.id);
 }
 
 export function deleteCustomSong(id: string): void {
@@ -100,11 +137,15 @@ export function deleteCustomSong(id: string): void {
   writeStorage(STORAGE_KEY, JSON.stringify(songs));
 }
 
-export function updateCustomSong(id: string, patch: Partial<SongTab>): void {
-  const songs = getCustomSongs().map((s) =>
-    s.id === id ? { ...s, ...patch } : s
-  );
-  writeStorage(STORAGE_KEY, JSON.stringify(songs));
+export function updateCustomSong(id: string, patch: Partial<SongTab>): string[] {
+  const songs = getCustomSongs();
+  let protectedId: string | undefined;
+  const next = songs.map((s) => {
+    if (s.id !== id) return s;
+    protectedId = id;
+    return { ...s, ...patch };
+  });
+  return persistSongsList(next, protectedId);
 }
 
 export function generateSongId(): string {

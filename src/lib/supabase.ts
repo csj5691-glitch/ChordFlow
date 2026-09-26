@@ -59,10 +59,18 @@ export async function loadSharedSongs(): Promise<SongTab[]> {
   return migrated;
 }
 
-export async function saveSharedSong(song: SongTab): Promise<void> {
+export async function saveSharedSong(song: SongTab): Promise<string[]> {
   const sb = getSupabase();
-  saveLocalSong(song);
-  if (!sb) return;
+  let drops: string[] = [];
+  try {
+    drops = saveLocalSong(song);
+  } catch (err) {
+    console.warn(
+      "[ChordFlow] Stockage local saturé, sauvegarde serveur uniquement.",
+      err
+    );
+  }
+  if (!sb) return drops;
   const row = {
     id: song.id,
     title: song.title,
@@ -71,6 +79,7 @@ export async function saveSharedSong(song: SongTab): Promise<void> {
     updated_at: new Date().toISOString(),
   };
   await sb.from("songs").upsert(row, { onConflict: "id" });
+  return drops;
 }
 
 export async function deleteSharedSong(id: string): Promise<void> {
