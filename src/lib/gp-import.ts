@@ -123,14 +123,36 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
   const STRING_INDEX = new Map<number, number>();
   for (let i = 1; i <= nStrings; i++) STRING_INDEX.set(i, nStrings - i);
 
-  let pendingRestBeats = 0;
+  const EPS = 1e-6;
+  const beatDuration = (beat: model.Beat) =>
+    durationToBeats(beat.duration, beat.dots, beat.tupletNumerator, beat.tupletDenominator);
 
-  const flushRest = () => {
-    if (pendingRestBeats > 0) {
-      diagrams.push(restShape(pendingRestBeats));
-      pendingRestBeats = 0;
+  // Rests from several voices must not be summed: a Guitar Pro bar usually
+  // carries one content voice plus empty/ghost voices. Use the busiest voice.
+  function pickMainVoice(bar: model.Bar): model.Voice | null {
+    let best: model.Voice | null = null;
+    let bestScore = -1;
+    for (const voice of bar.voices) {
+      if (voice.beats.length === 0) continue;
+      let content = 0;
+      for (const b of voice.beats) {
+        if (!b.isRest && !b.isEmpty && b.notes.length > 0) content += 1;
+      }
+      const score = content * 1000 + voice.beats.length;
+      if (score > bestScore) {
+        bestScore = score;
+        best = voice;
+      }
     }
-  };
+    return best;
+  }
+
+  function absorbTailRest(barChords: SavedChordShape[], restBeats: number): void {
+    const last = barChords[barChords.length - 1];
+    if (!last || last.bar || last.silence) return;
+    const current = (last.duration ?? 1) * (last.dotted ? 1.5 : 1);
+    last.duration = +(current + restBeats).toFixed(4);
+  }
 
   for (let mbIdx = 0; mbIdx < score.masterBars.length; mbIdx++) {
     const bar = staff.bars[mbIdx];
@@ -138,29 +160,51 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
     const masterBar = score.masterBars[mbIdx];
 
     if (masterBar.isRepeatStart) {
-      flushRest();
       diagrams.push(barShape("beginRepeat"));
     }
     const section = masterBar.section;
     if (section?.marker) {
-      flushRest();
       diagrams.push(sectionShape(section.marker));
     }
 
     const barChords: SavedChordShape[] = [];
+    const voice = pickMainVoice(bar);
 
-    for (const voice of bar.voices) {
-      if (voice.beats.length === 0 && !voice.isEmpty) continue;
+    if (voice) {
+      let barBeats = 0;
+      for (const beat of voice.beats) barBeats += beatDuration(beat);
+
+      let pos = 0;
+      let restStart = -1;
+
+      // Reaching the end of a measure on a rest that merely completes the bar
+      // (with the next bar playing) is strumming padding: fold it into the
+      // previous chord so the pause goes away while total duration stays exact.
+      const closeRestRun = (): void => {
+        if (restStart < 0) return;
+        const restBeats = pos - restStart;
+        restStart = -1;
+        if (Math.abs(restBeats - barBeats) < EPS) {
+          barChords.push(restShape(restBeats));
+          return;
+        }
+        if (pos >= barBeats - EPS) {
+          absorbTailRest(barChords, restBeats);
+          return;
+        }
+        barChords.push(restShape(restBeats));
+      };
+
       for (const beat of voice.beats) {
-        if (beat.isRest || beat.isEmpty) {
-          if (beat.isRest) {
-            pendingRestBeats += durationToBeats(beat.duration, beat.dots, beat.tupletNumerator, beat.tupletDenominator);
-          }
+        const duration = beatDuration(beat);
+        if (beat.isRest || beat.isEmpty || beat.notes.length === 0) {
+          if (restStart < 0) restStart = pos;
+          pos += duration;
           continue;
         }
-        if (beat.notes.length === 0) continue;
 
-        const duration = durationToBeats(beat.duration, beat.dots, beat.tupletNumerator, beat.tupletDenominator);
+        closeRestRun();
+
         const text = beat.text || undefined;
 
         // Prefer the named chord diagram stored in the file (Guitar Pro / GPIF)
@@ -168,10 +212,8 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
         const gpChord = beat.chord;
         if (gpChord && gpChord.strings.length === nStrings && gpChord.showDiagram) {
           const chord = chordShapeFromGp(gpChord, duration, text);
-          if (chord) {
-            flushRest();
-            barChords.push(chord);
-          }
+          if (chord) barChords.push(chord);
+          pos += duration;
           continue;
         }
 
@@ -193,15 +235,19 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
           if (note.isHammerPullOrigin) legatoTo.push(s);
         }
 
-        if (fingers.length === 0 && !mutedOn.some(Boolean)) continue;
+        if (fingers.length === 0 && !mutedOn.some(Boolean)) {
+          pos += duration;
+          continue;
+        }
 
-        flushRest();
         barChords.push(chordShape(fingers, mutedOn, legatoTo, duration, text));
+        pos += duration;
       }
+
+      closeRestRun();
     }
 
     if (masterBar.isRepeatEnd) {
-      flushRest();
       diagrams.push(barShape("endRepeat"));
     }
 
@@ -210,8 +256,6 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
       diagrams.push(...barChords);
     }
   }
-
-  flushRest();
 
   const merged = mergeIdenticalChords(diagrams);
 
