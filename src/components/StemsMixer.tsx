@@ -110,7 +110,7 @@ export default function StemsMixer() {
           const res = await fetch(`/api/stems?stem=${stem.id}`, {
             method: "POST",
             body: form,
-            signal: AbortSignal.timeout(30_000),
+            signal: AbortSignal.timeout(300_000),
           });
           if (!res.ok) {
             const data = await res.json().catch(() => null);
