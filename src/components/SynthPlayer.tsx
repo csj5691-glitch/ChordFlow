@@ -48,7 +48,7 @@ export default function SynthPlayer({ diagrams, bpm, onCurrentIndexChange }: Syn
     master: GainNode,
     when: number
   ) => {
-    const dur = Math.max(0.08, ev.duration);
+    const dur = Math.max(0.12, ev.duration);
     if (
       ev.silence ||
       ((ev.notes.length === 0 || ev.notes[0] === 0) &&
