@@ -102,30 +102,28 @@ export default function StemsMixer() {
       const buffer = await file.arrayBuffer();
       const blob = new Blob([buffer], { type: file.type });
 
-      await Promise.all(
-        STEMS.map(async (stem) => {
-          setStatus((prev) => ({ ...prev, [stem.id]: "loading" }));
-          try {
-            const form = new FormData();
-            form.set("file", blob, file.name);
-            const res = await fetch(`/api/stems?stem=${stem.id}`, {
-              method: "POST",
-              body: form,
-              signal: AbortSignal.timeout(30_000),
-            });
-            if (!res.ok) {
-              const data = await res.json().catch(() => null);
-              throw new Error(data?.error ?? `erreur ${res.status}`);
-            }
-            const audioBlob = await res.blob();
-            const url = URL.createObjectURL(audioBlob);
-            setStemUrls((prev) => ({ ...prev, [stem.id]: url }));
-            setStatus((prev) => ({ ...prev, [stem.id]: "ready" }));
-          } catch {
-            setStatus((prev) => ({ ...prev, [stem.id]: "error" }));
+      for (const stem of STEMS) {
+        setStatus((prev) => ({ ...prev, [stem.id]: "loading" }));
+        try {
+          const form = new FormData();
+          form.set("file", blob, file.name);
+          const res = await fetch(`/api/stems?stem=${stem.id}`, {
+            method: "POST",
+            body: form,
+            signal: AbortSignal.timeout(30_000),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => null);
+            throw new Error(data?.error ?? `erreur ${res.status}`);
           }
-        }),
-      );
+          const audioBlob = await res.blob();
+          const url = URL.createObjectURL(audioBlob);
+          setStemUrls((prev) => ({ ...prev, [stem.id]: url }));
+          setStatus((prev) => ({ ...prev, [stem.id]: "ready" }));
+        } catch {
+          setStatus((prev) => ({ ...prev, [stem.id]: "error" }));
+        }
+      }
       setBusy(false);
       if (inputRef.current) inputRef.current.value = "";
     },
