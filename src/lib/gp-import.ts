@@ -141,10 +141,10 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
   const diagrams: SavedChordShape[] = [];
   // AlphaTab numbers strings 1..n where 1 = the lowest string (bottom line /
   // low E on a 6-string guitar). ChordFlow uses index 0 (leftmost) = low E.
-  // Map: flowString = nStrings - gpString.
+  // Map: flowString = gpString - 1.
   const nStrings = staff.tuning.length;
   const STRING_INDEX = new Map<number, number>();
-  for (let i = 1; i <= nStrings; i++) STRING_INDEX.set(i, nStrings - i);
+  for (let i = 1; i <= nStrings; i++) STRING_INDEX.set(i, i - 1);
 
   const EPS = 1e-6;
   const beatDuration = (beat: model.Beat) =>
