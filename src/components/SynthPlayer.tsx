@@ -9,9 +9,10 @@ import type { SavedChordShape } from "@/lib/types";
 interface SynthPlayerProps {
   diagrams: SavedChordShape[];
   bpm: number;
+  onCurrentIndexChange?: (index: number | null) => void;
 }
 
-export default function SynthPlayer({ diagrams, bpm }: SynthPlayerProps) {
+export default function SynthPlayer({ diagrams, bpm, onCurrentIndexChange }: SynthPlayerProps) {
   const [playing, setPlaying] = useState(false);
   const [currentLabel, setCurrentLabel] = useState<string | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
@@ -28,7 +29,8 @@ export default function SynthPlayer({ diagrams, bpm }: SynthPlayerProps) {
     ctxRef.current = null;
     setPlaying(false);
     setCurrentLabel(null);
-  }, []);
+    onCurrentIndexChange?.(null);
+  }, [onCurrentIndexChange]);
 
   useEffect(() => {
     return () => {
@@ -36,8 +38,9 @@ export default function SynthPlayer({ diagrams, bpm }: SynthPlayerProps) {
       if (ctxRef.current && ctxRef.current.state === "running") {
         ctxRef.current.close().catch(() => {});
       }
+      onCurrentIndexChange?.(null);
     };
-  }, []);
+  }, [onCurrentIndexChange]);
 
   const playEvent = (
     ctx: AudioContext,
@@ -148,18 +151,20 @@ export default function SynthPlayer({ diagrams, bpm }: SynthPlayerProps) {
       const t = performance.now() - startedAt;
       while (idx < events.length && t >= events[idx].start * 1000) {
         setCurrentLabel(events[idx].label);
+        onCurrentIndexChange?.(idx);
         idx++;
       }
       if (idx >= events.length || t >= totalMs) {
         setPlaying(false);
         setCurrentLabel(null);
+        onCurrentIndexChange?.(null);
         return;
       }
       timerRef.current = window.setTimeout(tick, 50);
     };
     timerRef.current = window.setTimeout(tick, 50);
     setPlaying(true);
-  }, [diagrams, bpm, stop]);
+  }, [diagrams, bpm, stop, onCurrentIndexChange]);
 
   const totalBeat = diagrams.reduce((a, d) => a + (d.bar ? 0 : beatsForShape(d)), 0);
 

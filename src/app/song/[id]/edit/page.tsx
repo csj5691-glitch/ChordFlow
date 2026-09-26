@@ -1,7 +1,7 @@
 "use client";
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
-import { use, useState, useCallback, useRef, useEffect, useSyncExternalStore } from "react";
+import { use, useState, useCallback, useRef, useEffect, useSyncExternalStore, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import ChordBuilder from "@/components/ChordBuilder";
 import ChordShapeView from "@/components/ChordShapeView";
@@ -104,6 +104,7 @@ function EditSongView({ id }: { id: string }) {
   const [copied, setCopied] = useState<SavedChordShape[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [conductorOpen, setConductorOpen] = useState(false);
+  const [playingEventIndex, setPlayingEventIndex] = useState<number | null>(null);
   const [toolbarMenu, setToolbarMenu] = useState<"bar" | "nav" | null>(null);
   const [expandedBar, setExpandedBar] = useState<string | null>(null);
   const [instUrl, setInstUrl] = useState<string | null>(null);
@@ -127,7 +128,29 @@ function EditSongView({ id }: { id: string }) {
     ? (sharedSong ?? baseSong)
     : baseSong;
 
-  const diagrams = song?.diagrams ?? [];
+  const diagrams = useMemo(() => song?.diagrams ?? [], [song]);
+
+  const eventToDiagramIdx = useMemo(() => {
+    const out: number[] = [];
+    let section: SavedChordShape[] = [];
+    for (const d of diagrams) {
+      if (d.navKind) continue;
+      if (d.bar) {
+        const repeats = Math.max(1, d.repeats ?? 1);
+        for (let r = 0; r < repeats; r++) {
+          for (const chord of section) out.push(diagrams.indexOf(chord));
+        }
+        section = [];
+      } else {
+        section.push(d);
+      }
+    }
+    const repeats = 1;
+    for (let r = 0; r < repeats; r++) {
+      for (const chord of section) out.push(diagrams.indexOf(chord));
+    }
+    return out;
+  }, [diagrams]);
 
   useEffect(() => {
     if (song?.content !== undefined && !hydratedContent.current) {
@@ -808,7 +831,7 @@ function EditSongView({ id }: { id: string }) {
                   </span>
                 </div>
               </div>
-              <SynthPlayer diagrams={diagrams} bpm={bpm} />
+              <SynthPlayer diagrams={diagrams} bpm={bpm} onCurrentIndexChange={setPlayingEventIndex} />
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() => setConductorOpen(true)}
@@ -1140,10 +1163,10 @@ function EditSongView({ id }: { id: string }) {
               </p>
             ) : (
               <div className="flex flex-col gap-3">
-                {diagrams.map((d, i) => (
+                  {diagrams.map((d, i) => (
                   <div
                     key={d.id}
-                    className="bg-zinc-900 border border-zinc-700 rounded-xl p-3 flex flex-col sm:flex-row items-center gap-4"
+                    className={`bg-zinc-900 border rounded-xl p-3 flex flex-col sm:flex-row items-center gap-4 ${playingEventIndex !== null && eventToDiagramIdx[playingEventIndex] === i ? "border-emerald-400 ring-1 ring-emerald-400/50 shadow-lg shadow-emerald-400/10" : "border-zinc-700"}`}
                   >
                     {!(d.bar) && measureState.hasSignature && (
                       <div className="w-40 flex-shrink-0 h-6 flex items-center justify-center">
