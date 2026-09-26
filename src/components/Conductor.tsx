@@ -348,14 +348,17 @@ export default function Conductor({
     setPlaying(true);
   }, [events, stop, totalMs, flatLyrics]);
 
+  const playedRef = useRef(false);
   useEffect(() => {
+    if (playedRef.current || events.length === 0) return;
+    playedRef.current = true;
     const t = window.setTimeout(play, 50);
     return () => {
       window.clearTimeout(t);
       stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [events]);
 
   useEffect(() => {
     const el = itemRefs.current[index];

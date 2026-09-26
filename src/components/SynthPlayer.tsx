@@ -69,28 +69,29 @@ export default function SynthPlayer({ diagrams, bpm, onCurrentIndexChange }: Syn
       harm.frequency.value = ev.notes[0] * 2;
 
       const fundGain = ctx.createGain();
-      fundGain.gain.setValueAtTime(0.6, when);
+      fundGain.gain.setValueAtTime(0.7, when);
       fundGain.gain.exponentialRampToValueAtTime(0.001, when + dur);
 
       const harmGain = ctx.createGain();
-      harmGain.gain.setValueAtTime(0.2, when);
-      harmGain.gain.exponentialRampToValueAtTime(0.001, when + dur * 0.6);
+      harmGain.gain.setValueAtTime(0.25, when);
+      harmGain.gain.exponentialRampToValueAtTime(0.001, when + dur * 0.5);
 
-      // High-pass for the pick-attack transient
-      const hp = ctx.createBiquadFilter();
-      hp.type = "highpass";
-      hp.frequency.value = 3000;
-      hp.Q.value = 1;
+      // Gentle low-pass for warmth, preserving guitar fundamentals (82-330Hz)
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.setValueAtTime(4000, when);
+      lp.frequency.linearRampToValueAtTime(1200, when + dur);
+      lp.Q.value = 1;
 
       fund.connect(fundGain);
       harm.connect(harmGain);
-      fundGain.connect(hp);
-      harmGain.connect(hp);
-      hp.connect(master);
+      fundGain.connect(lp);
+      harmGain.connect(lp);
+      lp.connect(master);
       fund.start(when);
       fund.stop(when + dur + 0.05);
       harm.start(when);
-      harm.stop(when + dur * 0.6 + 0.02);
+      harm.stop(when + dur * 0.5 + 0.02);
 
       ev.notes.slice(1).forEach((f) => {
         const o = ctx.createOscillator();
