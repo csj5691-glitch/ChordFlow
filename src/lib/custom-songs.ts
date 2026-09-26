@@ -50,12 +50,41 @@ function ensureUniqueDiagramIds(diagrams: SavedChordShape[]): SavedChordShape[] 
   return changed ? out : diagrams;
 }
 
+// Old imports could store Infinity (muted-only chords had no fretted fret to
+// anchor the grid): clamp non-finite numbers to safe values.
+function sanitizeDiagrams(diagrams: SavedChordShape[]): SavedChordShape[] {
+  let changed = false;
+  const out = diagrams.map((d) => {
+    let fixed = d;
+    if (typeof d.baseFret === "number" && !Number.isFinite(d.baseFret)) {
+      changed = true;
+      fixed = { ...fixed, baseFret: 1 };
+    }
+    if (typeof d.barreCount === "number" && !Number.isFinite(d.barreCount)) {
+      changed = true;
+      fixed = { ...fixed, barreCount: 0 };
+    }
+    if (typeof d.duration === "number" && !Number.isFinite(d.duration)) {
+      changed = true;
+      fixed = { ...fixed, duration: 1 };
+    }
+    if (typeof d.capo === "number" && !Number.isFinite(d.capo)) {
+      changed = true;
+      fixed = { ...fixed, capo: 0 };
+    }
+    return fixed;
+  });
+  return changed ? out : diagrams;
+}
+
 export function migrateSong(song: SongTab): SongTab {
   const original = song.diagrams ?? [];
-  const migrated = original.map((d) =>
-    d.sectionLabel && SECTION_LABEL_MIGRATION[d.sectionLabel]
-      ? { ...d, sectionLabel: SECTION_LABEL_MIGRATION[d.sectionLabel] }
-      : d
+  const migrated = sanitizeDiagrams(
+    original.map((d) =>
+      d.sectionLabel && SECTION_LABEL_MIGRATION[d.sectionLabel]
+        ? { ...d, sectionLabel: SECTION_LABEL_MIGRATION[d.sectionLabel] }
+        : d
+    )
   );
   const diagrams = ensureUniqueDiagramIds(migrated);
   if (diagrams.every((d, i) => d === original[i])) return song;

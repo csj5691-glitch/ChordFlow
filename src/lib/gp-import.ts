@@ -478,9 +478,10 @@ function chordShape(
 
   let baseFret = barreOn ? barreFret : (baseFretHint ?? 1);
   if (!barreOn && baseFret < 1) baseFret = 1;
-  if (!barreOn) {
+  if (!barreOn && played.length > 0) {
     // Keep diagrams readable when frets sit high on the neck without a barre:
     // draw the grid from the lowest fretted fret instead of fret 1.
+    // (Muted-only chords have no fretted fret to anchor the grid to.)
     const minFret = played.reduce((acc, f) => Math.min(acc, f.fret), Infinity);
     if (minFret > baseFret + FRET_FLOOR - 1) baseFret = minFret;
   }
