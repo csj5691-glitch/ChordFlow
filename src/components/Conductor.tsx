@@ -220,7 +220,7 @@ export default function Conductor({
     master: GainNode,
     when: number
   ) => {
-    const dur = Math.max(0.08, ev.duration);
+    const dur = Math.max(0.12, ev.duration);
     if (
       ev.silence ||
       ((ev.notes.length === 0 || ev.notes[0] === 0) &&
@@ -234,14 +234,12 @@ export default function Conductor({
       osc.type = "triangle";
       osc.frequency.value = freq;
       const gate = ctx.createGain();
-      gate.gain.setValueAtTime(0, when);
-      gate.gain.linearRampToValueAtTime(0.6, when + 0.02);
-      gate.gain.setValueAtTime(0.6, when + Math.max(0.02, dur - 0.05));
-      gate.gain.linearRampToValueAtTime(0, when + dur);
+      gate.gain.setValueAtTime(0.8, when);
+      gate.gain.exponentialRampToValueAtTime(0.001, when + dur);
       const lp = ctx.createBiquadFilter();
       lp.type = "lowpass";
-      lp.frequency.setValueAtTime(2400, when);
-      lp.frequency.linearRampToValueAtTime(700, when + dur);
+      lp.frequency.setValueAtTime(3000, when);
+      lp.frequency.linearRampToValueAtTime(800, when + dur);
       osc.connect(gate);
       gate.connect(lp);
       lp.connect(master);
@@ -251,15 +249,14 @@ export default function Conductor({
     }
 
     if (ev.mutedNotes && ev.mutedNotes.length > 0) {
-      const mDur = Math.min(0.08, dur);
+      const mDur = Math.min(0.12, dur);
       for (const f of ev.mutedNotes) {
         const osc = ctx.createOscillator();
         osc.type = "triangle";
         osc.frequency.value = f;
         const g = ctx.createGain();
-        g.gain.setValueAtTime(0, when);
-        g.gain.linearRampToValueAtTime(0.1, when + 0.01);
-        g.gain.linearRampToValueAtTime(0, when + mDur);
+        g.gain.setValueAtTime(0.3, when);
+        g.gain.exponentialRampToValueAtTime(0.001, when + mDur);
         osc.connect(g);
         g.connect(master);
         osc.start(when);
