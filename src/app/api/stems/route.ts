@@ -4,7 +4,7 @@ const STEMS_SERVICE = process.env.STEMS_SERVICE_URL ?? "http://127.0.0.1:8765";
 const STEM_CHOICES = ["vocals", "drums", "bass", "guitar", "piano", "other"] as const;
 
 export const runtime = "nodejs";
-export const maxDuration = 600;
+export const maxDuration = 1800;
 
 export async function POST(req: NextRequest) {
   const form = await req.formData().catch(() => null);
