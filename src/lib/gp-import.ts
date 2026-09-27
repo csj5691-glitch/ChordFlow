@@ -41,8 +41,10 @@ export interface GpTrackInfo {
   stringCount: number;
   isPercussion: boolean;
   isGuitar: boolean;
+  isVocal: boolean;
   noteCount: number;
   chordCount: number;
+  firstNoteTime: number | null;
 }
 
 export interface GpImportResult {
@@ -83,6 +85,45 @@ async function loadScore(file: File): Promise<model.Score> {
   return importer.ScoreLoader.loadScoreFromBytes(bytes);
 }
 
+function isVocalTrack(track: model.Track, staff: model.Staff | undefined): boolean {
+  if (!staff || staff.isPercussion) return false;
+  if (staff.tuning.length === 6) return false;
+  const name = (track.name || "").toLowerCase();
+  return name.includes("vocal") || name.includes("chant") || name.includes("voice") || name.includes("lyric");
+}
+
+function getFirstNoteTime(score: model.Score, trackIndex: number): number | null {
+  const track = score.tracks[trackIndex];
+  if (!track) return null;
+  const staff = track.staves[0];
+  if (!staff) return null;
+
+  const bpm = score.tempo ?? 120;
+  const secondsPerBeat = 60 / bpm;
+
+  let currentBeat = 0;
+  for (let mbIdx = 0; mbIdx < score.masterBars.length; mbIdx++) {
+    const bar = staff.bars[mbIdx];
+    if (!bar) continue;
+    const masterBar = score.masterBars[mbIdx];
+    const barBeats = (masterBar?.timeSignatureNumerator ?? 4) /
+      (masterBar?.timeSignatureDenominator ?? 4);
+
+    const voice = bar.voices.find((v) => v.beats.length > 0);
+    if (voice) {
+      for (const beat of voice.beats) {
+        if (!beat.isRest && !beat.isEmpty && beat.notes.length > 0) {
+          return currentBeat * secondsPerBeat;
+        }
+      }
+    }
+
+    currentBeat += barBeats;
+  }
+
+  return null;
+}
+
 function listTracks(score: model.Score): GpTrackInfo[] {
   return score.tracks.map((t, index) => {
     const staff = t.staves[0];
@@ -102,8 +143,10 @@ function listTracks(score: model.Score): GpTrackInfo[] {
       stringCount: staff?.tuning.length ?? 0,
       isPercussion: staff?.isPercussion ?? false,
       isGuitar: isGuitarTrack(t, staff),
+      isVocal: isVocalTrack(t, staff),
       noteCount,
       chordCount,
+      firstNoteTime: getFirstNoteTime(score, index),
     };
   });
 }
