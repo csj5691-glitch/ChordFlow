@@ -46,14 +46,7 @@ export default function StemsMixer() {
   const [busy, setBusy] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const audioRefs = useRef<Record<StemId, HTMLAudioElement | null>>({
-    vocals: null,
-    drums: null,
-    bass: null,
-    guitar: null,
-    piano: null,
-    other: null,
-  });
+  const audioObjsRef = useRef<Partial<Record<StemId, HTMLAudioElement>>>({});
 
   const readyCount = STEMS.filter((s) => status[s.id] === "ready").length;
 
@@ -117,9 +110,12 @@ export default function StemsMixer() {
             throw new Error(data?.error ?? `erreur ${res.status}`);
           }
           const audioBlob = await res.blob();
-          const url = URL.createObjectURL(audioBlob);
-          setStemUrls((prev) => ({ ...prev, [stem.id]: url }));
-          setStatus((prev) => ({ ...prev, [stem.id]: "ready" }));
+            const url = URL.createObjectURL(audioBlob);
+            const audioEl = new Audio(url);
+            audioEl.preload = "auto";
+            audioObjsRef.current[stem.id] = audioEl;
+            setStemUrls((prev) => ({ ...prev, [stem.id]: url }));
+            setStatus((prev) => ({ ...prev, [stem.id]: "ready" }));
         } catch {
           setStatus((prev) => ({ ...prev, [stem.id]: "error" }));
         }
@@ -132,7 +128,7 @@ export default function StemsMixer() {
 
   const play = useCallback(() => {
     for (const stem of STEMS) {
-      const el = audioRefs.current[stem.id];
+      const el = audioObjsRef.current[stem.id];
       if (!el || status[stem.id] !== "ready") continue;
       el.currentTime = 0;
       el.volume = volumes[stem.id];
@@ -143,7 +139,7 @@ export default function StemsMixer() {
 
   const pause = useCallback(() => {
     for (const stem of STEMS) {
-      const el = audioRefs.current[stem.id];
+      const el = audioObjsRef.current[stem.id];
       if (el) el.pause();
     }
     setPlaying(false);
@@ -151,7 +147,7 @@ export default function StemsMixer() {
 
   const stop = useCallback(() => {
     for (const stem of STEMS) {
-      const el = audioRefs.current[stem.id];
+      const el = audioObjsRef.current[stem.id];
       if (el) {
         el.pause();
         el.currentTime = 0;
@@ -170,7 +166,7 @@ export default function StemsMixer() {
 
   const handleVolumeChange = useCallback((stem: StemId, value: number) => {
     setVolumes((prev) => ({ ...prev, [stem]: value }));
-    const el = audioRefs.current[stem];
+    const el = audioObjsRef.current[stem];
     if (el) el.volume = value;
   }, []);
 
@@ -311,17 +307,7 @@ export default function StemsMixer() {
         </div>
       )}
 
-      {STEMS.map((stem) => (
-        <audio
-          key={stem.id}
-          ref={(el) => {
-            audioRefs.current[stem.id] = el;
-          }}
-          src={stemUrls[stem.id] ?? undefined}
-          preload="auto"
-          className="hidden"
-        />
-      ))}
+
     </div>
   );
 }
