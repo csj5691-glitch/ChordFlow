@@ -16,6 +16,7 @@ import {
   type GpTrackInfo,
 } from "@/lib/gp-import";
 import { chordsToDiagrams } from "@/lib/chords-to-diagrams";
+import { importMidi } from "@/lib/midi-import";
 import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure } from "@/lib/chord-synth";
 import { getSongTab } from "@/lib/mock-data";
 import { useSharedSong } from "@/lib/use-shared-song";
@@ -40,6 +41,7 @@ import {
   Copy,
   Clipboard,
   Mic2,
+  Music,
   Music4,
   Upload,
   Pencil,
@@ -513,6 +515,25 @@ function EditSongView({ id }: { id: string }) {
     }
   };
 
+  const handleMidiPickFile = async (file: File) => {
+    try {
+      const buffer = await file.arrayBuffer();
+      const data = new Uint8Array(buffer);
+      const result = importMidi(file.name, data, song);
+      if (!song) return;
+      const drops = await upsert({
+        ...song,
+        bpm: song.bpm ?? result.bpm,
+        diagrams: [...(song.diagrams ?? []), ...result.diagrams],
+      });
+      if (drops.length > 0) {
+        console.warn("[ChordFlow] Espace local saturé :", drops);
+      }
+    } catch (err) {
+      console.error("[ChordFlow] Éditeur : échec d'analyse MIDI", err);
+    }
+  };
+
   const handleGpImportTrack = async (trackIndex: number) => {
     if (gpImportingTrack !== null || !gpPendingFile) return;
     setGpImportingTrack(trackIndex);
@@ -928,12 +949,29 @@ function EditSongView({ id }: { id: string }) {
                   {gpImporting ? "Lecture…" : "Import GP"}
                   <input
                     type="file"
-                    accept=".gp,.gpx,.gp5,.gp4,.gp3,.gtp"
+                    accept=".gp,.gp5,.gpx,.gp4,.gp3,.gtp"
                     className="hidden"
                     disabled={gpImporting}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (file && !gpImporting) void handleGpPickFile(file);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                <label
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
+                  title="Importer un fichier MIDI (.mid) : converti en diagrammes d'accords"
+                >
+                  <Music className="w-3.5 h-3.5" />
+                  Import MIDI
+                  <input
+                    type="file"
+                    accept=".mid,.midi"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void handleMidiPickFile(file);
                       e.target.value = "";
                     }}
                   />
