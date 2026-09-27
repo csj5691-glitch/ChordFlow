@@ -119,6 +119,7 @@ function EditSongView({ id }: { id: string }) {
   const [gpTracks, setGpTracks] = useState<GpTrackInfo[]>([]);
   const [gpPendingFile, setGpPendingFile] = useState<File | null>(null);
   const [gpImportingTrack, setGpImportingTrack] = useState<number | null>(null);
+  const [lyricsOffset, setLyricsOffset] = useState(0);
   const [chartsConverting, setChartsConverting] = useState(false);
   const instUrlRef = useRef<string | null>(null);
   const vocalsUrlRef = useRef<string | null>(null);
@@ -1017,6 +1018,7 @@ function EditSongView({ id }: { id: string }) {
                         </span>
                         <span className="flex items-center gap-3 text-[10px] text-zinc-500 shrink-0">
                           {t.isGuitar && <span className="text-emerald-300">Guitare</span>}
+                          {t.isVocal && <span className="text-violet-300">Voix</span>}
                           {t.stringCount} cordes
                           {t.chordCount > 0 && <span className="text-amber-300">{t.chordCount} accords</span>}
                           <span>{t.noteCount} notes</span>
@@ -1037,6 +1039,43 @@ function EditSongView({ id }: { id: string }) {
                     >
                       Annuler
                     </button>
+                  </div>
+                </div>
+              )}
+              {gpTracks.some((t) => t.isVocal) && (
+                <div className="flex flex-col gap-2 rounded-lg bg-zinc-800/70 border border-zinc-700 p-3">
+                  <p className="text-[11px] text-zinc-300 font-semibold">
+                    Ancrer les paroles à la mesure 9.5
+                  </p>
+                  <div className="flex flex-col gap-1.5">
+                    {gpTracks.filter((t) => t.isVocal).map((t) => (
+                      <button
+                        key={t.index}
+                        onClick={() => {
+                          const bpm = song?.bpm ?? 120;
+                          const beatsPerMeasure = (song?.timeSignature?.top ?? 4) / (song?.timeSignature?.bottom ?? 4);
+                          const targetTime = 8.5 * beatsPerMeasure * (60 / bpm);
+                          const firstLyricMatch = content.match(/\[(\d+):(\d+\.?\d*)\]/);
+                          if (firstLyricMatch) {
+                            const lyricTime = parseInt(firstLyricMatch[1]) * 60 + parseFloat(firstLyricMatch[2]);
+                            setLyricsOffset(targetTime - lyricTime);
+                          } else {
+                            setLyricsOffset(targetTime);
+                          }
+                        }}
+                        className="flex items-center justify-between gap-2 text-left text-xs px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-200 hover:bg-zinc-700 transition-colors"
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <Mic2 className="w-3.5 h-3.5 text-violet-400 shrink-0" />
+                          <span className="truncate">{t.name}</span>
+                        </span>
+                        <span className="text-[10px] text-zinc-500">
+                          {t.firstNoteTime !== null
+                            ? `Première note à ${t.firstNoteTime.toFixed(1)}s`
+                            : "Pas de note détectée"}
+                        </span>
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}
