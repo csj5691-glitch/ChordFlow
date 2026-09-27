@@ -720,6 +720,7 @@ function SongView({ id }: SongViewProps) {
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* FUTURE DEV: Accords & Sync view buttons
             <button
               onClick={() => setViewMode("chords")}
               className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
@@ -732,17 +733,6 @@ function SongView({ id }: SongViewProps) {
               Accords
             </button>
             <button
-              onClick={() => setViewMode("lyrics")}
-              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
-                viewMode === "lyrics"
-                  ? "text-black bg-emerald-400"
-                  : "text-zinc-400 bg-zinc-800 hover:bg-zinc-700"
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5" />
-              Paroles
-            </button>
-            <button
               onClick={() => setViewMode("sync")}
               className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
                 viewMode === "sync"
@@ -752,6 +742,18 @@ function SongView({ id }: SongViewProps) {
             >
               <Wand2 className="w-3.5 h-3.5" />
               Sync
+            </button>
+            */}
+            <button
+              onClick={() => setViewMode("lyrics")}
+              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
+                viewMode === "lyrics"
+                  ? "text-black bg-emerald-400"
+                  : "text-zinc-400 bg-zinc-800 hover:bg-zinc-700"
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Paroles
             </button>
           </div>
 
