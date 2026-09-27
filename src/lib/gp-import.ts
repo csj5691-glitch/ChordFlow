@@ -87,9 +87,10 @@ async function loadScore(file: File): Promise<model.Score> {
 
 function isVocalTrack(track: model.Track, staff: model.Staff | undefined): boolean {
   if (!staff || staff.isPercussion) return false;
-  if (staff.tuning.length === 6) return false;
   const name = (track.name || "").toLowerCase();
-  return name.includes("vocal") || name.includes("chant") || name.includes("voice") || name.includes("lyric");
+  if (name.includes("vocal") || name.includes("chant") || name.includes("voice") || name.includes("lyric")) return true;
+  if (staff.tuning.length === 6) return false;
+  return false;
 }
 
 function getFirstNoteTime(score: model.Score, trackIndex: number): number | null {
