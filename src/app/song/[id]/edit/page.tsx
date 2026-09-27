@@ -98,7 +98,7 @@ export default function EditSongPage({
 function EditSongView({ id }: { id: string }) {
   const router = useRouter();
   const hydrated = useHydrated();
-  const [mode, setMode] = useState<EditMode>("grid");
+  const [mode, setMode] = useState<EditMode>("diagrams");
   const [legatoEdit, setLegatoEdit] = useState<number | null>(null);
   const [editableContent, setEditableContent] = useState<string | null>(null);
   const [showBuilder, setShowBuilder] = useState(false);
@@ -732,6 +732,7 @@ function EditSongView({ id }: { id: string }) {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* FUTURE DEV: Grille mode supprimé
             <button
               onClick={() => setMode("grid")}
               className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
@@ -743,6 +744,7 @@ function EditSongView({ id }: { id: string }) {
               <FileText className="w-3.5 h-3.5" />
               Grille
             </button>
+*/}
             <button
               onClick={() => setMode("diagrams")}
               className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
