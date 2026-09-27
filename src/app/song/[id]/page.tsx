@@ -15,7 +15,7 @@ import YouTubePlayer from "@/components/YouTubePlayer";
 import YouTubeSearch from "@/components/YouTubeSearch";
 import SpotifyPlayer from "@/components/SpotifyPlayer";
 import SpotifySearch from "@/components/SpotifySearch";
-import InstrumentalMix from "@/components/InstrumentalMix";
+// FUTURE DEV: import InstrumentalMix from "@/components/InstrumentalMix";
 // FUTURE DEV: import StemsMixer from "@/components/StemsMixer";
 import AddSong from "@/components/AddSong";
 import { getSongTab } from "@/lib/mock-data";
@@ -1055,15 +1055,7 @@ function SongView({ id }: SongViewProps) {
           </div>
         )}
 
-        {audioSource && (
-          <InstrumentalMix
-            songId={id}
-            isPlaying={isPlaying}
-            seekTo={seekTo}
-            tempoScale={tempoScale}
-            onVoiceVolume={setVoiceVolume}
-          />
-        )}
+        {/* FUTURE DEV: {audioSource && <InstrumentalMix songId={id} isPlaying={isPlaying} seekTo={seekTo} tempoScale={tempoScale} onVoiceVolume={setVoiceVolume} />} */}
         {/* FUTURE DEV: <StemsMixer songId={id} /> */}
 
         {audioSource === "youtube" && youtubeVideoId && (
