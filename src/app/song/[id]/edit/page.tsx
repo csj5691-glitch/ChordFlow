@@ -864,6 +864,7 @@ function EditSongView({ id }: { id: string }) {
                   <Mic2 className="w-3.5 h-3.5" />
                   Chef d&apos;orchestre
                 </button>
+                {/* FUTURE DEV: stem import buttons — see Git branch for implementation
                 <label
                   className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
                   title={
@@ -938,6 +939,7 @@ function EditSongView({ id }: { id: string }) {
                     </span>
                   </>
                 )}
+              */}
                 {(instUrl || vocalsUrl) && (
                   <span className="text-[11px] text-zinc-600">
                     Volume de chaque piste réglable dans le Chef d&apos;orchestre
