@@ -20,6 +20,7 @@ interface ConductorProps {
   instrumentalUrl?: string | null;
   vocalsUrl?: string | null;
   lyricOffset?: number;
+  lyricAnchorDiagram?: number;
   onClose: () => void;
 }
 
@@ -69,6 +70,7 @@ export default function Conductor({
   instrumentalUrl,
   vocalsUrl,
   lyricOffset: externalLyricOffset,
+  lyricAnchorDiagram,
   onClose,
 }: ConductorProps) {
   const events = useMemo(() => renderSequence(diagrams, bpm), [diagrams, bpm]);
@@ -105,6 +107,11 @@ export default function Conductor({
     // eslint-disable-next-line react-hooks/set-state-in-effect
   }, [externalLyricOffset]);
   const lyricOffsetRef = useRef(0);
+  const lyricAnchorRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (lyricAnchorDiagram !== undefined) lyricAnchorRef.current = lyricAnchorDiagram;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lyricAnchorDiagram]);
   const changeLyricOffset = (delta: number) => {
     setLyricOffset((o) => {
       const next = Math.max(-30, Math.min(30, o + delta));
@@ -349,14 +356,23 @@ const master = ctx.createGain();
             if (tm !== null && tm * 1000 <= ref) li = k;
           }
         } else {
-          const start = vs * 1000;
-          const clock = lyricClockMs + lyricOffsetRef.current * 1000;
-          if (clock >= start) {
-            const span = Math.max(1, totalMs - start);
+          const anchor = lyricAnchorRef.current;
+          if (anchor !== null && events.length > 1) {
+            const perc = (i - anchor) / (events.length - 1 - anchor);
             li = Math.min(
               flatLyrics.length - 1,
-              Math.max(-1, Math.floor(((clock - start) / span) * flatLyrics.length))
+              Math.max(0, Math.floor(perc * flatLyrics.length))
             );
+          } else {
+            const start = vs * 1000;
+            const clock = lyricClockMs + lyricOffsetRef.current * 1000;
+            if (clock >= start) {
+              const span = Math.max(1, totalMs - start);
+              li = Math.min(
+                flatLyrics.length - 1,
+                Math.max(0, Math.floor(((clock - start) / span) * flatLyrics.length))
+              );
+            }
           }
         }
         setLyricIndex(li);

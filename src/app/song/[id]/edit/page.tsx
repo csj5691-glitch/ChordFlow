@@ -17,7 +17,7 @@ import {
 } from "@/lib/gp-import";
 import { chordsToDiagrams } from "@/lib/chords-to-diagrams";
 import { importMidi } from "@/lib/midi-import";
-import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure } from "@/lib/chord-synth";
+import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure, renderSequence } from "@/lib/chord-synth";
 import { getSongTab } from "@/lib/mock-data";
 import { useSharedSong } from "@/lib/use-shared-song";
 import {
@@ -120,6 +120,7 @@ function EditSongView({ id }: { id: string }) {
   const [gpPendingFile, setGpPendingFile] = useState<File | null>(null);
   const [gpImportingTrack, setGpImportingTrack] = useState<number | null>(null);
   const [lyricsOffset, setLyricsOffset] = useState(0);
+  const [lyricAnchorDiagram, setLyricAnchorDiagram] = useState<number | null>(null);
   const [chartsConverting, setChartsConverting] = useState(false);
   const instUrlRef = useRef<string | null>(null);
   const vocalsUrlRef = useRef<string | null>(null);
@@ -1045,28 +1046,45 @@ function EditSongView({ id }: { id: string }) {
               {gpTracks.some((t) => t.isVocal) && (
                 <div className="flex flex-col gap-2 rounded-lg bg-zinc-800/70 border border-zinc-700 p-3">
                   <p className="text-[11px] text-zinc-300 font-semibold">
-                    Ancrer les paroles à la première note vocale (GP)
+                    Ancrer les paroles sur la note vocale (diagramme dans la séquence)
                   </p>
                   <div className="flex flex-col gap-1.5">
-                    {gpTracks.filter((t) => t.isVocal).map((t) => (
-                      <button
-                        key={t.index}
-                        onClick={() => {
-                          setLyricsOffset(-(t.firstNoteTime ?? 0));
-                        }}
-                        className="flex items-center justify-between gap-2 text-left text-xs px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-200 hover:bg-zinc-700 transition-colors"
-                      >
-                        <span className="flex items-center gap-2 min-w-0">
-                          <Mic2 className="w-3.5 h-3.5 text-violet-400 shrink-0" />
-                          <span className="truncate">{t.name}</span>
-                        </span>
-                        <span className="text-[10px] text-zinc-500">
-                          {t.firstNoteTime !== null
-                            ? `Première note à ${t.firstNoteTime.toFixed(1)}s`
-                            : "Pas de note détectée"}
-                        </span>
-                      </button>
-                    ))}
+                    {gpTracks.filter((t) => t.isVocal).map((t) => {
+                      const eventIdx =
+                        t.firstNoteTime !== null && diagrams.length > 0
+                          ? renderSequence(diagrams, song?.bpm ?? 120).findIndex(
+                              (e) =>
+                                t.firstNoteTime !== null &&
+                                t.firstNoteTime >= e.start &&
+                                t.firstNoteTime < e.start + e.duration + 1e-6
+                            )
+                          : -1;
+                      return (
+                        <button
+                          key={t.index}
+                          onClick={() => {
+                            if (eventIdx >= 0) {
+                              setLyricAnchorDiagram(eventIdx);
+                            } else {
+                              setLyricsOffset(-(t.firstNoteTime ?? 0));
+                            }
+                          }}
+                          className="flex items-center justify-between gap-2 text-left text-xs px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-200 hover:bg-zinc-700 transition-colors"
+                        >
+                          <span className="flex items-center gap-2 min-w-0">
+                            <Mic2 className="w-3.5 h-3.5 text-violet-400 shrink-0" />
+                            <span className="truncate">{t.name}</span>
+                          </span>
+                          <span className="text-[10px] text-zinc-500">
+                            {eventIdx >= 0
+                              ? `Première note → diagramme ${eventIdx + 1}`
+                              : t.firstNoteTime !== null
+                                ? `Première note à ${t.firstNoteTime.toFixed(1)}s`
+                                : "Pas de note détectée"}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1609,6 +1627,7 @@ function EditSongView({ id }: { id: string }) {
           instrumentalUrl={instUrl}
           vocalsUrl={vocalsUrl}
           lyricOffset={lyricsOffset}
+          lyricAnchorDiagram={lyricAnchorDiagram ?? undefined}
           onClose={() => setConductorOpen(false)}
         />
       )}
