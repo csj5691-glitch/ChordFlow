@@ -3,7 +3,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BookOpen, Home, ListMusic } from "lucide-react";
+import { ArrowLeft, BookOpen, Edit3, Home, ListMusic } from "lucide-react";
+import { generateSongId, saveCustomSong } from "@/lib/custom-songs";
+import { SongTab } from "@/lib/types";
 
 export default function BottomNav() {
   const router = useRouter();
@@ -14,6 +16,21 @@ export default function BottomNav() {
     } else {
       router.push("/");
     }
+  };
+
+  const handleEditor = () => {
+    const id = generateSongId();
+    const song: SongTab = {
+      id,
+      title: "",
+      artist: "",
+      type: "Chords",
+      content: "",
+      officialPlain: "",
+      officialSynced: "",
+    };
+    saveCustomSong(song);
+    router.push(`/song/${id}/edit`);
   };
 
   return (
@@ -28,11 +45,11 @@ export default function BottomNav() {
         </button>
         <div className="w-px bg-zinc-800 my-2" />
         <button
-          onClick={() => router.push("/playlists")}
+          onClick={handleEditor}
           className="flex-1 flex items-center justify-center gap-2 py-4 text-zinc-300 hover:text-white hover:bg-zinc-900/60 transition-colors"
         >
-          <ListMusic className="w-5 h-5" />
-          <span className="text-sm font-medium">Playlists</span>
+          <Edit3 className="w-5 h-5" />
+          <span className="text-sm font-medium">Éditeur</span>
         </button>
         <div className="w-px bg-zinc-800 my-2" />
         <button
@@ -41,6 +58,14 @@ export default function BottomNav() {
         >
           <BookOpen className="w-5 h-5" />
           <span className="text-sm font-medium">Accords</span>
+        </button>
+        <div className="w-px bg-zinc-800 my-2" />
+        <button
+          onClick={() => router.push("/playlists")}
+          className="flex-1 flex items-center justify-center gap-2 py-4 text-zinc-300 hover:text-white hover:bg-zinc-900/60 transition-colors"
+        >
+          <ListMusic className="w-5 h-5" />
+          <span className="text-sm font-medium">Playlists</span>
         </button>
         <div className="w-px bg-zinc-800 my-2" />
         <button
