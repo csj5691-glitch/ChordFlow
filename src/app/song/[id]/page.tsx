@@ -1062,7 +1062,7 @@ function SongView({ id }: SongViewProps) {
             onVoiceVolume={setVoiceVolume}
           />
         )}
-        <StemsMixer />
+        <StemsMixer songId={id} />
 
         {audioSource === "youtube" && youtubeVideoId && (
           <>

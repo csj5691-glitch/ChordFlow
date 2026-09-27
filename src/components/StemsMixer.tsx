@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AudioWaveform, Check, Loader2, Pause, Play, Square } from "lucide-react";
+import { AudioWaveform, Check, Loader2, Pause, Play, Square, Trash2 } from "lucide-react";
+import { saveStem, loadStems, deleteStems } from "@/lib/stems-db";
 
 const STEMS = [
   { id: "vocals", label: "Voix", color: "bg-violet-500" },
@@ -17,7 +18,7 @@ type StemId = (typeof STEMS)[number]["id"];
 
 type StemStatus = "idle" | "loading" | "ready" | "error";
 
-export default function StemsMixer() {
+export default function StemsMixer({ songId }: { songId: string }) {
   const [status, setStatus] = useState<Record<StemId, StemStatus>>({
     vocals: "idle",
     drums: "idle",
@@ -58,6 +59,28 @@ export default function StemsMixer() {
     }, 1000);
     return () => window.clearInterval(interval);
   }, [busy]);
+
+  useEffect(() => {
+    void loadStems(songId).then((records) => {
+      if (records.length === 0) return;
+      const urls: Record<StemId, string | null> = {
+        vocals: null, drums: null, bass: null, guitar: null, piano: null, other: null,
+      };
+      const st: Record<StemId, StemStatus> = {
+        vocals: "idle", drums: "idle", bass: "idle", guitar: "idle", piano: "idle", other: "idle",
+      };
+      for (const rec of records) {
+        const url = URL.createObjectURL(rec.blob);
+        urls[rec.stem as StemId] = url;
+        st[rec.stem as StemId] = "ready";
+        const audioEl = new Audio(url);
+        audioEl.preload = "auto";
+        audioObjsRef.current[rec.stem as StemId] = audioEl;
+      }
+      setStemUrls(urls);
+      setStatus(st);
+    }).catch(() => {});
+  }, [songId]);
 
   useEffect(() => {
     return () => {
@@ -116,6 +139,14 @@ export default function StemsMixer() {
             audioObjsRef.current[stem.id] = audioEl;
             setStemUrls((prev) => ({ ...prev, [stem.id]: url }));
             setStatus((prev) => ({ ...prev, [stem.id]: "ready" }));
+            void saveStem({
+              id: `${songId}-${stem.id}`,
+              songId,
+              stem: stem.id,
+              blob: audioBlob,
+              fileName: file.name,
+              createdAt: Date.now(),
+            });
         } catch {
           setStatus((prev) => ({ ...prev, [stem.id]: "error" }));
         }
@@ -123,7 +154,7 @@ export default function StemsMixer() {
       setBusy(false);
       if (inputRef.current) inputRef.current.value = "";
     },
-    [stemUrls],
+    [stemUrls, songId],
   );
 
   const play = useCallback(() => {
@@ -230,6 +261,28 @@ export default function StemsMixer() {
             >
               <Square className="w-3.5 h-3.5" />
               Stop
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void deleteStems(songId).then(() => {
+                  for (const key of Object.keys(stemUrls) as StemId[]) {
+                    if (stemUrls[key]) URL.revokeObjectURL(stemUrls[key]!);
+                    const el = audioObjsRef.current[key];
+                    if (el) {
+                      el.pause();
+                      el.src = "";
+                    }
+                  }
+                  setStemUrls({ vocals: null, drums: null, bass: null, guitar: null, piano: null, other: null });
+                  setStatus({ vocals: "idle", drums: "idle", bass: "idle", guitar: "idle", piano: "idle", other: "idle" });
+                  setPlaying(false);
+                });
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 text-red-400 text-xs font-semibold hover:bg-zinc-700 transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Effacer
             </button>
           </div>
 
