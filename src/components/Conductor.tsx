@@ -90,7 +90,7 @@ export default function Conductor({
   );
   const [playing, setPlaying] = useState(false);
   const [index, setIndex] = useState(0);
-  const [lyricIndex, setLyricIndex] = useState(0);
+  const [lyricIndex, setLyricIndex] = useState(-1);
   const [chordVolume, setChordVolume] = useState(1);
   const [strumming, setStrumming] = useState<"down" | "up" | "off">("down");
   const [instVolume, setInstVolume] = useState(1);
@@ -339,7 +339,7 @@ const master = ctx.createGain();
         const lyricClockMs = vocalsRef.current ? vocalsRef.current.currentTime * 1000 : t;
         const vs = stemStartRef.current ?? 0;
         const hasTimes = flatLyrics[0].time !== null;
-        let li = 0;
+        let li = -1;
         if (hasTimes) {
           const firstTime = flatLyrics[0].time ?? 0;
           const ref =
@@ -355,7 +355,7 @@ const master = ctx.createGain();
             const span = Math.max(1, totalMs - start);
             li = Math.min(
               flatLyrics.length - 1,
-              Math.max(0, Math.floor(((clock - start) / span) * flatLyrics.length))
+              Math.max(-1, Math.floor(((clock - start) / span) * flatLyrics.length))
             );
           }
         }
