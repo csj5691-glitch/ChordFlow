@@ -1052,16 +1052,7 @@ function EditSongView({ id }: { id: string }) {
                       <button
                         key={t.index}
                         onClick={() => {
-                          const bpm = song?.bpm ?? 120;
-                          const beatsPerMeasure = (song?.timeSignature?.top ?? 4) / (song?.timeSignature?.bottom ?? 4);
-                          const targetTime = 9 * beatsPerMeasure * (60 / bpm);
-                          const firstLyricMatch = content.match(/\[(\d+):(\d+\.?\d*)\]/);
-                          if (firstLyricMatch) {
-                            const lyricTime = parseInt(firstLyricMatch[1]) * 60 + parseFloat(firstLyricMatch[2]);
-                            setLyricsOffset(targetTime - lyricTime);
-                          } else {
-                            setLyricsOffset(targetTime);
-                          }
+                          setLyricsOffset(-(t.firstNoteTime ?? 0));
                         }}
                         className="flex items-center justify-between gap-2 text-left text-xs px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-200 hover:bg-zinc-700 transition-colors"
                       >

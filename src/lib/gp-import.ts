@@ -106,15 +106,24 @@ function getFirstNoteTime(score: model.Score, trackIndex: number): number | null
     const bar = staff.bars[mbIdx];
     if (!bar) continue;
     const masterBar = score.masterBars[mbIdx];
-    const barBeats = (masterBar?.timeSignatureNumerator ?? 4) /
-      (masterBar?.timeSignatureDenominator ?? 4);
+    const numerator = masterBar?.timeSignatureNumerator ?? 4;
+    const denominator = masterBar?.timeSignatureDenominator ?? 4;
+    const barBeats = (4 * numerator) / denominator;
 
     const voice = bar.voices.find((v) => v.beats.length > 0);
     if (voice) {
+      let barPos = 0;
       for (const beat of voice.beats) {
         if (!beat.isRest && !beat.isEmpty && beat.notes.length > 0) {
-          return currentBeat * secondsPerBeat;
+          return (currentBeat + barPos) * secondsPerBeat;
         }
+        const duration = durationToBeats(
+          beat.duration,
+          beat.dots,
+          beat.tupletNumerator,
+          beat.tupletDenominator
+        );
+        barPos += duration;
       }
     }
 
@@ -153,9 +162,9 @@ function listTracks(score: model.Score): GpTrackInfo[] {
 
 export async function analyzeGuitarProFile(file: File): Promise<GpTrackInfo[]> {
   const score = await loadScore(file);
-  const tracks = listTracks(score).filter((t) => t.isGuitar);
+  const tracks = listTracks(score);
   if (tracks.length === 0) {
-    throw new Error("Aucune piste de guitare (6 cordes) trouvée dans la tablature.");
+    throw new Error("Aucune piste trouvée dans la tablature.");
   }
   return tracks;
 }
