@@ -19,6 +19,7 @@ interface ConductorProps {
   officialSynced?: string;
   instrumentalUrl?: string | null;
   vocalsUrl?: string | null;
+  lyricOffset?: number;
   onClose: () => void;
 }
 
@@ -67,6 +68,7 @@ export default function Conductor({
   officialSynced,
   instrumentalUrl,
   vocalsUrl,
+  lyricOffset: externalLyricOffset,
   onClose,
 }: ConductorProps) {
   const events = useMemo(() => renderSequence(diagrams, bpm), [diagrams, bpm]);
@@ -90,9 +92,18 @@ export default function Conductor({
   const [index, setIndex] = useState(0);
   const [lyricIndex, setLyricIndex] = useState(0);
   const [chordVolume, setChordVolume] = useState(1);
+  const [strumming, setStrumming] = useState<"down" | "up" | "off">("down");
   const [instVolume, setInstVolume] = useState(1);
   const [vocalsVolume, setVocalsVolume] = useState(0.9);
   const [lyricOffset, setLyricOffset] = useState(0);
+
+  useEffect(() => {
+    if (externalLyricOffset !== undefined) {
+      lyricOffsetRef.current = externalLyricOffset;
+      setLyricOffset(externalLyricOffset);
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+  }, [externalLyricOffset]);
   const lyricOffsetRef = useRef(0);
   const changeLyricOffset = (delta: number) => {
     setLyricOffset((o) => {
@@ -231,30 +242,35 @@ export default function Conductor({
       return;
     }
     if (ev.notes.length > 0 && ev.notes[0] !== 0) {
-    for (const freq of ev.notes) {
-      const osc = ctx.createOscillator();
-      osc.type = "sine";
-      osc.frequency.value = freq;
-      const gate = ctx.createGain();
-      gate.gain.setValueAtTime(0, when);
-      gate.gain.linearRampToValueAtTime(0.5, when + 0.03);
-      gate.gain.setValueAtTime(0.5, when + dur - 0.05);
-      gate.gain.linearRampToValueAtTime(0, end);
-      const hp = ctx.createBiquadFilter();
-      hp.type = "highpass";
-      hp.frequency.value = 120;
-      const lp = ctx.createBiquadFilter();
-      lp.type = "lowpass";
-      lp.frequency.setValueAtTime(3500, when);
-      lp.frequency.linearRampToValueAtTime(1200, end);
-      lp.Q.value = 0.3;
-      osc.connect(gate);
-      gate.connect(hp);
-      hp.connect(lp);
-      lp.connect(master);
-      osc.start(when);
-      osc.stop(end + 0.05);
-    }
+      const strumDelay = strumming === "off" ? 0 : 0.025;
+      const sortedNotes = strumming === "up"
+        ? [...ev.notes].sort((a, b) => b - a)
+        : [...ev.notes].sort((a, b) => a - b);
+      sortedNotes.forEach((freq, i) => {
+        const noteWhen = when + i * strumDelay;
+        const osc = ctx.createOscillator();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        const gate = ctx.createGain();
+        gate.gain.setValueAtTime(0, noteWhen);
+        gate.gain.linearRampToValueAtTime(0.5, noteWhen + 0.03);
+        gate.gain.setValueAtTime(0.5, noteWhen + dur - 0.05);
+        gate.gain.linearRampToValueAtTime(0, end);
+        const hp = ctx.createBiquadFilter();
+        hp.type = "highpass";
+        hp.frequency.value = 120;
+        const lp = ctx.createBiquadFilter();
+        lp.type = "lowpass";
+        lp.frequency.setValueAtTime(3500, noteWhen);
+        lp.frequency.linearRampToValueAtTime(1200, end);
+        lp.Q.value = 0.3;
+        osc.connect(gate);
+        gate.connect(hp);
+        hp.connect(lp);
+        lp.connect(master);
+        osc.start(noteWhen);
+        osc.stop(end + 0.05);
+      });
     }
 
     if (ev.mutedNotes && ev.mutedNotes.length > 0) {
