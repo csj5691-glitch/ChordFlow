@@ -93,6 +93,7 @@ export default function Conductor({
   const [playing, setPlaying] = useState(false);
   const [index, setIndex] = useState(0);
   const [lyricIndex, setLyricIndex] = useState(-1);
+  const [anchorDisplay, setAnchorDisplay] = useState(0);
   const [chordVolume, setChordVolume] = useState(1);
   const [strumming, setStrumming] = useState<"down" | "up" | "off">("down");
   const [instVolume, setInstVolume] = useState(1);
@@ -109,9 +110,17 @@ export default function Conductor({
   const lyricOffsetRef = useRef(0);
   const lyricAnchorRef = useRef<number | null>(null);
   useEffect(() => {
-    if (lyricAnchorDiagram !== undefined) lyricAnchorRef.current = lyricAnchorDiagram;
+    if (lyricAnchorDiagram !== undefined) {
+      lyricAnchorRef.current = lyricAnchorDiagram;
+      setAnchorDisplay(lyricAnchorDiagram + 1);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lyricAnchorDiagram]);
+  const setAnchorFromDisplay = (val: number) => {
+    const idx = Math.max(0, val - 1);
+    setAnchorDisplay(val);
+    lyricAnchorRef.current = idx;
+  };
   const changeLyricOffset = (delta: number) => {
     setLyricOffset((o) => {
       const next = Math.max(-30, Math.min(30, o + delta));
@@ -689,6 +698,32 @@ const master = ctx.createGain();
                   Reset
                 </button>
               )}
+              <div className="flex items-center gap-2 ml-3 border-l border-zinc-700 pl-3">
+                <span className="text-[10px] text-zinc-500">Ancrage</span>
+                <button
+                  onClick={() => setAnchorFromDisplay(anchorDisplay - 1)}
+                  className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold"
+                >
+                  −
+                </button>
+                <input
+                  type="number"
+                  min={1}
+                  value={anchorDisplay}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value);
+                    if (!isNaN(v) && v >= 1) setAnchorFromDisplay(v);
+                  }}
+                  className="w-14 h-6 rounded bg-zinc-800 border border-zinc-600 text-center text-zinc-200 text-xs font-mono"
+                  title="Numéro du diagramme d'ancrage (1 = premier)"
+                />
+                <button
+                  onClick={() => setAnchorFromDisplay(anchorDisplay + 1)}
+                  className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold"
+                >
+                  +
+                </button>
+              </div>
             </div>
             {stemStart === null && (instrumentalUrl || vocalsUrl) ? (
               <span className="text-[10px] text-zinc-500 animate-pulse">
