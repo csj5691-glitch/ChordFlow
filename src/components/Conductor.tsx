@@ -408,13 +408,11 @@ const master = ctx.createGain();
   const cur = events[index];
   const curBeats = cur ? beatsForShape(cur.shape) : 0;
   const curNv = cur ? noteValueInfo(curBeats) : null;
-  const curIsSilence = cur
-    ? cur.silence ||
-      ((cur.notes.length === 0 || cur.notes[0] === 0) &&
-        !(cur.mutedNotes && cur.mutedNotes.length > 0))
-    : false;
-  const curDrums = cur?.shape.drumHits ?? 0;
-  const curDir = cur && !curIsSilence ? strumDirection(cur.start / (60 / bpm), curBeats) : null;
+  const curMeasureIdx = cur ? measureForBeat((cur.start * bpm) / 60, measureInfo) : -1;
+  const measureIdxs = events.reduce<number[]>((acc, ev, i) => {
+    if (measureForBeat((ev.start * bpm) / 60, measureInfo) === curMeasureIdx) acc.push(i);
+    return acc;
+  }, []);
   const dur2 = totalMs / 1000;
   const pct = cur ? (cur.start / dur2) * 100 : 0;
 
@@ -595,32 +593,66 @@ const master = ctx.createGain();
                   {curNv.label}
                 </span>
               )}
-              {curDrums > 0 ? (
-                <span
-                  title={`${curDrums} coups`}
-                  className="text-[11px] font-mono font-bold text-amber-300 bg-amber-400/15 border border-amber-400/40 rounded-full px-2.5 py-0.5"
-                >
-                  ×{curDrums} coups
-                </span>
-              ) : curDir ? (
-                <span
-                  title={curDir === "D" ? "Strum bas (Down)" : "Strum haut (Up)"}
-                  className={`text-[11px] font-mono font-bold border rounded-full px-2.5 py-0.5 ${
-                    curDir === "D"
-                      ? "text-emerald-300 bg-emerald-500/15 border-emerald-400/40"
-                      : "text-sky-300 bg-sky-500/15 border-sky-400/40"
-                  }`}
-                >
-                  {curDir === "D" ? "↓ D Strum bas" : "↑ U Strum haut"}
-                </span>
-              ) : (
-                <span
-                  title="Silence"
-                  className="text-[11px] font-mono font-semibold text-zinc-400 bg-zinc-800/60 border border-zinc-700/60 rounded-full px-2.5 py-0.5"
-                >
-                  — Silence
-                </span>
-              )}
+              {measureIdxs.map((evIdx) => {
+                const mEv = events[evIdx];
+                const mBeats = beatsForShape(mEv.shape);
+                const mSilence =
+                  mEv.silence ||
+                  ((mEv.notes.length === 0 || mEv.notes[0] === 0) &&
+                    !(mEv.mutedNotes && mEv.mutedNotes.length > 0));
+                const mDrums = mEv.shape.drumHits ?? 0;
+                const mDir = mSilence ? null : strumDirection(mEv.start / (60 / bpm), mBeats);
+                const isActive = evIdx === index;
+                const base =
+                  "text-[11px] font-mono font-bold border rounded-full px-2.5 py-0.5 transition-colors";
+                if (mDrums > 0) {
+                  return (
+                    <span
+                      key={evIdx}
+                      title={`${mDrums} coups`}
+                      className={`${base} ${
+                        isActive
+                          ? "text-amber-200 bg-amber-400/30 border-amber-300/60"
+                          : "text-amber-300 bg-amber-400/15 border-amber-400/40"
+                      }`}
+                    >
+                      ×{mDrums} coups
+                    </span>
+                  );
+                }
+                if (!mDir) {
+                  return (
+                    <span
+                      key={evIdx}
+                      title="Silence"
+                      className={`${base} ${
+                        isActive
+                          ? "text-zinc-200 bg-zinc-700/70 border-zinc-500/60"
+                          : "text-zinc-400 bg-zinc-800/60 border-zinc-700/60"
+                      }`}
+                    >
+                      — Silence
+                    </span>
+                  );
+                }
+                return (
+                  <span
+                    key={evIdx}
+                    title={mDir === "D" ? "Strum bas (Down)" : "Strum haut (Up)"}
+                    className={`${base} ${
+                      mDir === "D"
+                        ? isActive
+                          ? "text-emerald-200 bg-emerald-500/30 border-emerald-300/60"
+                          : "text-emerald-300 bg-emerald-500/15 border-emerald-400/40"
+                        : isActive
+                          ? "text-sky-200 bg-sky-500/30 border-sky-300/60"
+                          : "text-sky-300 bg-sky-500/15 border-sky-400/40"
+                    }`}
+                  >
+                    {mDir === "D" ? "↓ D Strum bas" : "↑ U Strum haut"}
+                  </span>
+                );
+              })}
             </div>
             <p
               className={`text-2xl font-black tracking-tight ${
