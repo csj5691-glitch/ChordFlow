@@ -704,9 +704,9 @@ function EditSongView({ id }: { id: string }) {
 
   const handleGpImportSelected = async () => {
     if (!song || !gpPendingFile || gpImportingTrack !== null) return;
-    const targets = gpTracks.filter(
-      (t) => gpSelected.has(t.index) && !isTrackImported(t.index)
-    );
+    // Re-importing an already imported track is allowed: it replaces that
+    // track's diagrams (import is idempotent) so a song can pick up import fixes.
+    const targets = gpTracks.filter((t) => gpSelected.has(t.index));
     if (targets.length === 0) return;
     setGpError(null);
     setGpWarnings([]);
@@ -731,6 +731,11 @@ function EditSongView({ id }: { id: string }) {
           officialPlain: next.officialPlain || result.song.officialPlain,
           officialSynced: next.officialSynced || result.song.officialSynced,
         };
+        // If the re-imported track is the one currently displayed, its fresh
+        // diagrams must also replace the active sequence.
+        if (activeSlot.kind === "gp" && activeSlot.index === t.index) {
+          next = { ...next, diagrams: result.diagrams };
+        }
         const drops = await upsert(next);
         if (drops.length > 0) {
           setGpWarnings((w) => [
@@ -1376,18 +1381,14 @@ function EditSongView({ id }: { id: string }) {
                       <button
                         disabled={
                           gpImportingTrack !== null ||
-                          gpTracks.filter(
-                            (t) => gpSelected.has(t.index) && !isTrackImported(t.index)
-                          ).length === 0
+                          gpTracks.filter((t) => gpSelected.has(t.index)).length === 0
                         }
                         onClick={() => void handleGpImportSelected()}
                         className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-md bg-emerald-500 text-black hover:bg-emerald-400 transition-colors disabled:opacity-40"
-                        title="Importer maintenant toutes les pistes cochées"
+                        title="Importer (ou réimporter) toutes les pistes cochées — une piste déjà importée est remplacée"
                       >
                         Importer la sélection (
-                        {gpTracks.filter(
-                          (t) => gpSelected.has(t.index) && !isTrackImported(t.index)
-                        ).length}
+                        {gpTracks.filter((t) => gpSelected.has(t.index)).length}
                         )
                       </button>
                       <button
@@ -1475,7 +1476,7 @@ function EditSongView({ id }: { id: string }) {
                     <span className="text-[10px] text-zinc-500">
                       {gpImportingTrack !== null
                         ? "Import en cours…"
-                        : "Cochez plusieurs pistes puis « Importer la sélection ». Chaque piste devient une séquence nommée dans « Pistes »."}
+                        : "Cochez plusieurs pistes puis « Importer la sélection ». Chaque piste devient une séquence nommée dans « Pistes ». Réimporter une piste déjà importée la remplace."}
                     </span>
                     <button
                       disabled={gpImportingTrack !== null}
