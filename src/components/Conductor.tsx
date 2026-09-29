@@ -406,6 +406,15 @@ const master = ctx.createGain();
 
   const totalBeat = diagrams.reduce((a, d) => a + (d.bar ? 0 : beatsForShape(d)), 0);
   const cur = events[index];
+  const curBeats = cur ? beatsForShape(cur.shape) : 0;
+  const curNv = cur ? noteValueInfo(curBeats) : null;
+  const curIsSilence = cur
+    ? cur.silence ||
+      ((cur.notes.length === 0 || cur.notes[0] === 0) &&
+        !(cur.mutedNotes && cur.mutedNotes.length > 0))
+    : false;
+  const curDrums = cur?.shape.drumHits ?? 0;
+  const curDir = cur && !curIsSilence ? strumDirection(cur.start / (60 / bpm), curBeats) : null;
   const dur2 = totalMs / 1000;
   const pct = cur ? (cur.start / dur2) * 100 : 0;
 
@@ -578,6 +587,40 @@ const master = ctx.createGain();
                 <span className="text-zinc-600">/{measureInfo.top}</span>
                 <span className="text-zinc-600"> · {measureInfo.top}/{measureInfo.bottom}</span>
               </span>
+              {curNv && (
+                <span
+                  title={curNv.title}
+                  className="text-[11px] font-mono font-semibold text-zinc-100 bg-zinc-700/70 border border-zinc-600/70 rounded-full px-2.5 py-0.5"
+                >
+                  {curNv.label}
+                </span>
+              )}
+              {curDrums > 0 ? (
+                <span
+                  title={`${curDrums} coups`}
+                  className="text-[11px] font-mono font-bold text-amber-300 bg-amber-400/15 border border-amber-400/40 rounded-full px-2.5 py-0.5"
+                >
+                  ×{curDrums} coups
+                </span>
+              ) : curDir ? (
+                <span
+                  title={curDir === "D" ? "Strum bas (Down)" : "Strum haut (Up)"}
+                  className={`text-[11px] font-mono font-bold border rounded-full px-2.5 py-0.5 ${
+                    curDir === "D"
+                      ? "text-emerald-300 bg-emerald-500/15 border-emerald-400/40"
+                      : "text-sky-300 bg-sky-500/15 border-sky-400/40"
+                  }`}
+                >
+                  {curDir === "D" ? "↓ D Strum bas" : "↑ U Strum haut"}
+                </span>
+              ) : (
+                <span
+                  title="Silence"
+                  className="text-[11px] font-mono font-semibold text-zinc-400 bg-zinc-800/60 border border-zinc-700/60 rounded-full px-2.5 py-0.5"
+                >
+                  — Silence
+                </span>
+              )}
             </div>
             <p
               className={`text-2xl font-black tracking-tight ${
