@@ -653,7 +653,7 @@ const master = ctx.createGain();
                           : "text-sky-300 bg-sky-500/15 border-sky-400/40"
                     }`}
                   >
-                    {mDir === "D" ? "↓ D Strum bas" : "↑ U Strum haut"}
+                    {mDir === "D" ? "↓ D" : "↑ U"}
                   </span>
                 );
               })}
