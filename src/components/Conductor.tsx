@@ -409,8 +409,12 @@ const master = ctx.createGain();
   const curBeats = cur ? beatsForShape(cur.shape) : 0;
   const curNv = cur ? noteValueInfo(curBeats) : null;
   const curMeasureIdx = cur ? measureForBeat((cur.start * bpm) / 60, measureInfo) : -1;
+  const mStart = curMeasureIdx * measureInfo.beatsPerMeasure;
+  const mEnd = mStart + measureInfo.beatsPerMeasure;
   const measureIdxs = events.reduce<number[]>((acc, ev, i) => {
-    if (measureForBeat((ev.start * bpm) / 60, measureInfo) === curMeasureIdx) acc.push(i);
+    const s = (ev.start * bpm) / 60;
+    const e = s + beatsForShape(ev.shape);
+    if (s < mEnd - 1e-6 && e > mStart + 1e-6) acc.push(i);
     return acc;
   }, []);
   const dur2 = totalMs / 1000;

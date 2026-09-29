@@ -743,6 +743,8 @@ function shapeKey(d: SavedChordShape): string {
 // Consecutive identical chord strokes collapse into a single held chord:
 // keeps the sequence compact (and under the browser storage quota) while
 // keeping the exact same total duration for playback and the measure grid.
+// Only chords of at least 2 beats (half note and longer) merge: strum
+// patterns built from eighths/quarters stay one pastille per stroke.
 function mergeIdenticalChords(diagrams: SavedChordShape[]): SavedChordShape[] {
   const out: SavedChordShape[] = [];
   const beats = (d: SavedChordShape) => (d.duration ?? 1) * (d.dotted ? 1.5 : 1);
@@ -750,6 +752,8 @@ function mergeIdenticalChords(diagrams: SavedChordShape[]): SavedChordShape[] {
     const prev = out[out.length - 1];
     const mergeable =
       prev &&
+      beats(prev) >= 2 &&
+      beats(d) >= 2 &&
       !prev.bar &&
       !prev.silence &&
       !prev.navKind &&

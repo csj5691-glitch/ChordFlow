@@ -296,7 +296,12 @@ export function importMidi(
 
       if (lastChordId && diagrams.length > 0) {
         const prev = diagrams[diagrams.length - 1];
-        if (prev.id === lastChordId) {
+        if (
+          prev.id === lastChordId &&
+          prev.label === chordName &&
+          (prev.duration ?? 1) >= 2 &&
+          duration >= 2
+        ) {
           prev.duration = (prev.duration ?? 1) + duration;
           continue;
         }
