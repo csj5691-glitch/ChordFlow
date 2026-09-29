@@ -17,7 +17,7 @@ import {
   Playlist,
   PlaylistEntry,
 } from "@/lib/playlists";
-import { Play, ChevronDown, ChevronRight, Pencil, Trash2, Plus, X, ArrowUp, ArrowDown, Check, ListMusic } from "lucide-react";
+import { Play, ChevronDown, ChevronRight, Pencil, Trash2, Plus, X, ArrowUp, ArrowDown, Check, ListMusic, Search } from "lucide-react";
 import { SourceBadges } from "@/components/SourceBadges";
 import { songHasYoutube, songHasSpotify } from "@/lib/song-sources";
 
@@ -378,6 +378,10 @@ function PlaylistEntryRow({
   );
 }
 
+// Diacritic-insensitive match so « é » and « e » (etc.) are interchangeable.
+const normalizeText = (v: string): string =>
+  v.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
 function AddSongRow({
   playlist,
   songs,
@@ -390,41 +394,83 @@ function AddSongRow({
   onAdd: (p: Playlist, songId: string) => void;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   if (songs.length === 0) return null;
+
+  const q = normalizeText(query.trim());
+  const filtered = q
+    ? songs.filter(
+        (s) => normalizeText(s.title).includes(q) || normalizeText(s.artist).includes(q)
+      )
+    : songs;
+
+  const addSong = (songId: string) => {
+    onAdd(playlist, songId);
+    setSelectedId(null);
+  };
+
   return (
     <div className="mt-1 pt-1 border-t border-zinc-800/70">
-      <p className="text-xs text-zinc-500 px-2 py-1.5">
-        Ajouter une chanson du répertoire :
-      </p>
-      <div className="max-h-48 overflow-y-auto flex flex-col gap-0.5">
-        {songs.map((s) => {
-          const isSelected = selectedId === s.id;
-          return (
-            <div
-              key={s.id}
-              onClick={() => {
-                onAdd(playlist, s.id);
-                setSelectedId(null);
-              }}
-              className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${
-                isSelected ? "bg-amber-500/15" : "hover:bg-zinc-800/70"
-              }`}
+      <div className="flex items-center gap-2 px-2 py-1.5">
+        <div className="relative flex-1 min-w-0">
+          <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && filtered.length > 0) addSong(filtered[0].id);
+              if (e.key === "Escape") setQuery("");
+            }}
+            placeholder="Rechercher un titre ou un artiste…"
+            title="Entrée pour ajouter le 1er résultat, Échap pour effacer"
+            className="w-full bg-zinc-900 text-white text-xs rounded-lg pl-7 pr-7 py-1.5 border border-zinc-700 focus:outline-none focus:border-amber-500/50 placeholder:text-zinc-600"
+          />
+          {query && (
+            <button
+              onClick={() => setQuery("")}
+              title="Effacer la recherche"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
             >
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-zinc-200 truncate">{s.title}</p>
-                <p className="text-xs text-zinc-500 truncate">{s.artist}</p>
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        <span className="text-[10px] font-mono text-zinc-600 flex-shrink-0">
+          {filtered.length}/{songs.length}
+        </span>
+      </div>
+      <div className="max-h-48 overflow-y-auto flex flex-col gap-0.5">
+        {filtered.length === 0 ? (
+          <p className="text-xs text-zinc-500 px-2 py-2">
+            Aucun résultat pour «&nbsp;{query.trim()}&nbsp;».
+          </p>
+        ) : (
+          filtered.map((s) => {
+            const isSelected = selectedId === s.id;
+            return (
+              <div
+                key={s.id}
+                onClick={() => addSong(s.id)}
+                className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                  isSelected ? "bg-amber-500/15" : "hover:bg-zinc-800/70"
+                }`}
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-zinc-200 truncate">{s.title}</p>
+                  <p className="text-xs text-zinc-500 truncate">{s.artist}</p>
+                </div>
+                <SourceBadges
+                  youtube={songHasYoutube(s)}
+                  spotify={songHasSpotify(s)}
+                  file={uploads.has(s.id)}
+                />
+                <span className="text-amber-400 text-sm font-bold flex-shrink-0">
+                  +
+                </span>
               </div>
-              <SourceBadges
-                youtube={songHasYoutube(s)}
-                spotify={songHasSpotify(s)}
-                file={uploads.has(s.id)}
-              />
-              <span className="text-amber-400 text-sm font-bold flex-shrink-0">
-                +
-              </span>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
     </div>
   );
