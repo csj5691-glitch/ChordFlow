@@ -27,6 +27,7 @@ function CallbackBody() {
     };
 
     if (error) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStatus("Connexion annulée ou refusée par Spotify.");
       finish(1500);
       return;

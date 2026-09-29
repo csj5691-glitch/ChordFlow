@@ -10,7 +10,7 @@ import {
   importAllLocalSongs,
 } from "./supabase";
 import { SongTab } from "./types";
-import { getCustomSongs as getLocalSongs } from "./custom-songs";
+import { loadLocalSongs } from "./custom-songs";
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -36,7 +36,7 @@ export function useSharedSongs() {
     try {
       return await withTimeout(loadSharedSongs(), 8000);
     } catch {
-      return getLocalSongs();
+      return loadLocalSongs();
     }
   }, []);
 

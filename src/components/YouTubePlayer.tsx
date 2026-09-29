@@ -86,10 +86,13 @@ export default function YouTubePlayer({
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingToggleRef = useRef(false);
   const autoPlayRef = useRef(autoPlay);
-  autoPlayRef.current = autoPlay;
   const autoPlayAttemptedRef = useRef(false);
   const onEndedRef = useRef(onEnded);
-  onEndedRef.current = onEnded;
+  const playbackRate = 1 / tempoScale;
+  useEffect(() => {
+    autoPlayRef.current = autoPlay;
+    onEndedRef.current = onEnded;
+  });
   const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
@@ -271,7 +274,6 @@ useEffect(() => {
     return () => clearTimeout(t);
   }, [autoPlay, isReady, videoId]);
 
-  const playbackRate = 1 / tempoScale;
   useEffect(() => {
     if (playerRef.current?.setPlaybackRate) {
       playerRef.current.setPlaybackRate(playbackRate);

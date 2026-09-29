@@ -99,10 +99,12 @@ export default function SpotifyPlayer({
   const endedRef = useRef(onEnded);
   const queueUrisRef = useRef(queueUris);
   const deviceTrackRef = useRef(onDeviceTrack);
-  playbackErrorRef.current = onPlaybackError;
-  durationRef.current = onDurationChange;
-  playStateRef.current = onPlayStateChange;
-  endedRef.current = onEnded;
+  useEffect(() => {
+    playbackErrorRef.current = onPlaybackError;
+    durationRef.current = onDurationChange;
+    playStateRef.current = onPlayStateChange;
+    endedRef.current = onEnded;
+  });
 
   useEffect(() => {
     if (volume === null || volume === undefined) return;
@@ -127,8 +129,10 @@ export default function SpotifyPlayer({
     id = window.setInterval(apply, 500);
     return () => window.clearInterval(id);
   }, [volume]);
-  queueUrisRef.current = queueUris;
-  deviceTrackRef.current = onDeviceTrack;
+  useEffect(() => {
+    queueUrisRef.current = queueUris;
+    deviceTrackRef.current = onDeviceTrack;
+  });
 
   useEffect(() => {
     const stop = () => {
@@ -241,6 +245,7 @@ export default function SpotifyPlayer({
   }, [pollPosition, stopTimer]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoggedIn(isLoggedIn());
   }, []);
 
@@ -741,14 +746,6 @@ export default function SpotifyPlayer({
     return () => clearTimeout(t);
   }, [ready]);
 
-  if (!trackUri) {
-    return (
-      <div className="p-4 bg-zinc-800/50 rounded-xl border border-zinc-700/50 text-center text-zinc-500 text-sm">
-        URL Spotify invalide
-      </div>
-    );
-  }
-
   useEffect(() => {
     if (!window.__SPOTIFY_DIAG) return;
     console.log(
@@ -764,6 +761,14 @@ export default function SpotifyPlayer({
       deviceIdRef.current ? "oui" : "non"
     );
   });
+
+  if (!trackUri) {
+    return (
+      <div className="p-4 bg-zinc-800/50 rounded-xl border border-zinc-700/50 text-center text-zinc-500 text-sm">
+        URL Spotify invalide
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-xl overflow-hidden border border-zinc-700/50 bg-zinc-800/80">

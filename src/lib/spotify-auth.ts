@@ -173,7 +173,7 @@ async function postToken(body: URLSearchParams): Promise<SpotifyToken> {
 }
 
 export async function exchangeCode(code: string, verifierArg?: string | null): Promise<SpotifyToken> {
-  let verifier = verifierArg ?? window.sessionStorage.getItem(VERIFIER_KEY);
+  const verifier = verifierArg ?? window.sessionStorage.getItem(VERIFIER_KEY);
   if (!verifier) {
     throw new Error("Aucune session de connexion trouvée. Réessayez.");
   }

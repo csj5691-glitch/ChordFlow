@@ -4,7 +4,7 @@
 
 import { useRouter } from "next/navigation";
 import { ArrowLeft, BookOpen, Edit3, Home, ListMusic } from "lucide-react";
-import { generateSongId, saveCustomSong } from "@/lib/custom-songs";
+import { generateSongId, saveLocalSong } from "@/lib/custom-songs";
 import { SongTab } from "@/lib/types";
 
 export default function BottomNav() {
@@ -18,7 +18,7 @@ export default function BottomNav() {
     }
   };
 
-  const handleEditor = () => {
+  const handleEditor = async () => {
     const id = generateSongId();
     const song: SongTab = {
       id,
@@ -29,7 +29,7 @@ export default function BottomNav() {
       officialPlain: "",
       officialSynced: "",
     };
-    saveCustomSong(song);
+    await saveLocalSong(song);
     router.push(`/song/${id}/edit`);
   };
 

@@ -17,6 +17,7 @@ export interface SynthEvent {
   legato?: LegatoInfo[];
   sectionLabel?: string;
   barKind?: BarKind;
+  drumHits?: number;
 }
 
 export function beatsForShape(d: SavedChordShape): number {
@@ -128,6 +129,7 @@ export function renderSequence(
           shape: d,
           sectionLabel: r === 0 ? label : undefined,
           barKind: r === 0 ? barKind : undefined,
+          drumHits: d.drumHits,
         };
         if (prevShape && prevShape.legatoTo && prevShape.legatoTo.length > 0) {
           const lg = legatoBetween(prevShape, d);
@@ -174,6 +176,15 @@ function shapeNotes(d: SavedChordShape): { notes: number[]; mutedNotes: number[]
       continue;
     }
     notes.push(STRING_BASE_FREQ[s] * Math.pow(2, pos / 12));
+  }
+  // Pitched non-fretted shapes (no fretboard) carry their own frequencies.
+  if (d.pitchFrequencies && d.pitchFrequencies.length > 0) {
+    notes.push(...d.pitchFrequencies);
+  }
+  // Percussion shapes are played by a drum voice; a placeholder note keeps
+  // them from being treated as silence by the renderers.
+  if (d.drumHits && d.drumHits > 0) {
+    notes.push(440);
   }
   return { notes: notes.length > 0 ? notes : [0], mutedNotes };
 }

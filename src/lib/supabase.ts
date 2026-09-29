@@ -3,9 +3,9 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { SongTab } from "./types";
 import {
-  getCustomSongs as getLocalSongs,
-  saveCustomSong as saveLocalSong,
-  deleteCustomSong as deleteLocalSong,
+  loadLocalSongs,
+  saveLocalSong,
+  deleteLocalSong,
   migrateSong,
 } from "./custom-songs";
 
@@ -33,9 +33,9 @@ export interface SharedRow {
 
 export async function loadSharedSongs(): Promise<SongTab[]> {
   const sb = getSupabase();
-  if (!sb) return getLocalSongs();
+  if (!sb) return loadLocalSongs();
   const { data, error } = await sb.from("songs").select("data").order("updated_at", { ascending: false });
-  if (error) return getLocalSongs();
+  if (error) return loadLocalSongs();
   const rows = (data as { data: unknown }[] | null) ?? [];
   const migrated: SongTab[] = [];
   for (const r of rows) {
@@ -63,7 +63,7 @@ export async function saveSharedSong(song: SongTab): Promise<string[]> {
   const sb = getSupabase();
   let drops: string[] = [];
   try {
-    drops = saveLocalSong(song);
+    drops = await saveLocalSong(song);
   } catch (err) {
     console.warn(
       "[ChordFlow] Stockage local saturé, sauvegarde serveur uniquement.",
@@ -84,14 +84,14 @@ export async function saveSharedSong(song: SongTab): Promise<string[]> {
 
 export async function deleteSharedSong(id: string): Promise<void> {
   const sb = getSupabase();
-  deleteLocalSong(id);
+  await deleteLocalSong(id);
   if (!sb) return;
   await sb.from("songs").delete().eq("id", id);
 }
 
 export async function importAllLocalSongs(): Promise<number> {
   const sb = getSupabase();
-  const local = getLocalSongs();
+  const local = await loadLocalSongs();
   if (!sb || local.length === 0) return local.length;
   const rows = local.map((s) => ({
     id: s.id,

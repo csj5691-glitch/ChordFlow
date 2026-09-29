@@ -18,8 +18,12 @@ import {
 import { chordsToDiagrams } from "@/lib/chords-to-diagrams";
 import { importMidi } from "@/lib/midi-import";
 import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure, renderSequence } from "@/lib/chord-synth";
+import { gmProgramName } from "@/lib/gm-voice";
+import { loadSf2Bank, unloadSf2Bank, sf2BankName } from "@/lib/sf2-bank";
+import { saveSf2Bank as persistSf2Bank, loadSf2Bank as readSf2Bank, clearSf2Bank as clearPersistedSf2Bank } from "@/lib/sf2-store";
 import { getSongTab } from "@/lib/mock-data";
 import { useSharedSong } from "@/lib/use-shared-song";
+import { loadGlobalOffset, saveGlobalOffset } from "@/lib/line-offsets";
 import {
   BAR_KINDS,
   NAV_KINDS,
@@ -44,7 +48,10 @@ import {
   Music,
   Music4,
   Upload,
+  Disc3,
   Pencil,
+  Check,
+  ListMusic,
 } from "lucide-react";
 
 function getStaticSong(id: string): SongTab | null {
@@ -86,6 +93,43 @@ function formatBeats(beats: number): string {
   return String(beats);
 }
 
+type ActiveSlot = { kind: "main" } | { kind: "gp"; index: number };
+
+// Write `diagrams` back into the storage slot owned by `slot`. The active
+// sequence always lives in `song.diagrams`; the others stay in their own slot.
+function packSlotDiagrams(
+  song: SongTab,
+  slot: ActiveSlot,
+  diagrams: SavedChordShape[]
+): Partial<SongTab> {
+  if (slot.kind === "main") {
+    return { mainDiagrams: diagrams };
+  }
+  return {
+    gpTracks: (song.gpTracks ?? []).map((t) =>
+      t.index === slot.index ? { ...t, diagrams } : t
+    ),
+  };
+}
+
+function readSlotDiagrams(song: SongTab, slot: ActiveSlot): SavedChordShape[] {
+  if (slot.kind === "main") return song.mainDiagrams ?? song.diagrams ?? [];
+  const t = (song.gpTracks ?? []).find((t) => t.index === slot.index);
+  return t?.diagrams ?? [];
+}
+
+function slotLabel(song: SongTab, slot: ActiveSlot): string {
+  if (slot.kind === "main") return "Principale";
+  return (
+    (song.gpTracks ?? []).find((t) => t.index === slot.index)?.name ??
+    `Piste ${slot.index + 1}`
+  );
+}
+
+function slotKey(slot: ActiveSlot): string {
+  return slot.kind === "main" ? "main" : `gp-${slot.index}`;
+}
+
 export default function EditSongPage({
   params,
 }: {
@@ -118,8 +162,14 @@ function EditSongView({ id }: { id: string }) {
   const [gpWarnings, setGpWarnings] = useState<string[]>([]);
   const [gpTracks, setGpTracks] = useState<GpTrackInfo[]>([]);
   const [gpPendingFile, setGpPendingFile] = useState<File | null>(null);
+  const [sf2Name, setSf2Name] = useState<string | null>(null);
+  const [sf2Loading, setSf2Loading] = useState(false);
+  const [sf2Error, setSf2Error] = useState<string | null>(null);
   const [gpImportingTrack, setGpImportingTrack] = useState<number | null>(null);
-  const [lyricsOffset, setLyricsOffset] = useState(0);
+  const [gpSelected, setGpSelected] = useState<Set<number>>(new Set());
+  const [activeSlot, setActiveSlot] = useState<ActiveSlot>({ kind: "main" });
+  const [gpMenuOpen, setGpMenuOpen] = useState(false);
+  const [lyricsOffset, setLyricsOffset] = useState(() => (id ? loadGlobalOffset(id) : 0));
   const [lyricAnchorDiagram, setLyricAnchorDiagram] = useState<number | null>(null);
   const [chartsConverting, setChartsConverting] = useState(false);
   const instUrlRef = useRef<string | null>(null);
@@ -127,12 +177,28 @@ function EditSongView({ id }: { id: string }) {
   const hydratedContent = useRef(false);
 
   const baseSong = getStaticSong(id);
-  const { current: sharedSong, upsert } = useSharedSong(id);
+  const { current: sharedSong, loading: sharedLoading, upsert } = useSharedSong(id);
   const song: SongTab | null = hydrated
     ? (sharedSong ?? baseSong)
     : baseSong;
 
   const diagrams = useMemo(() => song?.diagrams ?? [], [song]);
+
+  const activeProgram = useMemo(() => {
+    if (!song || activeSlot.kind !== "gp") return null;
+    return (
+      (song.gpTracks ?? []).find((t) => t.index === activeSlot.index)?.program ??
+      null
+    );
+  }, [song, activeSlot]);
+
+  const activePercussion = useMemo(() => {
+    if (!song || activeSlot.kind !== "gp") return false;
+    return (
+      (song.gpTracks ?? []).find((t) => t.index === activeSlot.index)
+        ?.isPercussion ?? false
+    );
+  }, [song, activeSlot]);
 
   const eventToDiagramIdx = useMemo(() => {
     const out: number[] = [];
@@ -163,12 +229,40 @@ function EditSongView({ id }: { id: string }) {
     }
   }, [song]);
 
+  // Recharge la banque Roland GS (.sf2) choisie précédemment.
+  useEffect(() => {
+    let cancelled = false;
+    void readSf2Bank().then(async (record) => {
+      if (cancelled || !record) {
+        if (!cancelled) setSf2Name(sf2BankName());
+        return;
+      }
+      try {
+        const file = new File([record.blob], record.name);
+        await loadSf2Bank(file, record.name);
+        if (!cancelled) setSf2Name(record.name);
+      } catch (err) {
+        console.error("[ChordFlow] Éditeur : restauration de la banque GS impossible", err);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     if (!toolbarMenu) return;
     const close = () => setToolbarMenu(null);
     window.addEventListener("pointerdown", close);
     return () => window.removeEventListener("pointerdown", close);
   }, [toolbarMenu]);
+
+  useEffect(() => {
+    if (!gpMenuOpen) return;
+    const close = () => setGpMenuOpen(false);
+    window.addEventListener("pointerdown", close);
+    return () => window.removeEventListener("pointerdown", close);
+  }, [gpMenuOpen]);
 
   const content = editableContent ?? song?.content ?? "";
 
@@ -509,11 +603,43 @@ function EditSongView({ id }: { id: string }) {
       const tracks = await analyzeGuitarProFile(file);
       setGpTracks(tracks);
       setGpPendingFile(file);
+      const existing = new Set((song?.gpTracks ?? []).map((t) => t.index));
+      setGpSelected(existing);
     } catch (err) {
       console.error("[ChordFlow] Éditeur : échec d'analyse Guitar Pro", err);
       setGpError(err instanceof Error ? err.message : String(err));
     } finally {
       setGpImporting(false);
+    }
+  };
+
+  const handleSf2PickFile = async (file: File) => {
+    setSf2Loading(true);
+    setSf2Error(null);
+    try {
+      await persistSf2Bank(file);
+      await loadSf2Bank(file, file.name);
+      setSf2Name(file.name);
+    } catch (err) {
+      setSf2Error(
+        err instanceof Error
+          ? `Impossible de charger la banque GS : ${err.message}`
+          : "Impossible de charger la banque GS."
+      );
+      console.error("[ChordFlow] Éditeur : échec de chargement SoundFont", err);
+    } finally {
+      setSf2Loading(false);
+    }
+  };
+
+  const handleSf2Remove = async () => {
+    unloadSf2Bank();
+    setSf2Name(null);
+    setSf2Error(null);
+    try {
+      await clearPersistedSf2Bank();
+    } catch (err) {
+      console.error("[ChordFlow] Éditeur : échec de suppression de la banque GS", err);
     }
   };
 
@@ -536,49 +662,162 @@ function EditSongView({ id }: { id: string }) {
     }
   };
 
-  const handleGpImportTrack = async (trackIndex: number) => {
-    if (gpImportingTrack !== null || !gpPendingFile) return;
-    setGpImportingTrack(trackIndex);
+  const setGpSelection = (track: GpTrackInfo, checked: boolean) => {
+    if (!song || gpImportingTrack !== null) return;
+    const alreadyImported = (song.gpTracks ?? []).some((t) => t.index === track.index);
+
+    if (!checked) {
+      if (alreadyImported) {
+        void (async () => {
+          const next: SongTab = {
+            ...song,
+            gpTracks: (song.gpTracks ?? []).filter((t) => t.index !== track.index),
+          };
+          const drops = await upsert(next);
+          if (drops.length > 0) {
+            setGpWarnings((w) => [
+              ...w,
+              ...drops.map(
+                (t) =>
+                  `Espace local saturé : « ${t} » a été retirée de cet appareil pour enregistrer la chanson (elle reste sur le serveur partagé).`
+              ),
+            ]);
+          }
+          if (activeSlot.kind === "gp" && activeSlot.index === track.index) {
+            setActiveSlot({ kind: "main" });
+          }
+        })();
+      }
+      setGpSelected((prev) => {
+        const nextSet = new Set(prev);
+        nextSet.delete(track.index);
+        return nextSet;
+      });
+      return;
+    }
+
+    setGpSelected((prev) => new Set(prev).add(track.index));
+  };
+
+  const isTrackImported = (index: number) =>
+    (song?.gpTracks ?? []).some((t) => t.index === index);
+
+  const handleGpImportSelected = async () => {
+    if (!song || !gpPendingFile || gpImportingTrack !== null) return;
+    const targets = gpTracks.filter(
+      (t) => gpSelected.has(t.index) && !isTrackImported(t.index)
+    );
+    if (targets.length === 0) return;
     setGpError(null);
     setGpWarnings([]);
-    try {
-      const result = await importGuitarProTrack(gpPendingFile, trackIndex);
-      if (!song) {
-        setGpError("Chanson introuvable.");
-        return;
+    let next: SongTab = song;
+    let failed = 0;
+    for (const t of targets) {
+      setGpImportingTrack(t.index);
+      try {
+        const result = await importGuitarProTrack(gpPendingFile, t.index);
+        if (result.warnings.length > 0) setGpWarnings((w) => [...w, ...result.warnings]);
+        if (result.diagrams.length === 0) continue;
+        next = {
+          ...next,
+          title: next.title || result.song.title,
+          artist: next.artist || result.song.artist,
+          bpm: next.bpm ?? result.song.bpm ?? 90,
+          timeSignature: next.timeSignature ?? result.song.timeSignature,
+          gpTracks: [
+            ...(next.gpTracks ?? []).filter((x) => x.index !== t.index),
+            { index: t.index, name: t.name, program: result.program, isPercussion: t.isPercussion, diagrams: result.diagrams },
+          ],
+          officialPlain: next.officialPlain || result.song.officialPlain,
+          officialSynced: next.officialSynced || result.song.officialSynced,
+        };
+        const drops = await upsert(next);
+        if (drops.length > 0) {
+          setGpWarnings((w) => [
+            ...w,
+            ...drops.map(
+              (x) =>
+                `Espace local saturé : « ${x} » a été retirée de cet appareil pour enregistrer la chanson (elle reste sur le serveur partagé).`
+            ),
+          ]);
+        }
+      } catch (err) {
+        failed++;
+        setGpError(err instanceof Error ? err.message : String(err));
       }
-      const warnings = result.warnings;
-      if (warnings.length > 0) setGpWarnings(warnings);
-      const drops = await upsert({
-        ...song,
-        title: song.title || result.song.title,
-        artist: song.artist || result.song.artist,
-        bpm: song.bpm ?? result.song.bpm ?? 90,
-        timeSignature: song.timeSignature ?? result.song.timeSignature,
-        diagrams: [...(song.diagrams ?? []), ...result.diagrams],
-      });
-      if (drops.length > 0) {
-        setGpWarnings([
-          ...warnings,
-          ...drops.map(
-            (t) =>
-              `Espace local saturé : « ${t} » a été retirée de cet appareil pour enregistrer la chanson (elle reste sur le serveur partagé).`
-          ),
+    }
+    setGpImportingTrack(null);
+    // Ancrage automatique des paroles sur la première note de la piste vocale GP
+    const importedVocal = gpTracks.find(
+      (t) => gpSelected.has(t.index) && t.isVocal && t.firstNoteTime !== null
+    );
+    if (
+      importedVocal &&
+      importedVocal.firstNoteTime !== null &&
+      next.diagrams &&
+      next.diagrams.length > 0
+    ) {
+      const events = renderSequence(next.diagrams, next.bpm ?? 120);
+      const anchorIdx = events.findIndex(
+        (e) =>
+          importedVocal.firstNoteTime !== null &&
+          importedVocal.firstNoteTime >= e.start &&
+          importedVocal.firstNoteTime < e.start + e.duration + 1e-6
+      );
+      if (anchorIdx >= 0) {
+        next = { ...next, lyricAnchorDiagram: anchorIdx };
+        setLyricAnchorDiagram(anchorIdx);
+        setGpWarnings((w) => [
+          ...w,
+          `Paroles ancrées automatiquement sur le diagramme ${anchorIdx + 1} (première note vocale à ${importedVocal.firstNoteTime?.toFixed(1)}s)`,
+        ]);
+      } else {
+        setGpWarnings((w) => [
+          ...w,
+          `Piste vocale « ${importedVocal.name} » : première note à ${importedVocal.firstNoteTime?.toFixed(1)}s, mais aucun diagramme ne correspond. Ajuste manuellement l'ancrage.`,
         ]);
       }
-      setGpTracks([]);
-      setGpPendingFile(null);
-    } catch (err) {
-      console.error("[ChordFlow] Éditeur : échec d'import Guitar Pro", err);
-      setGpError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setGpImportingTrack(null);
     }
+    if (failed === targets.length) {
+      setGpError(
+        "Aucune des pistes cochées n'a pu être importée (voir le message ci-dessus)."
+      );
+    }
+  };
+
+  const handleGpSelectAll = () => {
+    if (gpImportingTrack !== null) return;
+    setGpSelected(new Set(gpTracks.map((t) => t.index)));
+  };
+
+  const handleGpRemoveAll = async () => {
+    if (!song || gpImportingTrack !== null) return;
+    const next: SongTab = {
+      ...song,
+      gpTracks: [],
+    };
+    await upsert(next);
+    setGpSelected(new Set());
+    setActiveSlot({ kind: "main" });
+  };
+
+  const handleSelectSlot = (slot: ActiveSlot) => {
+    if (!song) return;
+    const current = song.diagrams ?? [];
+    const next: SongTab = {
+      ...song,
+      ...packSlotDiagrams(song, activeSlot, current),
+    };
+    next.diagrams = readSlotDiagrams(song, slot);
+    setActiveSlot(slot);
+    setGpMenuOpen(false);
+    upsert(next);
   };
 
   const handleGpCancel = () => {
     setGpTracks([]);
     setGpPendingFile(null);
+    setGpSelected(new Set());
   };
 
   const handleChordsToDiagrams = async () => {
@@ -700,6 +939,13 @@ function EditSongView({ id }: { id: string }) {
   })();
 
   if (!song) {
+    if (hydrated && sharedLoading && !baseSong) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+          <p className="text-zinc-500 text-lg">Chargement…</p>
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
         <p className="text-zinc-500 text-lg">Chanson introuvable</p>
@@ -745,6 +991,80 @@ function EditSongView({ id }: { id: string }) {
               Grille
             </button>
 */}
+            <div className="relative">
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => setGpMenuOpen((o) => !o)}
+                className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
+                  gpMenuOpen
+                    ? "text-black bg-amber-400"
+                    : "text-zinc-400 bg-zinc-800 hover:bg-zinc-700"
+                }`}
+                title="Choisir la piste annotée (diagrammes)"
+              >
+                <ListMusic className="w-3.5 h-3.5" />
+                Pistes
+                {(song.gpTracks?.length ?? 0) > 0 && (
+                  <span className="text-[10px] font-bold bg-zinc-700 rounded-full px-1.5 py-0.5 leading-none">
+                    {(song.gpTracks?.length ?? 0) + (activeSlot.kind === "main" ? 0 : 1)}
+                  </span>
+                )}
+              </button>
+              {gpMenuOpen && (
+                <div
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="absolute right-0 top-full mt-2 w-72 max-h-80 overflow-y-auto rounded-xl bg-zinc-900 border border-zinc-700 shadow-2xl p-1.5 flex flex-col gap-0.5 z-20"
+                >
+                  <p className="text-[10px] uppercase tracking-wider text-zinc-500 px-2 pt-1.5 pb-1">
+                    Piste affichée
+                  </p>
+                  {[{ kind: "main" } as ActiveSlot, ...(song.gpTracks ?? []).map((t) => ({ kind: "gp", index: t.index } as ActiveSlot))].map(
+                    (slot) => {
+                      const active = slotKey(slot) === slotKey(activeSlot);
+                      const label = slotLabel(song, slot);
+                      const count = readSlotDiagrams(song, slot).length;
+                      const progName =
+                        slot.kind === "gp"
+                          ? gmProgramName(
+                              (song.gpTracks ?? []).find((t) => t.index === slot.index)?.program ?? null
+                            )
+                          : null;
+                      return (
+                        <button
+                          key={slotKey(slot)}
+                          onClick={() => handleSelectSlot(slot)}
+                          className={`flex items-center justify-between gap-2 text-left text-xs px-3 py-2 rounded-lg transition-colors ${
+                            active
+                              ? "bg-amber-500/15 text-amber-300"
+                              : "text-zinc-300 hover:bg-zinc-800"
+                          }`}
+                        >
+                          <span className="flex items-center gap-2 min-w-0">
+                            {active && <Check className="w-3.5 h-3.5 shrink-0" />}
+                            <span className="flex flex-col min-w-0">
+                              <span className="truncate">{label}</span>
+                              {progName && (
+                                <span className="text-[10px] text-zinc-500 truncate">
+                                  {progName}
+                                </span>
+                              )}
+                            </span>
+                          </span>
+                          <span className="text-[10px] text-zinc-500 shrink-0">
+                            {count} diagramme{count > 1 ? "s" : ""}
+                          </span>
+                        </button>
+                      );
+                    }
+                  )}
+                  {(song.gpTracks?.length ?? 0) === 0 && (
+                    <p className="text-[10px] text-zinc-600 px-2 py-1.5">
+                      Aucune piste GP importée. Utilisez « Import GP » ci-dessous.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
             <button
               onClick={() => setMode("diagrams")}
               className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
@@ -856,7 +1176,7 @@ function EditSongView({ id }: { id: string }) {
                   </span>
                 </div>
               </div>
-              <SynthPlayer diagrams={diagrams} bpm={bpm} onCurrentIndexChange={setPlayingEventIndex} />
+              <SynthPlayer diagrams={diagrams} bpm={bpm} program={activeProgram} percussion={activePercussion} onCurrentIndexChange={setPlayingEventIndex} />
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() => setConductorOpen(true)}
@@ -982,6 +1302,48 @@ function EditSongView({ id }: { id: string }) {
                     }}
                   />
                 </label>
+                <label
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
+                  title="Importer un SoundFont Roland GS / General MIDI (.sf2) pour reproduire les sons MIDI authentiques des pistes"
+                >
+                  <Disc3 className="w-3.5 h-3.5" />
+                  {sf2Name ? "Changer la banque GS" : "SoundFont GS (.sf2)"}
+                  <input
+                    type="file"
+                    accept=".sf2"
+                    className="hidden"
+                    disabled={sf2Loading}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void handleSf2PickFile(file);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                {sf2Name && (
+                  <div className="flex flex-col gap-1.5 rounded-lg bg-zinc-800/70 border border-zinc-700 px-3 py-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="flex items-center gap-1.5 text-[11px] text-emerald-300">
+                        <Check className="w-3 h-3" />
+                        Banque GS chargée : {sf2Name}
+                      </span>
+                      <button
+                        onClick={() => void handleSf2Remove()}
+                        className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-md bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors cursor-pointer"
+                        title="Retirer la banque GS (les pistes rejouent avec la synthèse intégrée)"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        Retirer
+                      </button>
+                    </div>
+                    <span className="text-[10px] text-zinc-500">
+                      « Jouer le rythme » et « Chef d&apos;orchestre » utilisent ces sons MIDI (GS) pour chaque piste.
+                    </span>
+                    {sf2Error && (
+                      <span className="text-[11px] text-red-400">{sf2Error}</span>
+                    )}
+                  </div>
+                )}
                 <button
                   onClick={() => void handleChordsToDiagrams()}
                   disabled={chartsConverting}
@@ -1006,36 +1368,114 @@ function EditSongView({ id }: { id: string }) {
               )}
               {gpPendingFile && gpTracks.length > 0 && (
                 <div className="flex flex-col gap-2 rounded-lg bg-zinc-800/70 border border-zinc-700 p-3">
-                  <p className="text-[11px] text-zinc-300 font-semibold">
-                    Sélectionner la piste à importer
-                  </p>
-                  <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto">
-                    {gpTracks.map((t) => (
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <p className="text-[11px] text-zinc-300 font-semibold">
+                      Pistes du fichier — cochez-en plusieurs à importer
+                    </p>
+                    <div className="flex items-center gap-1.5">
                       <button
-                        key={t.index}
-                        disabled={gpImportingTrack !== null}
-                        onClick={() => void handleGpImportTrack(t.index)}
-                        className="flex items-center justify-between gap-2 text-left text-xs px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-200 hover:bg-zinc-700 transition-colors disabled:opacity-50"
+                        disabled={
+                          gpImportingTrack !== null ||
+                          gpTracks.filter(
+                            (t) => gpSelected.has(t.index) && !isTrackImported(t.index)
+                          ).length === 0
+                        }
+                        onClick={() => void handleGpImportSelected()}
+                        className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-md bg-emerald-500 text-black hover:bg-emerald-400 transition-colors disabled:opacity-40"
+                        title="Importer maintenant toutes les pistes cochées"
                       >
-                        <span className="flex items-center gap-2 min-w-0">
-                          <Music4 className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-                          <span className="truncate">{t.name}</span>
-                        </span>
-                        <span className="flex items-center gap-3 text-[10px] text-zinc-500 shrink-0">
-                          {t.isGuitar && <span className="text-emerald-300">Guitare</span>}
-                          {t.isVocal && <span className="text-violet-300">Voix</span>}
-                          {t.stringCount} cordes
-                          {t.chordCount > 0 && <span className="text-amber-300">{t.chordCount} accords</span>}
-                          <span>{t.noteCount} notes</span>
-                        </span>
+                        Importer la sélection (
+                        {gpTracks.filter(
+                          (t) => gpSelected.has(t.index) && !isTrackImported(t.index)
+                        ).length}
+                        )
                       </button>
-                    ))}
+                      <button
+                        disabled={gpImportingTrack !== null}
+                        onClick={handleGpSelectAll}
+                        className="text-[10px] text-emerald-300 hover:text-emerald-200 transition-colors disabled:opacity-40"
+                        title="Cocher toutes les pistes (l'import se fait via « Importer la sélection »)"
+                      >
+                        Tout cocher
+                      </button>
+                      <span className="text-zinc-700">·</span>
+                      <button
+                        disabled={gpImportingTrack !== null}
+                        onClick={() => void handleGpRemoveAll()}
+                        className="text-[10px] text-red-400 hover:text-red-300 transition-colors disabled:opacity-40"
+                        title="Retirer toutes les séquences GP de la chanson"
+                      >
+                        Tout retirer
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto">
+                    {gpTracks.map((t) => {
+                      const checked = gpSelected.has(t.index);
+                      const imported = isTrackImported(t.index);
+                      const active = activeSlot.kind === "gp" && activeSlot.index === t.index;
+                      const instName = t.isPercussion
+                        ? "Batterie / Percussion"
+                        : gmProgramName(t.program) ?? undefined;
+                      return (
+                        <label
+                          key={t.index}
+                          className={`flex items-center justify-between gap-2 text-left text-xs px-3 py-2 rounded-lg bg-zinc-900 border transition-colors cursor-pointer select-none ${
+                            checked
+                              ? "border-amber-500/50"
+                              : "border-zinc-700"
+                          } ${active ? "ring-1 ring-amber-400/40" : ""}`}
+                        >
+                          <span className="flex items-center gap-2 min-w-0">
+                            <input
+                              type="checkbox"
+                              className="accent-amber-500 cursor-pointer"
+                              checked={checked}
+                              disabled={gpImportingTrack !== null}
+                              onChange={(e) => setGpSelection(t, e.target.checked)}
+                            />
+                            <Music4 className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                            <span className="flex flex-col min-w-0">
+                              <span className="truncate">{t.name}</span>
+                              {instName && (
+                                <span className="text-[10px] text-zinc-500 truncate">
+                                  {instName}
+                                </span>
+                              )}
+                            </span>
+                            {active && (
+                              <span className="text-[10px] text-amber-300 shrink-0">Affichée</span>
+                            )}
+                            {imported && !active && (
+                              <span className="text-[10px] text-emerald-300 shrink-0">
+                                Importée
+                              </span>
+                            )}
+                            {!imported && checked && (
+                              <span className="text-[10px] text-sky-300/80 shrink-0">
+                                À importer
+                              </span>
+                            )}
+                            {gpImportingTrack === t.index && (
+                              <span className="text-[10px] text-zinc-400 shrink-0">Import…</span>
+                            )}
+                          </span>
+                          <span className="flex items-center gap-3 text-[10px] text-zinc-500 shrink-0">
+                            {t.isGuitar && <span className="text-emerald-300">Guitare</span>}
+                            {t.isVocal && <span className="text-violet-300">Voix</span>}
+                            {t.stringCount} cordes
+                            {t.chordCount > 0 && <span className="text-amber-300">{t.chordCount} accords</span>}
+                            <span>{t.noteCount} notes</span>
+                          </span>
+                        </label>
+                      );
+                    })}
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-zinc-500">
                       {gpImportingTrack !== null
                         ? "Import en cours…"
-                        : "Les accords nommés du fichier sont reconnus automatiquement."}
+                        : "Cochez plusieurs pistes puis « Importer la sélection ». Chaque piste devient une séquence nommée dans « Pistes »."}
                     </span>
                     <button
                       disabled={gpImportingTrack !== null}
@@ -1067,10 +1507,14 @@ function EditSongView({ id }: { id: string }) {
                         <button
                           key={t.index}
                           onClick={() => {
+                            if (!song) return;
                             if (eventIdx >= 0) {
                               setLyricAnchorDiagram(eventIdx);
+                              void upsert({ ...song, lyricAnchorDiagram: eventIdx });
                             } else {
-                              setLyricsOffset(-(t.firstNoteTime ?? 0));
+                              const offset = -(t.firstNoteTime ?? 0);
+                              setLyricsOffset(offset);
+                              saveGlobalOffset(id, offset);
                             }
                           }}
                           className="flex items-center justify-between gap-2 text-left text-xs px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-200 hover:bg-zinc-700 transition-colors"
@@ -1631,7 +2075,7 @@ function EditSongView({ id }: { id: string }) {
           instrumentalUrl={instUrl}
           vocalsUrl={vocalsUrl}
           lyricOffset={lyricsOffset}
-          lyricAnchorDiagram={lyricAnchorDiagram ?? undefined}
+          lyricAnchorDiagram={lyricAnchorDiagram ?? song?.lyricAnchorDiagram ?? undefined}
           onClose={() => setConductorOpen(false)}
         />
       )}

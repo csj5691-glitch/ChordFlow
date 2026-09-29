@@ -312,7 +312,7 @@ export default function Conductor({
     if (events.length === 0) return;
 
     setIndex(0);
-    setLyricIndex(0);
+    setLyricIndex(-1);
 
     const pickPrimary = (): HTMLAudioElement | null => {
       if (instRef.current) return instRef.current;
@@ -352,19 +352,16 @@ const master = ctx.createGain();
       if (i < 0) i = events.filter((e) => e.start * 1000 <= t).length - 1;
       setIndex(Math.max(0, i));
       if (flatLyrics.length > 0) {
-        const lyricClockMs = vocalsRef.current ? vocalsRef.current.currentTime * 1000 : t;
-        const vs = stemStartRef.current ?? 0;
         const hasTimes = flatLyrics[0].time !== null;
         let li = -1;
         if (hasTimes) {
-          const firstTime = flatLyrics[0].time ?? 0;
-          const ref =
-            lyricClockMs + lyricOffsetRef.current * 1000 + (firstTime - vs) * 1000;
           for (let k = 0; k < flatLyrics.length; k++) {
             const tm = flatLyrics[k].time;
-            if (tm !== null && tm * 1000 <= ref) li = k;
+            if (tm !== null && tm * 1000 <= t) li = k;
           }
         } else {
+          const lyricClockMs = vocalsRef.current ? vocalsRef.current.currentTime * 1000 : t;
+          const vs = stemStartRef.current ?? 0;
           const anchor = lyricAnchorRef.current;
           if (anchor !== null && events.length > 1) {
             const perc = (i - anchor) / (events.length - 1 - anchor);

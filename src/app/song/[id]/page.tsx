@@ -150,7 +150,9 @@ function SongView({ id }: SongViewProps) {
       clearSession();
       return;
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setShuffle(!!session.shuffle);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSetlist({ playlist, index: idx });
   }, [id]);
 
@@ -241,6 +243,7 @@ function SongView({ id }: SongViewProps) {
 
   useEffect(() => {
     try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMiniYT(window.localStorage.getItem("chordflow-mini-yt") === "1");
     } catch {
       // ignorer
@@ -263,7 +266,7 @@ function SongView({ id }: SongViewProps) {
     [isCustom, id]
   );
   const [editedSong, setEditedSong] = useState<SongTab | null>(null);
-  const { current: sharedSong, upsert } = useSharedSong(id);
+  const { current: sharedSong, loading: sharedLoading, upsert } = useSharedSong(id);
 
   const song = hydrated
     ? (editedSong ?? sharedSong ?? baseSong)
@@ -540,6 +543,7 @@ function SongView({ id }: SongViewProps) {
       if (id) saveYouTubeId(id, syncedId);
     }
     if (youtubeVideoId && !audioSource) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAudioSource("youtube");
       setAudioUrl(null);
     }
@@ -556,6 +560,7 @@ function SongView({ id }: SongViewProps) {
       if (id) saveSpotifyId(id, syncedSpotify);
     }
     if (spotifyTrackUrl && !audioSource) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAudioSource("spotify");
       setAudioUrl(null);
     }
@@ -689,6 +694,13 @@ function SongView({ id }: SongViewProps) {
   }, [id, song, editedSong, upsert]);
 
   if (!song) {
+    if (hydrated && sharedLoading && !editedSong && !baseSong) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+          <p className="text-zinc-500 text-lg">Chargement…</p>
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
         <p className="text-zinc-500 text-lg">Chanson introuvable</p>

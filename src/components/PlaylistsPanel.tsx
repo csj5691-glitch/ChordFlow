@@ -36,6 +36,7 @@ export default function PlaylistsPanel({ songs, uploads }: PlaylistsPanelProps) 
   const [renameValue, setRenameValue] = useState("");
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPlaylists(loadPlaylists());
   }, []);
 

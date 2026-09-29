@@ -57,6 +57,7 @@ export default function SpotifySearch({
   const [searchError, setSearchError] = useState<string | null>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoggedIn(isLoggedIn());
   }, []);
 
@@ -108,6 +109,7 @@ export default function SpotifySearch({
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     runSearch(query);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

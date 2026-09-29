@@ -5,7 +5,7 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Search, Download, Loader2, X } from "lucide-react";
-import { saveCustomSong, generateSongId } from "@/lib/custom-songs";
+import { saveLocalSong, generateSongId } from "@/lib/custom-songs";
 
 export default function SearchBar() {
   const [query, setQuery] = useState("");
@@ -32,7 +32,7 @@ export default function SearchBar() {
       const res = await fetch(`/api/ug?query=${encodeURIComponent(q)}`);
       const data = await res.json();
       if (res.ok && data.content) {
-        saveCustomSong({
+        await saveLocalSong({
           id: generateSongId(),
           title: data.title || q,
           artist: data.artist || "",

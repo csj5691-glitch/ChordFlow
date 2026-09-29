@@ -2,7 +2,16 @@
 
 import { SavedChordShape, SongTab } from "./types";
 
-const STORAGE_KEY = "chordflow-custom-songs";
+// Songs are stored in IndexedDB (one record per song) instead of localStorage:
+// localStorage is capped at ~5 MB for the whole origin and shared with the
+// audio stems / SoundFont stores, which forced the app to evict the largest
+// local songs to make room. IndexedDB quota is far larger, so the local
+// playlist survives. The old localStorage list is migrated on first read.
+
+const DB_NAME = "chordflow-songs";
+const DB_VERSION = 1;
+const STORE_NAME = "songs";
+const LEGACY_STORAGE_KEY = "chordflow-custom-songs";
 
 export class StorageQuotaError extends Error {
   constructor() {
@@ -13,20 +22,157 @@ export class StorageQuotaError extends Error {
   }
 }
 
-function writeStorage(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch (err) {
-    if (
-      err instanceof DOMException &&
-      (err.name === "QuotaExceededError" || err.name === "NS_ERROR_DOM_QUOTA_REACHED")
-    ) {
-      throw new StorageQuotaError();
+function isQuotaError(err: unknown): boolean {
+  return (
+    err instanceof DOMException &&
+    (err.name === "QuotaExceededError" || err.name === "NS_ERROR_DOM_QUOTA_REACHED")
+  );
+}
+
+function openDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(STORE_NAME)) {
+        req.result.createObjectStore(STORE_NAME, { keyPath: "id" });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error("ChordFlow : base de chansons bloquée"));
+  });
+}
+
+function getAllSongs(db: IDBDatabase): Promise<SongTab[]> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readonly");
+    const req = tx.objectStore(STORE_NAME).getAll();
+    req.onsuccess = () => resolve((req.result as SongTab[]) ?? []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function putSong(db: IDBDatabase, song: SongTab): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    tx.objectStore(STORE_NAME).put(song);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error("Échec d'écriture"));
+  });
+}
+
+function deleteSongRecord(db: IDBDatabase, id: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    tx.objectStore(STORE_NAME).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error("Échec de suppression"));
+  });
+}
+
+// ----------------------------------------- migration -------------------------
+let migrationPromise: Promise<void> | null = null;
+
+// One-time move of the legacy localStorage playlist into IndexedDB, then request
+// persistent storage so the browser is less eager to evict the origin's data.
+function migrateLegacyLocalSongs(): Promise<void> {
+  if (migrationPromise) return migrationPromise;
+  migrationPromise = (async () => {
+    if (typeof indexedDB === "undefined" || typeof localStorage === "undefined") return;
+    try {
+      if (navigator.storage?.persist) {
+        void navigator.storage.persist().catch(() => {});
+      }
+      const db = await openDB();
+      const existing = await getAllSongs(db);
+      if (existing.length > 0) return;
+      let legacy: SongTab[] = [];
+      try {
+        legacy = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY) || "[]");
+      } catch {
+        legacy = [];
+      }
+      if (legacy.length === 0) return;
+      for (const s of legacy) {
+        if (!s || typeof s.id !== "string") continue;
+        try {
+          await putSong(db, s);
+        } catch {
+          // best effort: skip songs that do not fit
+        }
+      }
+      try {
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
+      } catch {
+        // ignore
+      }
+    } catch {
+      // IndexedDB unavailable: the app still works from the server.
     }
-    throw err;
+  })();
+  return migrationPromise;
+}
+
+// ------------------------------------------ public API -----------------------
+// Returns the songs cached on this device (offline copy of the shared list).
+export async function loadLocalSongs(): Promise<SongTab[]> {
+  if (typeof indexedDB === "undefined") return [];
+  await migrateLegacyLocalSongs();
+  try {
+    const db = await openDB();
+    const all = await getAllSongs(db);
+    return all.map(migrateSong);
+  } catch {
+    return [];
   }
 }
 
+export async function loadLocalSong(id: string): Promise<SongTab | null> {
+  const all = await loadLocalSongs();
+  return all.find((s) => s.id === id) ?? null;
+}
+
+// Saves/deletes one song locally. When the store is full, the largest OTHER
+// song is dropped to make room (mirror of the old localStorage behaviour) and
+// its title is reported so the UI can warn the user.
+export async function saveLocalSong(song: SongTab): Promise<string[]> {
+  if (typeof indexedDB === "undefined") return [];
+  const db = await openDB();
+  const drops: string[] = [];
+  for (;;) {
+    try {
+      await putSong(db, migrateSong(song));
+      return drops;
+    } catch (err) {
+      if (!isQuotaError(err)) throw err;
+      const others = (await getAllSongs(db)).filter((s) => s.id !== song.id);
+      let largest: SongTab | null = null;
+      for (const s of others) {
+        if (!largest || songSize(s) > songSize(largest)) largest = s;
+      }
+      if (!largest) throw new StorageQuotaError();
+      await deleteSongRecord(db, largest.id);
+      drops.push(largest.title || largest.id);
+    }
+  }
+}
+
+export async function deleteLocalSong(id: string): Promise<void> {
+  if (typeof indexedDB === "undefined") return;
+  try {
+    const db = await openDB();
+    await deleteSongRecord(db, id);
+  } catch {
+    // nothing to delete
+  }
+}
+
+export async function updateLocalSong(id: string, patch: Partial<SongTab>): Promise<string[]> {
+  const current = await loadLocalSong(id);
+  return saveLocalSong(current ? { ...current, ...patch } : ({ id, ...patch } as SongTab));
+}
+
+// ---------------------------------------- pure helpers -----------------------
 const SECTION_LABEL_MIGRATION: Record<string, string> = {
   Verset: "Couplet",
   "Pré-verset": "Pré-couplet",
@@ -91,96 +237,15 @@ export function migrateSong(song: SongTab): SongTab {
   return { ...song, diagrams };
 }
 
-export function getCustomSongs(): SongTab[] {
-  if (typeof window === "undefined") return [];
-  let songs: SongTab[] = [];
-  try {
-    songs = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-  } catch {
-    return [];
-  }
-  let changed = false;
-  const migrated = songs.map((s) => {
-    const m = migrateSong(s);
-    if (m !== s) changed = true;
-    return m;
-  });
-  if (changed) {
-    try {
-      writeStorage(STORAGE_KEY, JSON.stringify(migrated));
-    } catch {
-      // Best effort: a full store should not break reads.
-    }
-  }
-  return migrated;
-}
-
-export function getCustomSong(id: string): SongTab | null {
-  return getCustomSongs().find((s) => s.id === id) || null;
-}
-
 function songSize(song: SongTab): number {
   return JSON.stringify(song).length;
-}
-
-// localStorage is a hard cap. When it fills up, drop the largest existing
-// songs (which mirror the shared server list) to make room for the song being
-// written. Returns the titles of the songs dropped from the local device.
-function persistSongsList(songs: SongTab[], protectId?: string): string[] {
-  const drops: string[] = [];
-  let next = songs;
-  for (;;) {
-    try {
-      writeStorage(STORAGE_KEY, JSON.stringify(next));
-      return drops;
-    } catch (err) {
-      if (!(err instanceof StorageQuotaError)) throw err;
-      let largestIdx = -1;
-      let largestSize = -1;
-      for (let i = 0; i < next.length; i++) {
-        const s = next[i];
-        if (s.id === protectId) continue;
-        const size = songSize(s);
-        if (size > largestSize) {
-          largestSize = size;
-          largestIdx = i;
-        }
-      }
-      if (largestIdx < 0) throw new StorageQuotaError();
-      const dropped = next[largestIdx];
-      drops.push(dropped.title || dropped.id);
-      next = next.filter((_, i) => i !== largestIdx);
-    }
-  }
-}
-
-export function saveCustomSong(song: SongTab): string[] {
-  const songs = getCustomSongs();
-  const idx = songs.findIndex((s) => s.id === song.id);
-  const next = idx >= 0 ? songs.map((s, i) => (i === idx ? song : s)) : [...songs, song];
-  return persistSongsList(next, song.id);
-}
-
-export function deleteCustomSong(id: string): void {
-  const songs = getCustomSongs().filter((s) => s.id !== id);
-  writeStorage(STORAGE_KEY, JSON.stringify(songs));
-}
-
-export function updateCustomSong(id: string, patch: Partial<SongTab>): string[] {
-  const songs = getCustomSongs();
-  let protectedId: string | undefined;
-  const next = songs.map((s) => {
-    if (s.id !== id) return s;
-    protectedId = id;
-    return { ...s, ...patch };
-  });
-  return persistSongsList(next, protectedId);
 }
 
 export function generateSongId(): string {
   return `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+// -------------------------------------- per-line annotations -----------------
 const CHORDS_KEY = "chordflow-line-chords";
 
 export function loadLineChords(songId: string): Record<number, string[]> {
@@ -245,4 +310,15 @@ export function saveExtraChordLines(songId: string, lines: ExtraChordLine[]): vo
   const all = JSON.parse(localStorage.getItem(EXTRA_LINES_KEY) || "{}");
   all[songId] = lines;
   writeStorage(EXTRA_LINES_KEY, JSON.stringify(all));
+}
+
+function writeStorage(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch (err) {
+    if (isQuotaError(err)) {
+      throw new StorageQuotaError();
+    }
+    throw err;
+  }
 }

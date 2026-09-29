@@ -21,6 +21,15 @@ export interface ChordLine {
   rawChord: string;
 }
 
+// One imported Guitar Pro track = one named diagram sequence.
+export interface GpTrackData {
+  index: number;
+  name: string;
+  program: number | null;
+  isPercussion: boolean;
+  diagrams: SavedChordShape[];
+}
+
 export interface SongTab {
   id: string;
   title: string;
@@ -29,6 +38,11 @@ export interface SongTab {
   content: string;
   sections?: ChordSection[];
   diagrams?: SavedChordShape[];
+  // Original working sequence, kept when GP tracks are added so it can be
+  // restored from the "Pistes" submenu.
+  mainDiagrams?: SavedChordShape[];
+  // Named diagram sequences, one per imported Guitar Pro track.
+  gpTracks?: GpTrackData[];
   bpm?: number;
   timeSignature?: { top: number; bottom: 2 | 4 | 8 };
   key?: string;
@@ -36,6 +50,9 @@ export interface SongTab {
   tuning?: string;
   officialPlain?: string;
   officialSynced?: string;
+  // Anchoring of the vocal lyrics on a diagram of the main sequence: the
+  // event whose playback position the first sung syllable aligns with.
+  lyricAnchorDiagram?: number;
   youtubeId?: string;
   spotifyId?: string;
 }
@@ -125,6 +142,12 @@ export interface SavedChordShape {
   repeats?: number;
   sectionLabel?: string;
   legatoTo?: number[];
+  // For pitched non-fretted instruments (piano, keys, winds, strings): the
+  // frequencies to play when the shape carries no fretboard fingers.
+  pitchFrequencies?: number[];
+  // For percussion (batterie): number of drum strokes on this shape. Kept
+  // separate so repeated hits are never merged and play with a drum voice.
+  drumHits?: number;
 }
 
 export interface AnalyzedSong {

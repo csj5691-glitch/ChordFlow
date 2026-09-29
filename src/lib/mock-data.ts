@@ -1,7 +1,6 @@
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
 import { SongResult, SongTab } from "./types";
-import { getCustomSong } from "./custom-songs";
 
 export const MOCK_SEARCH_RESULTS: SongResult[] = [
   {
@@ -984,8 +983,5 @@ export function searchSongs(query: string): SongResult[] {
 }
 
 export function getSongTab(id: string): SongTab | null {
-  if (id.startsWith("custom-")) {
-    return getCustomSong(id);
-  }
   return MOCK_SONG_TABS[id] || null;
 }

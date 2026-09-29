@@ -3,22 +3,34 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { SongTab } from "./types";
 import { loadSharedSongs, saveSharedSong } from "./supabase";
-import { getCustomSong } from "./custom-songs";
+import { loadLocalSong } from "./custom-songs";
 
 export function useSharedSong(id: string) {
-  const [current, setCurrent] = useState<SongTab | null>(() => getCustomSong(id));
+  const [current, setCurrent] = useState<SongTab | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
+    let cachedLocal: SongTab | null = null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoading(true);
+    void loadLocalSong(id).then((local) => {
+      cachedLocal = local;
+      if (!active) return;
+      setCurrent((prev) => prev ?? local);
+    });
     loadSharedSongs()
       .then((list) => {
         if (!active) return;
-        const found = list.find((s) => s.id === id) ?? null;
-        setCurrent(found ?? getCustomSong(id));
+        setCurrent(list.find((s) => s.id === id) ?? cachedLocal);
       })
       .catch(() => {
         if (!active) return;
-        setCurrent(getCustomSong(id));
+        setCurrent(cachedLocal);
+      })
+      .finally(() => {
+        if (!active) return;
+        setLoading(false);
       });
     return () => {
       active = false;
@@ -30,5 +42,5 @@ export function useSharedSong(id: string) {
     return saveSharedSong(song);
   }, []);
 
-  return useMemo(() => ({ current, upsert }), [current, upsert]);
+  return useMemo(() => ({ current, loading, upsert }), [current, loading, upsert]);
 }

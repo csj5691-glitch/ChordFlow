@@ -8,7 +8,7 @@ import SearchBar from "@/components/SearchBar";
 import SongCard from "@/components/SongCard";
 import AddSong from "@/components/AddSong";
 import { searchSongs, MOCK_SEARCH_RESULTS } from "@/lib/mock-data";
-import { generateSongId, saveCustomSong } from "@/lib/custom-songs";
+import { generateSongId, saveLocalSong } from "@/lib/custom-songs";
 import { useSharedSongs } from "@/lib/use-shared-songs";
 import {
   loadRepertoireSort,
@@ -237,7 +237,7 @@ export default function Home() {
       tuning: data.tuning,
       key: data.key,
     };
-    saveCustomSong(song);
+    await saveLocalSong(song);
     if (!data.id) {
       try {
         await Promise.race([

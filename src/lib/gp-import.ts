@@ -2,10 +2,12 @@
 
 import type { SavedChordShape, SongTab } from "./types";
 import { importer, model } from "@coderline/alphatab";
+import { getChordShape, parseChordName } from "./chord-data";
 
 const STRING_COUNT = 6;
 // How many cases the chord diagram grid shows per shape (ChordShapeView).
 const FRET_FLOOR = 5;
+const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
 // alphaTab has no instrument kind on a staff: a guitar is detected structurally
 // (6-string tablature, not percussion) and by excluding the bass family
@@ -45,12 +47,14 @@ export interface GpTrackInfo {
   noteCount: number;
   chordCount: number;
   firstNoteTime: number | null;
+  program: number | null;
 }
 
 export interface GpImportResult {
   song: SongTab;
   diagrams: SavedChordShape[];
   warnings: string[];
+  program: number | null;
 }
 
 export interface GpAnalysis {
@@ -88,7 +92,8 @@ async function loadScore(file: File): Promise<model.Score> {
 function isVocalTrack(track: model.Track, staff: model.Staff | undefined): boolean {
   if (!staff || staff.isPercussion) return false;
   const name = (track.name || "").toLowerCase();
-  if (name.includes("vocal") || name.includes("chant") || name.includes("voice") || name.includes("lyric")) return true;
+  const vocalKeywords = ["vocal", "chant", "voice", "lyric", "choir", "singer", "singing", "vox", "backing", "harmony"];
+  if (vocalKeywords.some((kw) => name.includes(kw))) return true;
   if (staff.tuning.length === 6) return false;
   return false;
 }
@@ -134,6 +139,117 @@ function getFirstNoteTime(score: model.Score, trackIndex: number): number | null
   return null;
 }
 
+// Lyric extraction. alphaTab distributes each stored lyric line (Lyrics) over
+// the performed beats (rests/empty beats are skipped) through Track.applyLyrics,
+// which fills `beat.lyrics[i]` with one syllable per beat. We re-read those
+// syllables in time order and group one displayed line per measure: the result
+// scrolls exactly with the sequence playback.
+export interface GpLyrics {
+  plain: string;
+  synced: string;
+}
+
+interface GpLyricSyllable {
+  time: number;
+  barIndex: number;
+  syllable: string;
+}
+
+function collectLyricSyllables(score: model.Score, trackIndex: number): GpLyricSyllable[][] {
+  const track = score.tracks[trackIndex];
+  const staff = track?.staves[0];
+  if (!staff) return [];
+
+  const rows: GpLyricSyllable[][] = [];
+  const bpm = score.tempo ?? 120;
+  const secondsPerBeat = 60 / bpm;
+
+  // Same sequence clock as getFirstNoteTime / renderSequence: time in seconds
+  // from the very first bar.
+  let currentBeat = 0;
+  for (let mbIdx = 0; mbIdx < score.masterBars.length; mbIdx++) {
+    const bar = staff.bars[mbIdx];
+    if (!bar) continue;
+    const masterBar = score.masterBars[mbIdx];
+    const numerator = masterBar?.timeSignatureNumerator ?? 4;
+    const denominator = masterBar?.timeSignatureDenominator ?? 4;
+    const barBeats = (4 * numerator) / denominator;
+
+    // The lyric voice is always voices[0] (applyLyrics walks its beat chain).
+    const voice = bar.voices[0];
+    if (voice) {
+      let barPos = 0;
+      for (const beat of voice.beats) {
+        const syllables = beat.lyrics;
+        if (syllables) {
+          for (let li = 0; li < syllables.length; li++) {
+            const syllable = syllables[li];
+            if (!syllable) continue;
+            while (rows.length <= li) rows.push([]);
+            rows[li].push({
+              time: (currentBeat + barPos) * secondsPerBeat,
+              barIndex: mbIdx,
+              syllable,
+            });
+          }
+        }
+        barPos += durationToBeats(
+          beat.duration,
+          beat.dots,
+          beat.tupletNumerator,
+          beat.tupletDenominator
+        );
+      }
+    }
+    currentBeat += barBeats;
+  }
+  return rows;
+}
+
+function formatLyricTime(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds * 1000));
+  const mins = Math.floor(total / 60000);
+  const secs = (total % 60000) / 1000;
+  return `[${String(mins).padStart(2, "0")}:${secs.toFixed(2)}]`;
+}
+
+function extractGpLyrics(score: model.Score, trackIndex: number): GpLyrics | null {
+  const rows = collectLyricSyllables(score, trackIndex);
+  if (rows.length === 0) return null;
+
+  // The primary lyric row is the first one that carries syllables (verse 1);
+  // the following rows are typically stacked alternate verses.
+  const row = rows.find((r) => r.length > 0);
+  if (!row) return null;
+
+  // One displayed line = the syllables of one measure (grouped where a phrase
+  // repeats identically we still keep the rhythm, deduped only by position).
+  const lines: { time: number; text: string }[] = [];
+  let current: string[] = [];
+  let currentBar = -1;
+  let lineStart = 0;
+  for (const entry of row) {
+    if (entry.barIndex !== currentBar) {
+      if (current.length > 0) lines.push({ time: lineStart, text: current.join(" ") });
+      current = [entry.syllable];
+      lineStart = entry.time;
+      currentBar = entry.barIndex;
+    } else {
+      current.push(entry.syllable);
+    }
+  }
+  if (current.length > 0) lines.push({ time: lineStart, text: current.join(" ") });
+  if (lines.length === 0) return null;
+
+  // Times are relative to the first sung syllable: the Conductor's timestamp
+  // mode then tracks the sequence clock, and the persisted lyric offset
+  // (anchor on the vocal note) shifts the pointer to the vocal entry bar.
+  const first = lines[0].time;
+  const plain = lines.map((l) => l.text).join("\n");
+  const synced = lines.map((l) => `${formatLyricTime(l.time - first)} ${l.text}`).join("\n");
+  return { plain, synced };
+}
+
 function listTracks(score: model.Score): GpTrackInfo[] {
   return score.tracks.map((t, index) => {
     const staff = t.staves[0];
@@ -157,6 +273,7 @@ function listTracks(score: model.Score): GpTrackInfo[] {
       noteCount,
       chordCount,
       firstNoteTime: getFirstNoteTime(score, index),
+      program: t.playbackInfo?.program ?? null,
     };
   });
 }
@@ -187,15 +304,18 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
     throw new Error("Piste introuvable dans la tablature.");
   }
   const staff = track.staves[0];
-  if (!isGuitarTrack(track, staff)) {
-    throw new Error(`La piste « ${track.name || "?"} » n'est pas une guitare (6 cordes, tablature).`);
+  if (!staff) {
+    throw new Error(`La piste « ${track.name || "?"} » n'a pas de portée.`);
   }
+
+  const nStrings = staff.tuning.length;
+  // Fretted instruments (guitars AND basses): tablature with frets.
+  const fretted = !staff.isPercussion && staff.showTablature && nStrings >= 1;
 
   const diagrams: SavedChordShape[] = [];
   // AlphaTab numbers strings 1..n where 1 = the lowest string (bottom line /
   // low E on a 6-string guitar). ChordFlow uses index 0 (leftmost) = low E.
   // Map: flowString = gpString - 1.
-  const nStrings = staff.tuning.length;
   const STRING_INDEX = new Map<number, number>();
   for (let i = 1; i <= nStrings; i++) STRING_INDEX.set(i, i - 1);
 
@@ -283,40 +403,66 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
 
         const text = beat.text || undefined;
 
+        // Percussion: one shape per hit beat, holding its stroke count so the
+        // playback uses a drum voice and the rhythm is never merged away.
+        if (staff.isPercussion) {
+          pos += duration;
+          const hits = beat.notes.filter((n) => !n.isTieDestination);
+          if (hits.length > 0) {
+            barChords.push(drumShape(drumLabel(hits), hits.length, duration));
+          }
+          continue;
+        }
+
         // Prefer the named chord diagram stored in the file (Guitar Pro / GPIF)
         // when present: it carries the exact frets and the known name.
         const gpChord = beat.chord;
-        if (gpChord && gpChord.strings.length === nStrings && gpChord.showDiagram) {
+        if (fretted && gpChord && gpChord.strings.length === STRING_COUNT && gpChord.showDiagram) {
           const chord = chordShapeFromGp(gpChord, duration, text);
           if (chord) barChords.push(chord);
           pos += duration;
           continue;
         }
 
-        const fingers: { string: number; fret: number; finger: number }[] = [];
-        const mutedOn = Array(6).fill(false);
-        const legatoTo: number[] = [];
+        if (fretted) {
+          const fingers: { string: number; fret: number; finger: number }[] = [];
+          const mutedOn = Array(6).fill(false);
+          const legatoTo: number[] = [];
 
-        for (const note of beat.notes) {
-          if (!note.isStringed || note.fret === undefined || note.fret === null) continue;
-          const s = STRING_INDEX.get(note.string);
-          if (s === undefined || s < 0 || s > 5) continue;
-          if (note.isDead) {
-            mutedOn[s] = true;
+          for (const note of beat.notes) {
+            if (!note.isStringed || note.fret === undefined || note.fret === null) continue;
+            const s = STRING_INDEX.get(note.string);
+            if (s === undefined || s < 0 || s > 5) continue;
+            if (note.isDead) {
+              mutedOn[s] = true;
+              continue;
+            }
+            if (note.isGhost) continue;
+            if (note.fret < 0) continue;
+            fingers.push({ string: s, fret: note.fret, finger: 0 });
+            if (note.isHammerPullOrigin) legatoTo.push(s);
+          }
+
+          if (fingers.length === 0 && !mutedOn.some(Boolean)) {
+            pos += duration;
             continue;
           }
-          if (note.isGhost) continue;
-          if (note.fret < 0) continue;
-          fingers.push({ string: s, fret: note.fret, finger: 0 });
-          if (note.isHammerPullOrigin) legatoTo.push(s);
-        }
 
-        if (fingers.length === 0 && !mutedOn.some(Boolean)) {
+          barChords.push(chordShape(fingers, mutedOn, legatoTo, duration, text));
           pos += duration;
           continue;
         }
 
-        barChords.push(chordShape(fingers, mutedOn, legatoTo, duration, text));
+        // Pitched non-fretted instrument (piano, clavier, vents, cordes) :
+        // repérer la voix et réutiliser une forme frettée standard.
+        const pitches = beat.notes
+          .filter((n) => !n.isTieDestination && !n.isGhost && !n.isDead)
+          .map((n) => n.realValue)
+          .filter((p): p is number => typeof p === "number" && Number.isFinite(p));
+        if (pitches.length > 0) {
+          const shape = pitchedShape(pitches, duration, gpChord?.name || text);
+          if (shape) barChords.push(shape);
+        }
         pos += duration;
       }
 
@@ -336,7 +482,7 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
   const merged = mergeIdenticalChords(diagrams);
 
   if (merged.length === 0) {
-    throw new Error("Aucune note convertible trouvée dans la tablature.");
+    throw new Error("Aucune note convertible trouvée dans la piste.");
   }
 
   const song: SongTab = {
@@ -350,7 +496,18 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
     diagrams: merged,
   };
 
-  return { song, diagrams: merged, warnings };
+  const lyrics = extractGpLyrics(score, trackIndex);
+  if (lyrics) {
+    song.officialPlain = lyrics.plain;
+    song.officialSynced = lyrics.synced;
+  }
+
+  return {
+    song,
+    diagrams: merged,
+    warnings,
+    program: track.playbackInfo?.program ?? null,
+  };
 }
 
 // Kept for backward compatibility: uses the first usable guitar track.
@@ -366,6 +523,162 @@ export async function importGuitarProFile(file: File): Promise<GpImportResult> {
     throw new Error("Aucune note convertible trouvée dans la tablature.");
   }
   return result;
+}
+
+function midiPitchName(pitch: number): string {
+  const p = Math.round(pitch);
+  return `${NOTE_NAMES[((p % 12) + 12) % 12]}${Math.floor(p / 12) - 1}`;
+}
+
+// Minimal chord identification from absolute pitches (like MIDI import): keeps
+// piano/key/wind/string tracks readable as named chord diagrams.
+function identifyChordPitches(pitches: number[]): string | null {
+  const pitchSet = [...new Set(pitches.map((p) => Math.round(p)))].sort((a, b) => a - b);
+  if (pitchSet.length < 2) return null;
+  const root = pitchSet[0] % 12;
+  const intervals = pitchSet.map((p) => (p - root) % 12);
+  const rootName = NOTE_NAMES[root] as "C" | "C#" | "D" | "D#" | "E" | "F" | "F#" | "G" | "G#" | "A" | "A#" | "B";
+
+  if (intervals.includes(3) && intervals.includes(7)) {
+    if (intervals.includes(11)) return `${rootName}mMaj7`;
+    if (intervals.includes(10)) return `${rootName}m7`;
+    return `${rootName}m`;
+  }
+  if (intervals.includes(4) && intervals.includes(7)) {
+    if (intervals.includes(11)) return `${rootName}maj7`;
+    if (intervals.includes(10)) return `${rootName}7`;
+    return `${rootName}`;
+  }
+  if (intervals.includes(7)) {
+    return `${rootName}5`;
+  }
+  return null;
+}
+
+// Shape for a beat of a non-fretted instrument. When the voicing maps to a
+// known chord we reuse a standard fretted voicing; otherwise the shape plays
+// back via its own `pitchFrequencies` (no fretboard dots).
+function pitchedShape(
+  pitches: number[],
+  duration: number,
+  hint?: string
+): SavedChordShape | null {
+  const chordName = hint || identifyChordPitches(pitches);
+  if (chordName) {
+    const parsed = parseChordName(chordName);
+    if (parsed) {
+      const data = getChordShape(parsed.note, parsed.quality);
+      if (data && data.frets && data.frets.length === STRING_COUNT) {
+        const fingers: { string: number; fret: number; finger: number }[] = [];
+        const muted = Array(STRING_COUNT).fill(false);
+        data.frets.forEach((fret, s) => {
+          if (fret < 0) {
+            muted[s] = true;
+            return;
+          }
+          if (fret > 0) fingers.push({ string: s, fret, finger: 0 });
+        });
+        if (fingers.length > 0 || muted.some(Boolean)) {
+          return chordShape(fingers, muted, [], duration, chordName, data.baseFret);
+        }
+      }
+    }
+  }
+
+  const freqs = pitches
+    .filter((p) => Number.isFinite(p))
+    .map((p) => +(440 * Math.pow(2, (p - 69) / 12)).toFixed(3));
+  if (freqs.length === 0) return null;
+
+  const label =
+    pitches.length <= 3
+      ? pitches.map(midiPitchName).join(" · ")
+      : `${pitches.length} notes`;
+  return {
+    id: gpId("gp-note"),
+    label,
+    fingers: [],
+    barreOn: false,
+    barreCount: 0,
+    muted: [],
+    baseFret: 1,
+    capo: 0,
+    duration,
+    pitchFrequencies: freqs,
+  };
+}
+
+const DRUM_NAMES: Record<number, string> = {
+  35: "Grosse caisse",
+  36: "Grosse caisse",
+  37: "Side stick",
+  38: "Caisse claire",
+  40: "Caisse claire",
+  39: "Claps",
+  41: "Tom grave",
+  43: "Tom très grave",
+  45: "Tom",
+  47: "Tom aigu",
+  49: "Crash",
+  50: "Tom grave",
+  51: "Ride",
+  52: "China",
+  53: "Ride cloche",
+  55: "Crash",
+  57: "Crash",
+  59: "Ride bord",
+  60: "Conga grave",
+  61: "Conga aigu",
+  62: "Conga étouffé",
+  63: "Conga aigu",
+  64: "Conga grave",
+  65: "Timbale aiguë",
+  66: "Timbale grave",
+  69: "Cabasa",
+  70: "Maracas",
+  71: "Sifflet aigu",
+  72: "Sifflet grave",
+  75: "Claves",
+  76: "Woodblock aigu",
+  77: "Woodblock grave",
+  80: "Triangle",
+  81: "Triangle ouvert",
+  82: "Shaker",
+  85: "Castagnettes",
+  86: "Surdo",
+  87: "Surdo étouffé",
+  91: "Caisse claire (rim)",
+  92: "Hi-hat demi",
+  93: "Ride bord",
+  94: "Ride étouffé",
+};
+
+function drumLabel(notes: model.Note[]): string {
+  const names = new Set<string>();
+  for (const n of notes) {
+    const idx = n.percussionArticulation;
+    names.add(idx >= 0 && DRUM_NAMES[idx] ? DRUM_NAMES[idx] : "Percussion");
+  }
+  const list = [...names];
+  if (list.length === 0) return "Batterie";
+  if (list.length === 1) return list[0];
+  if (list.length === 2) return list.join(" / ");
+  return `${list[0]} / ${list[1]} (${list.length})`;
+}
+
+function drumShape(label: string, hits: number, duration: number): SavedChordShape {
+  return {
+    id: gpId("gp-drum"),
+    label,
+    fingers: [],
+    barreOn: false,
+    barreCount: 0,
+    muted: [],
+    baseFret: 1,
+    capo: 0,
+    duration,
+    drumHits: hits,
+  };
 }
 
 function barShape(kind: "beginRepeat" | "endRepeat"): SavedChordShape {
@@ -445,6 +758,8 @@ function mergeIdenticalChords(diagrams: SavedChordShape[]): SavedChordShape[] {
       !d.silence &&
       !d.navKind &&
       !d.legatoTo &&
+      !prev.drumHits &&
+      !d.drumHits &&
       prev.ending === undefined &&
       d.ending === undefined &&
       shapeKey(prev) === shapeKey(d);
