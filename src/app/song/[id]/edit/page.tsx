@@ -2074,6 +2074,8 @@ function EditSongView({ id }: { id: string }) {
           officialSynced={song?.officialSynced}
           instrumentalUrl={instUrl}
           vocalsUrl={vocalsUrl}
+          program={activeProgram}
+          percussion={activePercussion}
           lyricOffset={lyricsOffset}
           lyricAnchorDiagram={lyricAnchorDiagram ?? song?.lyricAnchorDiagram ?? undefined}
           onClose={() => setConductorOpen(false)}

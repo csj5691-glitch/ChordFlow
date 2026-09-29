@@ -9,6 +9,7 @@ import { decodeHtmlEntities } from "@/lib/ug-scraper";
 import type { SavedChordShape, SongTab } from "@/lib/types";
 import ChordShapeView from "@/components/ChordShapeView";
 import { BarGlyph } from "@/components/BarGlyph";
+import { playEngineEvent, sf2Resume, sf2StopAll } from "@/lib/sf2-bank";
 
 interface ConductorProps {
   diagrams: SavedChordShape[];
@@ -19,6 +20,8 @@ interface ConductorProps {
   officialSynced?: string;
   instrumentalUrl?: string | null;
   vocalsUrl?: string | null;
+  program?: number | null;
+  percussion?: boolean;
   lyricOffset?: number;
   lyricAnchorDiagram?: number;
   onClose: () => void;
@@ -69,6 +72,8 @@ export default function Conductor({
   officialSynced,
   instrumentalUrl,
   vocalsUrl,
+  program,
+  percussion,
   lyricOffset: externalLyricOffset,
   lyricAnchorDiagram,
   onClose,
@@ -169,6 +174,7 @@ export default function Conductor({
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
     }
+    sf2StopAll();
     if (ctxRef.current && ctxRef.current.state === "running") {
       ctxRef.current.close().catch(() => {});
     }
@@ -247,64 +253,11 @@ export default function Conductor({
     master: GainNode,
     when: number
   ) => {
-    const dur = Math.max(0.35, ev.duration);
-      const release = 0.35;
-      const end = when + dur + release;
-      if (
-      ev.silence ||
-      ((ev.notes.length === 0 || ev.notes[0] === 0) &&
-        !(ev.mutedNotes && ev.mutedNotes.length > 0))
-    ) {
-      return;
-    }
-    if (ev.notes.length > 0 && ev.notes[0] !== 0) {
-      const strumDelay = strumming === "off" ? 0 : 0.025;
-      const sortedNotes = strumming === "up"
-        ? [...ev.notes].sort((a, b) => b - a)
-        : [...ev.notes].sort((a, b) => a - b);
-      sortedNotes.forEach((freq, i) => {
-        const noteWhen = when + i * strumDelay;
-        const osc = ctx.createOscillator();
-        osc.type = "sine";
-        osc.frequency.value = freq;
-        const gate = ctx.createGain();
-        gate.gain.setValueAtTime(0, noteWhen);
-        gate.gain.linearRampToValueAtTime(0.5, noteWhen + 0.03);
-        gate.gain.setValueAtTime(0.5, noteWhen + dur - 0.05);
-        gate.gain.linearRampToValueAtTime(0, end);
-        const hp = ctx.createBiquadFilter();
-        hp.type = "highpass";
-        hp.frequency.value = 120;
-        const lp = ctx.createBiquadFilter();
-        lp.type = "lowpass";
-        lp.frequency.setValueAtTime(3500, noteWhen);
-        lp.frequency.linearRampToValueAtTime(1200, end);
-        lp.Q.value = 0.3;
-        osc.connect(gate);
-        gate.connect(hp);
-        hp.connect(lp);
-        lp.connect(master);
-        osc.start(noteWhen);
-        osc.stop(end + 0.05);
-      });
-    }
-
-    if (ev.mutedNotes && ev.mutedNotes.length > 0) {
-      const mEnd = when + Math.max(0.35, ev.duration) + 0.35;
-      for (const f of ev.mutedNotes) {
-        const osc = ctx.createOscillator();
-        osc.type = "sine";
-        osc.frequency.value = f;
-        const g = ctx.createGain();
-        g.gain.setValueAtTime(0, when);
-        g.gain.linearRampToValueAtTime(0.25, when + 0.01);
-        g.gain.linearRampToValueAtTime(0, mEnd);
-        osc.connect(g);
-        g.connect(master);
-        osc.start(when);
-        osc.stop(mEnd + 0.1);
-      }
-    }
+    playEngineEvent(ctx, ev, master, when, program, {
+      strum: strumming,
+      percussion,
+      gain: 1,
+    });
   };
 
   const play = useCallback(() => {
@@ -336,10 +289,12 @@ export default function Conductor({
       window.AudioContext ||
       (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) return;
+    sf2Resume();
     const ctx = new Ctor();
+    void ctx.resume().catch(() => {});
     ctxRef.current = ctx;
 const master = ctx.createGain();
-     master.gain.value = 2.0;
+     master.gain.value = 1.0;
     master.connect(ctx.destination);
     chordMasterRef.current = master;
     const now = ctx.currentTime + 0.1;
