@@ -63,6 +63,43 @@ function extractOfficialLyrics(synced?: string, plain?: string): LyricLine[] {
     .map((text) => ({ label: "", text, time: null }));
 }
 
+// Valeurs rythmiques : 1 temps = noire (beat GP). Les durées des diagrammes
+// sont exprimées en temps (croche = 0.5, double croche = 0.25, etc.).
+const NOTE_VALUES: { beats: number; label: string; title: string }[] = [
+  { beats: 4, label: "ronde", title: "ronde (1)" },
+  { beats: 2, label: "blanche", title: "blanche (2)" },
+  { beats: 1, label: "noire", title: "noire (4)" },
+  { beats: 0.5, label: "croche", title: "croche (8)" },
+  { beats: 0.25, label: "dbl croche", title: "double croche (16)" },
+  { beats: 0.125, label: "tpl croche", title: "triple croche (32)" },
+];
+const NOTE_EPS = 1e-4;
+
+function noteValueInfo(beats: number): { label: string; title: string } {
+  for (const v of NOTE_VALUES) {
+    if (Math.abs(v.beats - beats) < NOTE_EPS) {
+      return { label: v.label, title: v.title };
+    }
+    if (Math.abs(v.beats * 1.5 - beats) < NOTE_EPS) {
+      return { label: `${v.label}·`, title: `${v.title} pointée` };
+    }
+  }
+  // Hors table (tuplets…) : valeur la plus proche par puissance de 2.
+  let num = 4 / beats;
+  num = Math.pow(2, Math.round(Math.log2(Math.max(num, 0.0625))));
+  const near = NOTE_VALUES.find((v) => Math.abs(v.beats - 4 / num) < NOTE_EPS);
+  return near
+    ? { label: `≈${near.label}`, title: `${near.title} (approximatif)` }
+    : { label: "?", title: "valeur inconnue" };
+}
+
+// Sens du strum : la main alterne Bas/Haut sur la grille de la valeur du
+// accord lui-même — un temps tombe toujours sur un D.
+function strumDirection(startBeat: number, beats: number): "D" | "U" {
+  const step = beats > 0 ? beats : 1;
+  return Math.round(startBeat / step) % 2 === 0 ? "D" : "U";
+}
+
 export default function Conductor({
   diagrams,
   bpm,
@@ -424,7 +461,7 @@ const master = ctx.createGain();
       </div>
 
       <div className="absolute inset-0 top-14 overflow-hidden pointer-events-none">
-        <div className="absolute -bottom-8 left-0 right-0 h-40 opacity-60">
+        <div className="absolute -bottom-2 left-0 right-0 h-48 opacity-60">
           <div
             ref={stripRef}
             className="flex gap-2 px-4 overflow-x-auto pb-4 pt-3"
@@ -436,6 +473,10 @@ const master = ctx.createGain();
                 ev.silence ||
                 ((ev.notes.length === 0 || ev.notes[0] === 0) &&
                   !(ev.mutedNotes && ev.mutedNotes.length > 0));
+              const evBeats = beatsForShape(ev.shape);
+              const nv = noteValueInfo(evBeats);
+              const dir = isSilence ? null : strumDirection(ev.start / (60 / bpm), evBeats);
+              const drums = ev.shape.drumHits ?? 0;
               return (
                 <div
                   key={ev.id + i}
@@ -457,6 +498,29 @@ const master = ctx.createGain();
                   </div>
                   <div className="pointer-events-none">
                     <ChordShapeView shape={ev.shape} />
+                  </div>
+                  <div className="flex items-center justify-between gap-1 px-1.5 py-1 border-t border-zinc-800/70 text-[9px] font-mono leading-none">
+                    <span title={nv.title} className="text-zinc-500 truncate">
+                      {nv.label}
+                    </span>
+                    {drums > 0 ? (
+                      <span title={`${drums} coups`} className="text-amber-400 font-bold">
+                        ×{drums}
+                      </span>
+                    ) : dir ? (
+                      <span
+                        title={dir === "D" ? "Strum bas (Down)" : "Strum haut (Up)"}
+                        className={`font-bold ${
+                          dir === "D" ? "text-emerald-400" : "text-sky-400"
+                        }`}
+                      >
+                        {dir === "D" ? "↓ D" : "↑ U"}
+                      </span>
+                    ) : (
+                      <span title="Silence" className="text-zinc-600">
+                        —
+                      </span>
+                    )}
                   </div>
                 </div>
               );
