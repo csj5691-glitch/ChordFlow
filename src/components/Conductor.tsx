@@ -461,7 +461,7 @@ const master = ctx.createGain();
       </div>
 
       <div className="absolute inset-0 top-14 overflow-hidden pointer-events-none">
-        <div className="absolute -bottom-2 left-0 right-0 h-48 opacity-60">
+        <div className="absolute -bottom-2 left-0 right-0 h-48">
           <div
             ref={stripRef}
             className="flex gap-2 px-4 overflow-x-auto pb-4 pt-3"
@@ -486,38 +486,40 @@ const master = ctx.createGain();
                   className={`w-28 flex-shrink-0 rounded-xl border transition-all duration-150 ${
                     active
                       ? "border-amber-400 shadow-[0_0_24px_rgba(251,191,36,0.5)] scale-105 bg-zinc-900"
-                      : "border-zinc-800 bg-zinc-900/40 opacity-40"
+                      : "border-zinc-800 bg-zinc-900/50"
                   }`}
                 >
-                  <div
-                    className={`text-center text-[10px] font-bold py-1 truncate px-1 ${
-                      isSilence ? "text-zinc-500" : active ? "text-amber-400" : "text-zinc-500"
-                    }`}
-                  >
-                    {ev.label}
+                  <div className={active ? "" : "opacity-40"}>
+                    <div
+                      className={`text-center text-[10px] font-bold py-1 truncate px-1 ${
+                        isSilence ? "text-zinc-500" : active ? "text-amber-400" : "text-zinc-400"
+                      }`}
+                    >
+                      {ev.label}
+                    </div>
+                    <div className="pointer-events-none [&_svg]:h-24 [&_svg]:w-full">
+                      <ChordShapeView shape={ev.shape} />
+                    </div>
                   </div>
-                  <div className="pointer-events-none">
-                    <ChordShapeView shape={ev.shape} />
-                  </div>
-                  <div className="flex items-center justify-between gap-1 px-1.5 py-1 border-t border-zinc-800/70 text-[9px] font-mono leading-none">
-                    <span title={nv.title} className="text-zinc-500 truncate">
+                  <div className="flex items-center justify-between gap-1.5 px-1.5 py-1 border-t border-zinc-800 bg-zinc-950/80 font-mono leading-none">
+                    <span title={nv.title} className="text-[10px] text-zinc-400 truncate">
                       {nv.label}
                     </span>
                     {drums > 0 ? (
-                      <span title={`${drums} coups`} className="text-amber-400 font-bold">
+                      <span title={`${drums} coups`} className="text-[11px] text-amber-300 font-bold">
                         ×{drums}
                       </span>
                     ) : dir ? (
                       <span
                         title={dir === "D" ? "Strum bas (Down)" : "Strum haut (Up)"}
-                        className={`font-bold ${
-                          dir === "D" ? "text-emerald-400" : "text-sky-400"
+                        className={`text-[11px] font-bold ${
+                          dir === "D" ? "text-emerald-300" : "text-sky-300"
                         }`}
                       >
                         {dir === "D" ? "↓ D" : "↑ U"}
                       </span>
                     ) : (
-                      <span title="Silence" className="text-zinc-600">
+                      <span title="Silence" className="text-[11px] text-zinc-500">
                         —
                       </span>
                     )}

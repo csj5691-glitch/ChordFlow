@@ -36,7 +36,6 @@ export default function ChordShapeView({ shape, onNoteClick, legatoStrings }: Ch
     return (
       <svg
         width="100%"
-        height="auto"
         viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
         className="mx-auto max-w-full h-auto"
         preserveAspectRatio="xMidYMid meet"
@@ -128,7 +127,6 @@ export default function ChordShapeView({ shape, onNoteClick, legatoStrings }: Ch
       )}
       <svg
       width="100%"
-      height="auto"
       viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
       className="mx-auto max-w-full h-auto"
       preserveAspectRatio="xMidYMid meet"
