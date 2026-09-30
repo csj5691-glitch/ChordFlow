@@ -2,6 +2,11 @@
 
 export const SPOTIFY_CLIENT_ID = "5364d7d228444739a2b48ad9a80c2470";
 
+// Origine de production canonique : c'est celle enregistrée dans le Dashboard Spotify.
+// Toute URL de déploiement éphémère (*.vercel.app) doit rediriger Spotify vers elle,
+// sinon Spotify renvoie « redirect_uri: No matching configuration ».
+const PROD_ORIGIN = "https://chordflow-three.vercel.app";
+
 export const SPOTIFY_SCOPES = [
   "streaming",
   "user-read-email",
@@ -78,6 +83,19 @@ export function getRedirectUri(): string {
   return `${origin}/auth/callback`;
 }
 
+// Redirect URI utilisée pour l'autorisation et l'échange du code : identique des deux
+// côtés (exigence Spotify), et toujours celle enregistrée en production quand on est
+// sur un sous-domaine vercel.app non canonique.
+export function getAuthRedirectUri(): string {
+  if (typeof window === "undefined") return "";
+  const host = window.location.hostname;
+  if (host === "localhost" || host === "127.0.0.1") return getRedirectUri();
+  if (host.endsWith(".vercel.app") && window.location.origin !== PROD_ORIGIN) {
+    return `${PROD_ORIGIN}/auth/callback`;
+  }
+  return getRedirectUri();
+}
+
 export function getAppOrigin(): string {
   if (typeof window === "undefined") return "";
   if (window.location.hostname === "127.0.0.1") {
@@ -132,7 +150,7 @@ export async function authorize(returnPath?: string): Promise<void> {
   const params = new URLSearchParams({
     client_id: SPOTIFY_CLIENT_ID,
     response_type: "code",
-    redirect_uri: getRedirectUri(),
+    redirect_uri: getAuthRedirectUri(),
     scope: SPOTIFY_SCOPES,
     code_challenge_method: "S256",
     code_challenge: challenge,
@@ -183,7 +201,7 @@ export async function exchangeCode(code: string, verifierArg?: string | null): P
     client_id: SPOTIFY_CLIENT_ID,
     grant_type: "authorization_code",
     code,
-    redirect_uri: getRedirectUri(),
+    redirect_uri: getAuthRedirectUri(),
     code_verifier: verifier,
   });
   const token = await postToken(body);
