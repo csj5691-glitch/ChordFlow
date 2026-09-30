@@ -718,7 +718,7 @@ function SongView({ id }: SongViewProps) {
   return (
     <div className="flex flex-col min-h-screen">
       <header className="sticky top-0 z-10 bg-black/80 backdrop-blur-lg border-b border-zinc-800/50">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-4">
+        <div className="max-w-5xl mx-auto px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
           <button
             onClick={() => router.push("/")}
             className="p-2 hover:bg-zinc-800 rounded-lg transition-colors"
@@ -769,7 +769,7 @@ function SongView({ id }: SongViewProps) {
             </button>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
+          <div className="w-full md:w-auto flex items-center gap-2 flex-wrap md:flex-shrink-0">
             <div className="flex items-center gap-1 text-xs text-zinc-500 bg-zinc-800 px-2 py-1 rounded-full">
               <Key className="w-3 h-3" />
               <input
@@ -848,9 +848,9 @@ function SongView({ id }: SongViewProps) {
         </div>
       </header>
 
-      <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 flex flex-col gap-6">
+      <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 pb-24 flex flex-col gap-6">
         {setlist && (
-          <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
             <ListMusic className="w-4 h-4 text-amber-400 flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-amber-200 font-medium truncate">
@@ -929,7 +929,7 @@ function SongView({ id }: SongViewProps) {
           </div>
         )}
         {!audioSource && (
-          <div className="flex gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <button
               onClick={() => setShowYoutubeSearch(true)}
               className="flex-1 flex items-center justify-center gap-2 p-4 bg-red-600/10 border border-red-600/30 rounded-xl hover:bg-red-600/20 transition-colors"
@@ -963,7 +963,7 @@ function SongView({ id }: SongViewProps) {
               <ExternalLink className="w-5 h-5 text-amber-500" />
               <span className="text-sm font-medium text-amber-500">Ultimate Guitar</span>
             </a>
-            <label className="flex-1 flex items-center justify-center gap-2 p-4 bg-zinc-700/10 border border-zinc-600/30 rounded-xl hover:bg-zinc-700/20 transition-colors cursor-pointer">
+            <label className="col-span-2 sm:col-span-1 flex items-center justify-center gap-2 p-3 sm:p-4 bg-zinc-700/10 border border-zinc-600/30 rounded-xl hover:bg-zinc-700/20 transition-colors cursor-pointer">
               <Upload className="w-5 h-5 text-zinc-400" />
               <span className="text-sm font-medium text-zinc-400">Upload</span>
               <input
@@ -984,17 +984,17 @@ function SongView({ id }: SongViewProps) {
         )}
 
         {audioSource && (
-          <div className="flex items-center gap-3 p-3 bg-zinc-800/30 rounded-xl border border-zinc-700/30">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 p-3 bg-zinc-800/30 rounded-xl border border-zinc-700/30">
             <span className="text-xs text-zinc-500 flex-shrink-0">Décalage :</span>
             <button
               onClick={() => setLyricsOffset((o) => Math.max(-120, o - 5))}
-              className="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
+              className="w-9 h-9 sm:w-7 sm:h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
             >
               -5
             </button>
             <button
               onClick={() => setLyricsOffset((o) => Math.max(-120, o - 1))}
-              className="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
+              className="w-9 h-9 sm:w-7 sm:h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
             >
               -1
             </button>
@@ -1005,17 +1005,17 @@ function SongView({ id }: SongViewProps) {
               step={0.1}
               value={lyricsOffset}
               onChange={(e) => setLyricsOffset(parseFloat(e.target.value))}
-              className="flex-1 h-1 accent-amber-500 cursor-pointer"
+              className="flex-1 min-w-[100px] h-1 accent-amber-500 cursor-pointer"
             />
             <button
               onClick={() => setLyricsOffset((o) => Math.min(120, o + 1))}
-              className="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
+              className="w-9 h-9 sm:w-7 sm:h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
             >
               +1
             </button>
             <button
               onClick={() => setLyricsOffset((o) => Math.min(120, o + 5))}
-              className="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
+              className="w-9 h-9 sm:w-7 sm:h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
             >
               +5
             </button>
@@ -1025,7 +1025,7 @@ function SongView({ id }: SongViewProps) {
             <button
               onClick={() => { if (id) { saveGlobalOffset(id, lyricsOffset); setSavedOffset(lyricsOffset); } }}
               title="Sauvegarder le décalage"
-              className={`w-7 h-7 rounded flex items-center justify-center transition-colors ${
+              className={`w-9 h-9 sm:w-7 sm:h-7 rounded flex items-center justify-center transition-colors ${
                 savedOffset === lyricsOffset
                   ? "bg-emerald-600/80 text-white"
                   : "bg-emerald-700 hover:bg-emerald-600 text-white"
@@ -1044,7 +1044,7 @@ function SongView({ id }: SongViewProps) {
                   }
                 }}
                 title="Auto-détection du décalage"
-                className="w-7 h-7 rounded bg-blue-700 hover:bg-blue-600 text-white flex items-center justify-center transition-colors"
+                className="w-9 h-9 sm:w-7 sm:h-7 rounded bg-blue-700 hover:bg-blue-600 text-white flex items-center justify-center transition-colors"
               >
                 <Wand2 className="w-3.5 h-3.5" />
               </button>
@@ -1060,7 +1060,7 @@ function SongView({ id }: SongViewProps) {
             <button
               onClick={handleRemoveAudio}
               title="Retirer cette source audio et en choisir une autre"
-              className="ml-auto w-7 h-7 rounded bg-red-800 hover:bg-red-700 text-white flex items-center justify-center transition-colors"
+              className="sm:ml-auto w-9 h-9 sm:w-7 sm:h-7 rounded bg-red-800 hover:bg-red-700 text-white flex items-center justify-center transition-colors"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -1098,7 +1098,7 @@ function SongView({ id }: SongViewProps) {
                 />
               </div>
             </div>
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <button
                 onClick={() => setShowSpotifySearch(true)}
                 className="flex items-center justify-center gap-2 p-2.5 bg-green-600/10 border border-green-600/30 rounded-xl hover:bg-green-600/20 text-sm text-green-400 font-medium transition-colors"

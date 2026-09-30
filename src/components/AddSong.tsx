@@ -183,7 +183,7 @@ export default function AddSong({ initial, onAdd, onClose }: AddSongProps) {
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-zinc-400 mb-1 block">Artiste</label>
               <input
@@ -206,7 +206,7 @@ export default function AddSong({ initial, onAdd, onClose }: AddSongProps) {
             </div>
           </div>
 
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <button
                 onClick={fetchSongsterrTuning}

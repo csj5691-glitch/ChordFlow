@@ -968,7 +968,7 @@ function EditSongView({ id }: { id: string }) {
   return (
     <div className="flex flex-col min-h-screen">
       <header className="sticky top-0 z-10 bg-black/80 backdrop-blur-lg border-b border-zinc-800/50">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3">
+        <div className="max-w-5xl mx-auto px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
           <button
             onClick={() => router.push(`/song/${id}`)}
             className="p-2 hover:bg-zinc-800 rounded-lg transition-colors"
@@ -982,7 +982,7 @@ function EditSongView({ id }: { id: string }) {
               {song.title} — {song.artist}
             </p>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="w-full md:w-auto flex items-center gap-2 md:flex-shrink-0">
             {/* FUTURE DEV: Grille mode supprimé
             <button
               onClick={() => setMode("grid")}
@@ -1085,7 +1085,7 @@ function EditSongView({ id }: { id: string }) {
         </div>
       </header>
 
-      <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 flex flex-col gap-6">
+      <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 pb-24 flex flex-col gap-6">
         {mode === "grid" ? (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
@@ -2058,7 +2058,7 @@ function EditSongView({ id }: { id: string }) {
               return next;
             });
           }}
-          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-full bg-sky-500 text-black hover:bg-sky-400 shadow-lg shadow-sky-500/30 transition-colors"
+          className="fixed bottom-20 right-4 z-40 flex items-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-full bg-sky-500 text-black hover:bg-sky-400 shadow-lg shadow-sky-500/30 transition-colors"
           title={showBuilder ? "Masquer le créateur de diagramme" : "Créer un nouveau diagramme"}
         >
           <Plus className="w-4 h-4" />

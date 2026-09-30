@@ -136,7 +136,7 @@ function RepertoireRow({
         <p className="text-sm font-medium text-white truncate">{song.title}</p>
         <p className="text-xs text-zinc-500 truncate">{song.artist}</p>
       </div>
-      <div className="flex items-center gap-2 flex-shrink-0">
+      <div className="flex items-center gap-2 flex-wrap justify-end">
         <SourceBadges
           youtube={songHasYoutube(song)}
           spotify={songHasSpotify(song)}
@@ -159,13 +159,13 @@ function RepertoireRow({
         )}
         <button
           onClick={(e) => { e.stopPropagation(); onEdit(); }}
-          className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-zinc-800 rounded-lg transition-all"
+          className="p-1.5 hover:bg-zinc-800 rounded-lg transition-all sm:opacity-0 sm:group-hover:opacity-100"
         >
           <Pencil className="w-3.5 h-3.5 text-zinc-500 hover:text-amber-400" />
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-zinc-800 rounded-lg transition-all"
+          className="p-1.5 hover:bg-zinc-800 rounded-lg transition-all sm:opacity-0 sm:group-hover:opacity-100"
         >
           <Trash2 className="w-3.5 h-3.5 text-zinc-500 hover:text-red-400" />
         </button>
@@ -297,7 +297,7 @@ export default function Home() {
           <HideOnSearch>
         {customSongs.length > 0 && (
           <div className="w-full max-w-2xl mt-6">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
               <h2 className="text-lg font-bold text-white">
                 Mon répertoire
                 <span className="text-sm font-normal text-zinc-500 ml-2">
@@ -424,7 +424,7 @@ export default function Home() {
           onClick={scrollToTop}
           aria-label="Remonter en haut de page"
           title="Remonter en haut de page"
-          className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-black/40 flex items-center justify-center transition-all hover:-translate-y-0.5"
+          className="fixed bottom-20 right-4 z-50 w-12 h-12 rounded-full bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-black/40 flex items-center justify-center transition-all hover:-translate-y-0.5"
         >
           <ArrowUp className="w-5 h-5" />
         </button>

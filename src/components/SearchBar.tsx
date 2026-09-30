@@ -57,13 +57,13 @@ export default function SearchBar() {
       <div className="relative group">
         <div className="absolute inset-0 bg-gradient-to-r from-amber-500/20 via-emerald-500/20 to-amber-500/20 rounded-2xl blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity duration-500" />
         <div className="relative flex items-center bg-zinc-800 border border-zinc-700 rounded-2xl overflow-hidden focus-within:border-amber-500/50 transition-colors">
-          <Search className="ml-4 w-5 h-5 text-zinc-400 flex-shrink-0" />
+          <Search className="ml-3 sm:ml-4 w-5 h-5 text-zinc-400 flex-shrink-0" />
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Rechercher un morceau... (ex: Wonderwall, Oasis)"
-            className="flex-1 bg-transparent px-4 py-4 text-white placeholder-zinc-500 focus:outline-none text-lg"
+            className="flex-1 min-w-0 bg-transparent px-2 sm:px-4 py-3.5 sm:py-4 text-white placeholder-zinc-500 focus:outline-none text-base sm:text-lg"
           />
           {query.trim() && (
             <button
@@ -77,7 +77,7 @@ export default function SearchBar() {
           )}
           <button
             type="submit"
-            className="px-6 py-4 bg-amber-500 hover:bg-amber-400 text-black font-semibold transition-colors"
+            className="px-3 sm:px-6 py-3.5 sm:py-4 text-sm sm:text-base bg-amber-500 hover:bg-amber-400 text-black font-semibold transition-colors"
           >
             Chercher
           </button>
@@ -86,14 +86,15 @@ export default function SearchBar() {
               type="button"
               onClick={handleImportFromUg}
               disabled={importing}
-              className="flex items-center gap-1.5 px-4 py-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 text-white disabled:text-zinc-500 text-sm font-semibold transition-colors"
+              title="Importer depuis Ultimate Guitar"
+              className="flex items-center gap-1.5 px-3 sm:px-4 py-3.5 sm:py-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 text-white disabled:text-zinc-500 text-sm font-semibold transition-colors"
             >
               {importing ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Download className="w-4 h-4" />
               )}
-              {importing ? "Import..." : "Importer UG"}
+              <span className="hidden sm:inline">{importing ? "Import..." : "Importer UG"}</span>
             </button>
           )}
         </div>
