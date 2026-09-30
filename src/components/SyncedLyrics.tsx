@@ -311,7 +311,7 @@ export default function SyncedLyrics({
                             value={extraLabelInput}
                             onChange={(e) => setExtraLabelInput(e.target.value)}
                             placeholder="Intro/Solo/Outro"
-                            className="w-24 bg-zinc-800 border border-purple-500/50 rounded px-1.5 py-0.5 text-[10px] text-purple-400 focus:outline-none text-center"
+                            className="w-16 sm:w-24 bg-zinc-800 border border-purple-500/50 rounded px-1.5 py-0.5 text-[10px] text-purple-400 focus:outline-none text-center"
                           />
                           <input
                             type="text"
@@ -323,7 +323,7 @@ export default function SyncedLyrics({
                             }}
                             autoFocus
                             placeholder="Am  F  C  G"
-                            className="w-36 bg-zinc-800 border border-amber-500/50 rounded px-1.5 py-0.5 text-[10px] font-mono text-amber-400 focus:outline-none"
+                            className="w-28 sm:w-36 bg-zinc-800 border border-amber-500/50 rounded px-1.5 py-0.5 text-[10px] font-mono text-amber-400 focus:outline-none"
                           />
                           <button
                             onClick={(e) => { e.stopPropagation(); saveExtraLine(); }}
@@ -466,7 +466,7 @@ export default function SyncedLyrics({
                       value={extraLabelInput}
                       onChange={(e) => setExtraLabelInput(e.target.value)}
                       placeholder="Outro/Solo/Bridge"
-                      className="w-24 bg-zinc-800 border border-purple-500/50 rounded px-1.5 py-0.5 text-[10px] text-purple-400 focus:outline-none text-center"
+                      className="w-16 sm:w-24 bg-zinc-800 border border-purple-500/50 rounded px-1.5 py-0.5 text-[10px] text-purple-400 focus:outline-none text-center"
                     />
                     <input
                       type="text"
@@ -478,7 +478,7 @@ export default function SyncedLyrics({
                       }}
                       autoFocus
                       placeholder="Am  F  C  G"
-                      className="w-36 bg-zinc-800 border border-amber-500/50 rounded px-1.5 py-0.5 text-[10px] font-mono text-amber-400 focus:outline-none"
+                      className="w-28 sm:w-36 bg-zinc-800 border border-amber-500/50 rounded px-1.5 py-0.5 text-[10px] font-mono text-amber-400 focus:outline-none"
                     />
                     <button
                       onClick={(e) => { e.stopPropagation(); saveExtraLine(); }}

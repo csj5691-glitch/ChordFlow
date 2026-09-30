@@ -441,7 +441,7 @@ export default function ChordBuilder({ onChord, onShape, onSaveShape, initialSha
               <button
                 key={n}
                 onClick={() => setBarreCount(n)}
-                className={`w-7 h-7 rounded text-[10px] font-bold transition-colors ${
+                className={`w-9 h-9 sm:w-7 sm:h-7 rounded text-[10px] font-bold transition-colors ${
                   barreCount === n
                     ? "bg-amber-500 text-black"
                     : "bg-zinc-700 text-zinc-400 hover:bg-zinc-600"

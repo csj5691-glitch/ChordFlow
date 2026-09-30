@@ -422,8 +422,8 @@ const master = ctx.createGain();
 
   return (
     <div className="fixed inset-0 z-50 bg-black/95 flex flex-col">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800/60">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 border-b border-zinc-800/60">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
           <h2 className="text-sm font-bold text-white uppercase tracking-widest text-zinc-300">
             Chef d&apos;orchestre
           </h2>
@@ -542,11 +542,11 @@ const master = ctx.createGain();
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center px-6 relative z-10 gap-6 pb-16">
+      <div className="flex-1 flex flex-col items-center justify-start sm:justify-center overflow-y-auto px-6 pt-4 sm:pt-0 pb-44 sm:pb-16 relative z-10 gap-4 sm:gap-6">
         {flatLyrics.length > 0 && (
           <div className="text-center max-w-3xl w-full">
             {lyricIndex > 0 && flatLyrics[lyricIndex - 1] && (
-              <p className="text-lg text-zinc-600 mb-3 leading-relaxed">
+              <p className="text-base sm:text-lg text-zinc-600 mb-3 leading-relaxed">
                 {flatLyrics[lyricIndex - 1].text}
               </p>
             )}
@@ -561,7 +561,7 @@ const master = ctx.createGain();
               </p>
             </div>
             {lyricIndex < flatLyrics.length - 1 && (
-              <p className="text-lg text-zinc-600 mt-3 leading-relaxed">
+              <p className="text-base sm:text-lg text-zinc-600 mt-3 leading-relaxed">
                 {flatLyrics[lyricIndex + 1].text}
               </p>
             )}
@@ -682,7 +682,7 @@ const master = ctx.createGain();
                 ))}
               </div>
             )}
-            <div className="w-72 sm:w-80 md:w-96">
+            <div className="w-52 sm:w-80 md:w-96">
               <ChordShapeView shape={cur.shape} />
             </div>
             <p className="text-[11px] text-zinc-500 font-mono">{cur.duration.toFixed(2)} s</p>
@@ -751,7 +751,7 @@ const master = ctx.createGain();
         {usesAudio && (
           <div className="flex flex-col gap-1 text-xs text-zinc-400">
             <span className="text-zinc-500">Paroles</span>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => changeLyricOffset(-5)}
                 className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"

@@ -1152,7 +1152,7 @@ function EditSongView({ id }: { id: string }) {
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => setBpm(bpm - 1)}
-                      className="w-7 h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors text-sm font-bold"
+                      className="w-9 h-9 sm:w-7 sm:h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors text-sm font-bold"
                       title="Moins"
                     >
                       −
@@ -1170,7 +1170,7 @@ function EditSongView({ id }: { id: string }) {
                     />
                     <button
                       onClick={() => setBpm(bpm + 1)}
-                      className="w-7 h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors text-sm font-bold"
+                      className="w-9 h-9 sm:w-7 sm:h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors text-sm font-bold"
                       title="Plus"
                     >
                       +
@@ -1823,7 +1823,7 @@ function EditSongView({ id }: { id: string }) {
                                   <button
                                     onClick={() => setRepeats(i, (d.repeats ?? 1) - 1)}
                                     disabled={(d.repeats ?? 1) <= 0}
-                                    className="w-7 h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold"
+                                    className="w-9 h-9 sm:w-7 sm:h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold"
                                     title="Moins de répétitions"
                                   >
                                     −
@@ -1843,7 +1843,7 @@ function EditSongView({ id }: { id: string }) {
                                   <button
                                     onClick={() => setRepeats(i, (d.repeats ?? 1) + 1)}
                                     disabled={(d.repeats ?? 1) >= 32}
-                                    className="w-7 h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold"
+                                    className="w-9 h-9 sm:w-7 sm:h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold"
                                     title="Plus de répétitions"
                                   >
                                     +

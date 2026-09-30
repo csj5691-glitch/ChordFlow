@@ -349,7 +349,7 @@ function PlaylistEntryRow({
         }}
         disabled={index === 0}
         title="Monter"
-        className="w-7 h-7 rounded-lg hover:bg-zinc-700 disabled:opacity-30 flex items-center justify-center transition-colors flex-shrink-0"
+        className="w-9 h-9 sm:w-7 sm:h-7 rounded-lg hover:bg-zinc-700 disabled:opacity-30 flex items-center justify-center transition-colors flex-shrink-0"
       >
         <ArrowUp className="w-3.5 h-3.5 text-zinc-400" />
       </button>
@@ -360,7 +360,7 @@ function PlaylistEntryRow({
         }}
         disabled={index === total - 1}
         title="Descendre"
-        className="w-7 h-7 rounded-lg hover:bg-zinc-700 disabled:opacity-30 flex items-center justify-center transition-colors flex-shrink-0"
+        className="w-9 h-9 sm:w-7 sm:h-7 rounded-lg hover:bg-zinc-700 disabled:opacity-30 flex items-center justify-center transition-colors flex-shrink-0"
       >
         <ArrowDown className="w-3.5 h-3.5 text-zinc-400" />
       </button>
@@ -370,7 +370,7 @@ function PlaylistEntryRow({
           onRemove();
         }}
         title="Retirer de la playlist"
-        className="w-7 h-7 rounded-lg hover:bg-zinc-700 flex items-center justify-center transition-colors flex-shrink-0"
+        className="w-9 h-9 sm:w-7 sm:h-7 rounded-lg hover:bg-zinc-700 flex items-center justify-center transition-colors flex-shrink-0"
       >
         <X className="w-3.5 h-3.5 text-zinc-500 hover:text-red-400" />
       </button>
