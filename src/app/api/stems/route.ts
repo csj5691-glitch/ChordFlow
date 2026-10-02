@@ -13,7 +13,10 @@ export async function POST(req: NextRequest) {
   }
 
   const file = form.get("file");
-  const stem = (form.get("stem") as string | null) ?? "vocals";
+  const stem =
+    req.nextUrl.searchParams.get("stem") ??
+    (form.get("stem") as string | null) ??
+    "vocals";
   if (!STEM_CHOICES.includes(stem as (typeof STEM_CHOICES)[number])) {
     return NextResponse.json(
       { error: `stem invalide (choix: ${STEM_CHOICES.join(", ")})` },

@@ -22,6 +22,29 @@ app.add_middleware(
 
 STEM_NAMES = ["vocals", "drums", "bass", "guitar", "piano", "other"]
 
+_use_cuda = True
+
+
+def _separate_with_fallback(src: str, out_dir: str) -> None:
+    """Essaie CUDA puis retombe sur le CPU (cuDNN absent ou GPU indisponible)."""
+    global _use_cuda
+    if _use_cuda:
+        try:
+            separate(
+                str(src),
+                str(out_dir),
+                model="htdemucs_6s",
+                providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+            )
+            return
+        except Exception as e:
+            _use_cuda = False
+            print(f"[stems] CUDA/CuDNN indisponible ({e}) — passage en CPU", flush=True)
+            for f in Path(out_dir).glob("*"):
+                if f.is_file():
+                    f.unlink()
+    separate(str(src), str(out_dir), model="htdemucs_6s", providers=["CPUExecutionProvider"])
+
 
 @app.get("/health")
 def health():
@@ -47,7 +70,7 @@ async def separate_audio(file: UploadFile = File(...), stem: str = Query("vocals
         out_dir.mkdir()
 
         try:
-            separate(str(src), str(out_dir), model="htdemucs_6s", providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
+            _separate_with_fallback(str(src), str(out_dir))
         except Exception as e:
             raise HTTPException(500, f"separation failed: {e}") from e
 
