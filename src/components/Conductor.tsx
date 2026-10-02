@@ -138,7 +138,6 @@ export default function Conductor({
   const [anchorDisplay, setAnchorDisplay] = useState(0);
   const [chordVolume, setChordVolume] = useState(1);
   const [strumming, setStrumming] = useState<"down" | "up" | "off">("down");
-  const [instVolume, setInstVolume] = useState(1);
   const [vocalsVolume, setVocalsVolume] = useState(0.9);
   const [lyricOffset, setLyricOffset] = useState(0);
 
@@ -178,12 +177,6 @@ export default function Conductor({
     if (chordMasterRef.current) {
       chordMasterRef.current.gain.setTargetAtTime(v, chordMasterRef.current.context.currentTime, 0.02);
     }
-  };
-  const instVolRef = useRef(instVolume);
-  const changeInstVolume = (v: number) => {
-    setInstVolume(v);
-    instVolRef.current = v;
-    if (instRef.current) instRef.current.volume = v;
   };
   const vocalsVolRef = useRef(vocalsVolume);
   const changeVocalsVolume = (v: number) => {
@@ -698,22 +691,6 @@ const master = ctx.createGain();
         </div>
         {usesAudio && (
           <div className="flex flex-col gap-1.5 text-xs text-zinc-400">
-            <div className="flex items-center gap-2">
-              <span className="text-zinc-500 w-20">Instrument</span>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={instVolume}
-                onChange={(e) => changeInstVolume(parseFloat(e.target.value))}
-                className="w-32 h-1 accent-amber-500 cursor-pointer"
-                title="Volume du stem instrumental"
-              />
-              <span className="text-[10px] text-zinc-500 font-mono w-9">
-                {Math.round(instVolume * 100)}%
-              </span>
-            </div>
             <div className="flex items-center gap-2">
               <span className="text-zinc-500 w-20">Chant</span>
               <input
