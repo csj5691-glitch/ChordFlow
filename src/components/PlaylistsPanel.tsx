@@ -3,13 +3,14 @@
 
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { SongTab } from "@/lib/types";
 import {
   addToPlaylist,
   createPlaylist,
   deletePlaylist,
   loadPlaylists,
+  loadSession,
   movePlaylistEntry,
   removeFromPlaylist,
   renamePlaylist,
@@ -17,6 +18,10 @@ import {
   Playlist,
   PlaylistEntry,
 } from "@/lib/playlists";
+import {
+  loadPlaylistsUiState,
+  savePlaylistsUiState,
+} from "@/lib/playlists-ui-state";
 import { Play, ChevronDown, ChevronRight, Pencil, Trash2, Plus, X, ArrowUp, ArrowDown, Check, ListMusic, Search } from "lucide-react";
 import { SourceBadges } from "@/components/SourceBadges";
 import { songHasYoutube, songHasSpotify } from "@/lib/song-sources";
@@ -34,11 +39,53 @@ export default function PlaylistsPanel({ songs, uploads }: PlaylistsPanelProps) 
   const [newName, setNewName] = useState("");
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [addQuery, setAddQuery] = useState("");
+  const [addSelectedId, setAddSelectedId] = useState<string | null>(null);
+  const resultsScrollRef = useRef<HTMLDivElement | null>(null);
+  const restoredRef = useRef(false);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // Restaure l'état de la page seulement pendant une lecture de playlist.
+    const ui = !restoredRef.current && loadSession() ? loadPlaylistsUiState() : null;
+    restoredRef.current = true;
+    if (ui) {
+      setExpanded(ui.expanded);
+      setCreateOpen(ui.createOpen);
+      setNewName(ui.newName);
+      setRenameId(ui.renameId);
+      setRenameValue(ui.renameValue);
+      setAddQuery(ui.query);
+      setAddSelectedId(ui.selectedId);
+      const y = ui.scrollY;
+      const top = ui.resultsScrollTop;
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          if (window.location.pathname !== "/playlists") return;
+          window.scrollTo(0, y);
+          if (resultsScrollRef.current) resultsScrollRef.current.scrollTop = top;
+        })
+      );
+    }
     setPlaylists(loadPlaylists());
   }, []);
+
+  // Sauvegarde l'état à chaque changement et au moment de quitter la page.
+  useEffect(() => {
+    return () => {
+      savePlaylistsUiState({
+        expanded,
+        createOpen,
+        newName,
+        renameId,
+        renameValue,
+        query: addQuery,
+        selectedId: addSelectedId,
+        scrollY: window.scrollY,
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- on veut la valeur au moment du démontage
+        resultsScrollTop: resultsScrollRef.current?.scrollTop ?? 0,
+      });
+    };
+  }, [expanded, createOpen, newName, renameId, renameValue, addQuery, addSelectedId]);
 
   const refresh = useCallback(() => {
     setPlaylists(loadPlaylists());
@@ -50,6 +97,8 @@ export default function PlaylistsPanel({ songs, uploads }: PlaylistsPanelProps) 
     setNewName("");
     setCreateOpen(false);
     setExpanded(p.id);
+    setAddQuery("");
+    setAddSelectedId(null);
     refresh();
   };
 
@@ -160,7 +209,11 @@ export default function PlaylistsPanel({ songs, uploads }: PlaylistsPanelProps) 
             >
               <div className="flex items-center gap-2 p-3">
                 <button
-                  onClick={() => setExpanded(isOpen ? null : p.id)}
+                  onClick={() => {
+                    setExpanded(isOpen ? null : p.id);
+                    setAddQuery("");
+                    setAddSelectedId(null);
+                  }}
                   className="flex flex-1 items-center gap-2 min-w-0 text-left"
                   title={isOpen ? "Réduire" : "Afficher les chansons"}
                 >
@@ -261,6 +314,11 @@ export default function PlaylistsPanel({ songs, uploads }: PlaylistsPanelProps) 
                     songs={addableSongs(p)}
                     uploads={uploads}
                     onAdd={handleAddSong}
+                    query={addQuery}
+                    onQueryChange={setAddQuery}
+                    selectedId={addSelectedId}
+                    onSelectedIdChange={setAddSelectedId}
+                    scrollRef={resultsScrollRef}
                   />
                 </div>
               )}
@@ -387,14 +445,22 @@ function AddSongRow({
   songs,
   uploads,
   onAdd,
+  query,
+  onQueryChange,
+  selectedId,
+  onSelectedIdChange,
+  scrollRef,
 }: {
   playlist: Playlist;
   songs: SongTab[];
   uploads: Set<string>;
   onAdd: (p: Playlist, songId: string) => void;
+  query: string;
+  onQueryChange: (v: string) => void;
+  selectedId: string | null;
+  onSelectedIdChange: (v: string | null) => void;
+  scrollRef: RefObject<HTMLDivElement | null>;
 }) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
   if (songs.length === 0) return null;
 
   const q = normalizeText(query.trim());
@@ -406,7 +472,7 @@ function AddSongRow({
 
   const addSong = (songId: string) => {
     onAdd(playlist, songId);
-    setSelectedId(null);
+    onSelectedIdChange(null);
   };
 
   return (
@@ -416,10 +482,10 @@ function AddSongRow({
           <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => onQueryChange(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && filtered.length > 0) addSong(filtered[0].id);
-              if (e.key === "Escape") setQuery("");
+              if (e.key === "Escape") onQueryChange("");
             }}
             placeholder="Rechercher un titre ou un artiste…"
             title="Entrée pour ajouter le 1er résultat, Échap pour effacer"
@@ -427,7 +493,7 @@ function AddSongRow({
           />
           {query && (
             <button
-              onClick={() => setQuery("")}
+              onClick={() => onQueryChange("")}
               title="Effacer la recherche"
               className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
             >
@@ -439,7 +505,7 @@ function AddSongRow({
           {filtered.length}/{songs.length}
         </span>
       </div>
-      <div className="max-h-48 overflow-y-auto flex flex-col gap-0.5">
+      <div ref={scrollRef} className="max-h-48 overflow-y-auto flex flex-col gap-0.5">
         {filtered.length === 0 ? (
           <p className="text-xs text-zinc-500 px-2 py-2">
             Aucun résultat pour «&nbsp;{query.trim()}&nbsp;».
