@@ -24,6 +24,7 @@ import { saveSf2Bank as persistSf2Bank, loadSf2Bank as readSf2Bank, clearSf2Bank
 import { getSongTab } from "@/lib/mock-data";
 import { useSharedSong } from "@/lib/use-shared-song";
 import { loadGlobalOffset, saveGlobalOffset } from "@/lib/line-offsets";
+import { loadYouTubeId } from "@/lib/youtube-store";
 import {
   BAR_KINDS,
   NAV_KINDS,
@@ -161,6 +162,7 @@ function EditSongView({ id }: { id: string }) {
   const [extracting, setExtracting] = useState(false);
   const [extractElapsed, setExtractElapsed] = useState(0);
   const [extractError, setExtractError] = useState<string | null>(null);
+  const [ytVideoId] = useState<string | null>(() => loadYouTubeId(id));
   const extractStartRef = useRef(0);
   const [gpImporting, setGpImporting] = useState(false);
   const [gpError, setGpError] = useState<string | null>(null);
@@ -606,6 +608,11 @@ function EditSongView({ id }: { id: string }) {
     return () => window.clearInterval(t);
   }, [extracting]);
 
+  const extractErrorText = (msg: string) =>
+    msg.includes("injoignable")
+      ? "Service Demucs absent — lance start-stems.bat puis utilise l'app en local (localhost:3000)"
+      : msg.slice(0, 160);
+
   const handleExtractVocals = async (file: File) => {
     setExtracting(true);
     setExtractError(null);
@@ -628,11 +635,39 @@ function EditSongView({ id }: { id: string }) {
       await handleStemUpload("vocals", wav);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setExtractError(
-        msg.includes("injoignable")
-          ? "Service Demucs absent — lance start-stems.bat puis utilise l'app en local (localhost:3000)"
-          : msg.slice(0, 160),
-      );
+      setExtractError(extractErrorText(msg));
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const handleExtractFromYouTube = async () => {
+    const videoId = ytVideoId ?? loadYouTubeId(id);
+    if (!videoId) {
+      setExtractError("Aucune vidéo YouTube liée à cette chanson");
+      return;
+    }
+    setExtracting(true);
+    setExtractError(null);
+    setExtractElapsed(0);
+    extractStartRef.current = Date.now();
+    try {
+      const res = await fetch("/api/yt-stems", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoId }),
+        signal: AbortSignal.timeout(600_000),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? `erreur ${res.status}`);
+      }
+      const blob = await res.blob();
+      const wav = new File([blob], "vocals.wav", { type: "audio/wav" });
+      await handleStemUpload("vocals", wav);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setExtractError(extractErrorText(msg));
     } finally {
       setExtracting(false);
     }
@@ -1320,6 +1355,26 @@ function EditSongView({ id }: { id: string }) {
                     }}
                   />
                 </label>
+                {ytVideoId && (
+                  <button
+                    type="button"
+                    onClick={() => void handleExtractFromYouTube()}
+                    disabled={extracting}
+                    className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit cursor-pointer select-none disabled:cursor-wait ${
+                      extracting
+                        ? "bg-amber-500/20 text-amber-300"
+                        : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
+                    }`}
+                    title="Télécharge l'audio de la vidéo YouTube liée (yt-dlp) et extrait la piste vocale via Demucs en local"
+                  >
+                    {extracting ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Mic2 className="w-3.5 h-3.5" />
+                    )}
+                    {extracting ? `Extraction… ${extractElapsed}s` : "Extraire la voix (YouTube)"}
+                  </button>
+                )}
                 {extractError && (
                   <span className="text-[11px] text-red-400" title={extractError}>
                     {extractError}

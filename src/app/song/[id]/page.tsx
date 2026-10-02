@@ -22,6 +22,7 @@ import { getSongTab } from "@/lib/mock-data";
 import { parseChordContent, sectionsToContent } from "@/lib/chord-parser";
 import { detectKeyFromContent } from "@/lib/key-detection";
 import { loadLineOffsets, saveLineOffset, loadGlobalOffset, saveGlobalOffset } from "@/lib/line-offsets";
+import { saveAudioStem } from "@/lib/audio-store";
 import { loadYouTubeId, saveYouTubeId, removeYouTubeId } from "@/lib/youtube-store";
 import { detectBpmFromFile } from "@/lib/bpm-detect";
   import { loadSpotifyId, saveSpotifyId, removeSpotifyId } from "@/lib/spotify-store";
@@ -31,7 +32,7 @@ import { SongTab } from "@/lib/types";
 import { loadPlaylists, loadSession, saveSession, clearSession } from "@/lib/playlists";
 import { buildChordLineTimestamps } from "@/lib/lyric-timing";
 import type { Playlist } from "@/lib/playlists";
-import { ArrowLeft, Music, Key, FileText, Music2, Upload, ExternalLink, Wand2, Check, Pencil, X, ChevronLeft, ChevronRight, ListMusic, Square, Shuffle, RefreshCw } from "lucide-react";
+import { ArrowLeft, Music, Key, FileText, Music2, Upload, ExternalLink, Wand2, Check, Pencil, X, ChevronLeft, ChevronRight, ListMusic, Square, Shuffle, RefreshCw, Mic2, Loader2 } from "lucide-react";
 
 const GUITAR_KEYS = [
   "C", "G", "D", "A", "E", "F", "B", "Bb", "Eb", "Ab", "Db", "Gb",
@@ -112,6 +113,11 @@ function SongView({ id }: SongViewProps) {
   const [showYoutubeSearch, setShowYoutubeSearch] = useState(false);
   const [showSpotifySearch, setShowSpotifySearch] = useState(false);
   const [youtubeError, setYoutubeError] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [extractElapsed, setExtractElapsed] = useState(0);
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const [extractDone, setExtractDone] = useState(false);
+  const extractStartRef = useRef(0);
   const [spotifyError, setSpotifyError] = useState<string | null>(null);
   const [showEdit, setShowEdit] = useState(false);
   const [spotifyTrackUrl, setSpotifyTrackUrl] = useState<string | null>(() =>
@@ -531,6 +537,48 @@ function SongView({ id }: SongViewProps) {
     setDetectedBpm(null);
     setStandardBpm("");
   }, [audioSource, id, song, isCustom, hydrated, upsert]);
+
+  useEffect(() => {
+    if (!extracting) return;
+    const t = window.setInterval(() => {
+      setExtractElapsed(Math.floor((Date.now() - extractStartRef.current) / 1000));
+    }, 1000);
+    return () => window.clearInterval(t);
+  }, [extracting]);
+
+  const handleExtractVocalsYouTube = async () => {
+    if (!youtubeVideoId) return;
+    setExtracting(true);
+    setExtractError(null);
+    setExtractDone(false);
+    setExtractElapsed(0);
+    extractStartRef.current = Date.now();
+    try {
+      const res = await fetch("/api/yt-stems", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoId: youtubeVideoId }),
+        signal: AbortSignal.timeout(600_000),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? `erreur ${res.status}`);
+      }
+      const blob = await res.blob();
+      const wav = new File([blob], "vocals.wav", { type: "audio/wav" });
+      await saveAudioStem(id, "vocals", wav);
+      setExtractDone(true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setExtractError(
+        msg.includes("injoignable")
+          ? "Service Demucs absent — lance start-stems.bat (utilisation en local uniquement)"
+          : msg.slice(0, 160),
+      );
+    } finally {
+      setExtracting(false);
+    }
+  };
 
   useEffect(() => {
     const syncedId = song?.youtubeId;
@@ -1122,6 +1170,36 @@ function SongView({ id }: SongViewProps) {
                   </span>
                 )}
               </label>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleExtractVocalsYouTube()}
+                disabled={extracting || !youtubeVideoId}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors disabled:cursor-wait ${
+                  extracting
+                    ? "bg-amber-500/20 text-amber-300"
+                    : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
+                }`}
+                title="Télécharge l'audio de cette vidéo (yt-dlp) et extrait la piste vocale via Demucs en local — dispo dans le Chef d'orchestre (éditeur)"
+              >
+                {extracting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Mic2 className="w-4 h-4" />
+                )}
+                {extracting ? `Extraction de la voix… ${extractElapsed}s` : "Extraire la voix (YouTube)"}
+              </button>
+              {extractDone && !extracting && (
+                <span className="text-xs text-purple-300 bg-purple-500/10 border border-purple-500/30 rounded-full px-2.5 py-1">
+                  Voix extraite ✓ — disponible dans le Chef d&apos;orchestre (éditeur)
+                </span>
+              )}
+              {extractError && (
+                <span className="text-[11px] text-red-400" title={extractError}>
+                  {extractError}
+                </span>
+              )}
             </div>
           </>
         )}
