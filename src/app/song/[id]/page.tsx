@@ -1033,90 +1033,6 @@ function SongView({ id }: SongViewProps) {
           </div>
         )}
 
-        {audioSource && (
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3 p-3 bg-zinc-800/30 rounded-xl border border-zinc-700/30">
-            <span className="text-xs text-zinc-500 flex-shrink-0">Décalage :</span>
-            <button
-              onClick={() => setLyricsOffset((o) => Math.max(-120, o - 5))}
-              className="w-9 h-9 sm:w-7 sm:h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
-            >
-              -5
-            </button>
-            <button
-              onClick={() => setLyricsOffset((o) => Math.max(-120, o - 1))}
-              className="w-9 h-9 sm:w-7 sm:h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
-            >
-              -1
-            </button>
-            <input
-              type="range"
-              min={-120}
-              max={120}
-              step={0.1}
-              value={lyricsOffset}
-              onChange={(e) => setLyricsOffset(parseFloat(e.target.value))}
-              className="flex-1 min-w-[100px] h-1 accent-amber-500 cursor-pointer"
-            />
-            <button
-              onClick={() => setLyricsOffset((o) => Math.min(120, o + 1))}
-              className="w-9 h-9 sm:w-7 sm:h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
-            >
-              +1
-            </button>
-            <button
-              onClick={() => setLyricsOffset((o) => Math.min(120, o + 5))}
-              className="w-9 h-9 sm:w-7 sm:h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
-            >
-              +5
-            </button>
-            <span className="text-sm font-mono text-amber-400 min-w-[55px] text-center">
-              {lyricsOffset >= 0 ? "+" : ""}{lyricsOffset.toFixed(1)}s
-            </span>
-            <button
-              onClick={() => { if (id) { saveGlobalOffset(id, lyricsOffset); setSavedOffset(lyricsOffset); } }}
-              title="Sauvegarder le décalage"
-              className={`w-9 h-9 sm:w-7 sm:h-7 rounded flex items-center justify-center transition-colors ${
-                savedOffset === lyricsOffset
-                  ? "bg-emerald-600/80 text-white"
-                  : "bg-emerald-700 hover:bg-emerald-600 text-white"
-              }`}
-            >
-              <Check className="w-3.5 h-3.5" />
-            </button>
-            {lrcTimestamps.length > 0 && (
-              <button
-                onClick={() => {
-                  const firstChordTs = timestamps.find((t) => t.time > 0);
-                  const firstLrcTs = lrcTimestamps[0];
-                  if (firstChordTs && firstLrcTs) {
-                    const autoOffset = firstChordTs.time - firstLrcTs.time;
-                    setLyricsOffset(Math.round(autoOffset * 10) / 10);
-                  }
-                }}
-                title="Auto-détection du décalage"
-                className="w-9 h-9 sm:w-7 sm:h-7 rounded bg-blue-700 hover:bg-blue-600 text-white flex items-center justify-center transition-colors"
-              >
-                <Wand2 className="w-3.5 h-3.5" />
-              </button>
-            )}
-            {lyricsOffset !== 0 && (
-              <button
-                onClick={() => setLyricsOffset(0)}
-                className="text-xs text-zinc-500 hover:text-zinc-300 underline transition-colors"
-              >
-                Reset
-              </button>
-            )}
-            <button
-              onClick={handleRemoveAudio}
-              title="Retirer cette source audio et en choisir une autre"
-              className="sm:ml-auto w-9 h-9 sm:w-7 sm:h-7 rounded bg-red-800 hover:bg-red-700 text-white flex items-center justify-center transition-colors"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
-
         {/* FUTURE DEV: {audioSource && <InstrumentalMix songId={id} isPlaying={isPlaying} seekTo={seekTo} tempoScale={tempoScale} onVoiceVolume={setVoiceVolume} />} */}
         {/* FUTURE DEV: <StemsMixer songId={id} /> */}
 
@@ -1426,6 +1342,90 @@ function SongView({ id }: SongViewProps) {
                 Retirer la vidéo
               </button>
             </div>
+          </div>
+        )}
+
+        {audioSource && (
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 p-3 bg-zinc-800/30 rounded-xl border border-zinc-700/30">
+            <span className="text-xs text-zinc-500 flex-shrink-0">Décalage :</span>
+            <button
+              onClick={() => setLyricsOffset((o) => Math.max(-120, o - 5))}
+              className="w-9 h-9 sm:w-7 sm:h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
+            >
+              -5
+            </button>
+            <button
+              onClick={() => setLyricsOffset((o) => Math.max(-120, o - 1))}
+              className="w-9 h-9 sm:w-7 sm:h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
+            >
+              -1
+            </button>
+            <input
+              type="range"
+              min={-120}
+              max={120}
+              step={0.1}
+              value={lyricsOffset}
+              onChange={(e) => setLyricsOffset(parseFloat(e.target.value))}
+              className="flex-1 min-w-[100px] h-1 accent-amber-500 cursor-pointer"
+            />
+            <button
+              onClick={() => setLyricsOffset((o) => Math.min(120, o + 1))}
+              className="w-9 h-9 sm:w-7 sm:h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
+            >
+              +1
+            </button>
+            <button
+              onClick={() => setLyricsOffset((o) => Math.min(120, o + 5))}
+              className="w-9 h-9 sm:w-7 sm:h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center text-xs font-bold transition-colors"
+            >
+              +5
+            </button>
+            <span className="text-sm font-mono text-amber-400 min-w-[55px] text-center">
+              {lyricsOffset >= 0 ? "+" : ""}{lyricsOffset.toFixed(1)}s
+            </span>
+            <button
+              onClick={() => { if (id) { saveGlobalOffset(id, lyricsOffset); setSavedOffset(lyricsOffset); } }}
+              title="Sauvegarder le décalage"
+              className={`w-9 h-9 sm:w-7 sm:h-7 rounded flex items-center justify-center transition-colors ${
+                savedOffset === lyricsOffset
+                  ? "bg-emerald-600/80 text-white"
+                  : "bg-emerald-700 hover:bg-emerald-600 text-white"
+              }`}
+            >
+              <Check className="w-3.5 h-3.5" />
+            </button>
+            {lrcTimestamps.length > 0 && (
+              <button
+                onClick={() => {
+                  const firstChordTs = timestamps.find((t) => t.time > 0);
+                  const firstLrcTs = lrcTimestamps[0];
+                  if (firstChordTs && firstLrcTs) {
+                    const autoOffset = firstChordTs.time - firstLrcTs.time;
+                    setLyricsOffset(Math.round(autoOffset * 10) / 10);
+                  }
+                }}
+                title="Auto-détection du décalage"
+                className="w-9 h-9 sm:w-7 sm:h-7 rounded bg-blue-700 hover:bg-blue-600 text-white flex items-center justify-center transition-colors"
+              >
+                <Wand2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {lyricsOffset !== 0 && (
+              <button
+                onClick={() => setLyricsOffset(0)}
+                className="text-xs text-zinc-500 hover:text-zinc-300 underline transition-colors"
+              >
+                Reset
+              </button>
+            )}
+            <button
+              onClick={handleRemoveAudio}
+              title="Retirer cette source audio et en choisir une autre"
+              className="sm:ml-auto w-9 h-9 sm:w-7 sm:h-7 rounded bg-red-800 hover:bg-red-700 text-white flex items-center justify-center transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
 
