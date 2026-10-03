@@ -9,7 +9,8 @@ import { decodeHtmlEntities } from "@/lib/ug-scraper";
 import type { SavedChordShape, SongTab } from "@/lib/types";
 import ChordShapeView from "@/components/ChordShapeView";
 import { BarGlyph } from "@/components/BarGlyph";
-import { playEngineEvent, sf2Ready, sf2ResumeAsync, sf2Running, sf2StopAll, freqToMidi } from "@/lib/sf2-bank";
+import { freqToMidi } from "@/lib/sf2-bank";
+import { playGmEvent } from "@/lib/gm-voice";
 import { midiPlaybackEvents, type MidiPlaybackEvent } from "@/lib/midi-import";
 
 interface ConductorProps {
@@ -265,7 +266,6 @@ export default function Conductor({
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    sf2StopAll();
     if (ctxRef.current && ctxRef.current.state === "running") {
       ctxRef.current.close().catch(() => {});
     }
@@ -390,15 +390,13 @@ export default function Conductor({
     master: GainNode,
     when: number
   ) => {
-    playEngineEvent(ctx, ev, master, when, program, {
+    playGmEvent(ctx, ev, master, when, program, {
       strum: strumming,
       percussion,
-      // La banque SF2 ne passe pas par `master` (chaîne interne dédiée) :
-      // le curseur s'applique alors en vélocité au moment de la planification.
-      // Le synthé de secours vit sur `master` (volume live) — pas de double
-      // mise à l'échelle sur l'un ou l'autre chemin. sf2Running() aligne le
-      // choix du gain sur le chemin réellement emprunté par playEngineEvent.
-      gain: sf2Running() ? chordVolRef.current : 1,
+      // Tout passe par le bus du Chef (`master`) : le curseur « MIDI » le
+      // pilote en direct, launch et lecture comprise, sans double
+      // mise à l'échelle (le gain par événement reste à 1).
+      gain: 1,
     });
   };
 
@@ -451,7 +449,6 @@ export default function Conductor({
         window.AudioContext ||
         (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!Ctor) return;
-      if (sf2Ready()) await sf2ResumeAsync();
       const ctx = new Ctor();
       try {
         await ctx.resume();
@@ -474,19 +471,20 @@ export default function Conductor({
           for (const ev of events) playEvent(ctx, ev, master, now + ev.start);
           n = events.length;
         } else {
-          const gain = sf2Running() ? chordVolRef.current : 1;
+          // Source MIDI de Songsterr : une entrée par événement, sur le bus du
+          // Chef — le curseur « MIDI » reste donc valable en direct.
           for (const ev of midiEvs) {
-            playEngineEvent(ctx, midiSynthEvent(ev, n), master, now + ev.start, ev.program, {
+            playGmEvent(ctx, midiSynthEvent(ev, n), master, now + ev.start, ev.program, {
               strum: "off",
               percussion: ev.percussion,
               ...(ev.percussion ? { drumPitch: freqToMidi(ev.freq) } : {}),
-              gain,
+              gain: 1,
             });
             n++;
           }
         }
         console.info(
-          `[Chef] lecture : midi=${midiEvs.length} diagrammes=${events.length} planifiés=${n} sf2=${sf2Running()} ctx=${ctx.state}`
+          `[Chef] lecture : midi=${midiEvs.length} diagrammes=${events.length} planifiés=${n} ctx=${ctx.state}`
         );
       } catch (err) {
         console.error("[Chef] échec de planification de la lecture", err);
@@ -942,7 +940,7 @@ export default function Conductor({
               value={chordVolume}
               onChange={(e) => changeChordVolume(parseFloat(e.target.value))}
               className="w-32 h-1 accent-sky-500 cursor-pointer"
-              title="Volume du son MIDI (fichier importé depuis Songsterr, sinon synthé d'accords) — appliqué au lancement si une banque GS est chargée"
+              title="Volume de la source MIDI importée depuis Songsterr (ou du synthé d'accords) — réglage immédiat pendant la lecture"
             />
             <span className="text-[10px] text-sky-400 font-mono w-9">
               {Math.round(chordVolume * 100)}%
