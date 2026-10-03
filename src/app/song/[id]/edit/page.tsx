@@ -1232,6 +1232,19 @@ function EditSongView({ id }: { id: string }) {
               <LayoutGrid className="w-3.5 h-3.5" />
               Diagrammes
             </button>
+            <button
+              onClick={() => {
+                window.open(
+                  `https://www.songsterr.com/a/wa/search?pattern=${encodeURIComponent(`${song.artist} ${song.title}`)}`,
+                  "_blank"
+                );
+              }}
+              title="Rechercher ce morceau sur Songsterr (nouvel onglet)"
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-blue-600/10 border border-blue-600/30 text-blue-400 hover:bg-blue-600/20 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              Songsterr
+            </button>
           </div>
         </div>
       </header>
