@@ -444,6 +444,7 @@ export default function Conductor({
     // affichage pour le défilement et les paroles).
     const hasMidi = midiEvs.length > 0;
     const playChords = !hasMidi && events.length > 0;
+    let pump: (() => void) | null = null;
     if (playChords || hasMidi) {
       const Ctor =
         window.AudioContext ||
@@ -464,34 +465,43 @@ export default function Conductor({
       master.gain.value = chordVolRef.current;
       master.connect(ctx.destination);
       chordMasterRef.current = master;
-      const now = ctx.currentTime + 0.1;
-      try {
-        let n = 0;
-        if (playChords) {
-          for (const ev of events) playEvent(ctx, ev, master, now + ev.start);
-          n = events.length;
-        } else {
-          // Source MIDI de Songsterr : une entrée par événement, sur le bus du
-          // Chef — le curseur « MIDI » reste donc valable en direct.
-          for (const ev of midiEvs) {
-            playGmEvent(ctx, midiSynthEvent(ev, n), master, now + ev.start, ev.program, {
-              strum: "off",
-              percussion: ev.percussion,
-              ...(ev.percussion ? { drumPitch: freqToMidi(ev.freq) } : {}),
-              gain: 1,
-            });
-            n++;
-          }
+      // Planification progressive : on ne crée dans le moteur audio que la
+      // fenêtre des prochaines secondes, puis on répète à chaque tick. Les
+      // 3 700+ événements MIDI d'un coup saturaient le graphe (des dizaines de
+      // milliers de nœuds) et rien ne sortait ; en plus, chaque note planifiée
+      // ainsi reçoit le volume en cours au moment où elle est créée.
+      const t0 = ctx.currentTime + 0.15;
+      const horizonSec = () => ctx.currentTime - t0 + 0.6;
+      let chordPtr = 0;
+      let midiPtr = 0;
+      pump = () => {
+        const horizon = horizonSec();
+        while (chordPtr < events.length && events[chordPtr].start <= horizon) {
+          playEvent(ctx, events[chordPtr], master, t0 + events[chordPtr].start);
+          chordPtr++;
         }
-        const first = midiEvs[0];
-        console.info(
-          `[Chef] lecture : midi=${midiEvs.length} diagrammes=${events.length} planifiés=${n} ctx=${ctx.state} premier=${first ? first.start.toFixed(2) : "-"}sPrograms=${[...new Set(midiEvs.map((e) => e.program))].join(",")}`
-        );
+        while (midiPtr < midiEvs.length && midiEvs[midiPtr].start <= horizon) {
+          const ev = midiEvs[midiPtr];
+          playGmEvent(ctx, midiSynthEvent(ev, midiPtr), master, t0 + ev.start, ev.program, {
+            strum: "off",
+            percussion: ev.percussion,
+            ...(ev.percussion ? { drumPitch: freqToMidi(ev.freq) } : {}),
+            gain: 1,
+          });
+          midiPtr++;
+        }
+      };
+      const first = midiEvs[0];
+      console.info(
+        `[Chef] lecture : source=${playChords ? "diagrammes" : "MIDI"}(${midiEvs.length}/${events.length}) ctx=${ctx.state} premier=${first ? first.start.toFixed(2) : "-"}s fenêtre=0.6s`
+      );
+      try {
+        pump();
       } catch (err) {
         console.error("[Chef] échec de planification de la lecture", err);
       }
       // Sonde de niveau : mesure la sortie réelle du bus pendant 3 s (peak 0
-      // = aucun signal although planifié, peak > 0 = le son part bien).
+      // = aucun signal bien que planifié, peak > 0 = le son part bien).
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 2048;
       master.connect(analyser);
@@ -512,6 +522,14 @@ export default function Conductor({
 
     const startedAt = performance.now() + 100;
     const tick = () => {
+      if (pump) {
+        try {
+          pump();
+        } catch (err) {
+          console.error("[Chef] planification interrompue", err);
+          pump = null;
+        }
+      }
       const t = performance.now() - startedAt;
       const limit = Math.max(totalMs, midiDurRef.current);
       if (events.length === 0) setElapsedMs(t);
