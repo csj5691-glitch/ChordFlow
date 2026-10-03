@@ -762,6 +762,7 @@ export default function Conductor({
               </span>
             </div>
           )}
+          {/* Ancien curseur « Accords » — remplacé par « MIDI » (même gain synthé) :
           <div className="flex items-center gap-2">
             <span className="text-sky-400 w-20">Accords</span>
             <input
@@ -773,6 +774,23 @@ export default function Conductor({
               onChange={(e) => changeChordVolume(parseFloat(e.target.value))}
               className="w-32 h-1 accent-sky-500 cursor-pointer"
               title="Volume des accords synthétisés par-dessus le stem"
+            />
+            <span className="text-[10px] text-sky-400 font-mono w-9">
+              {Math.round(chordVolume * 100)}%
+            </span>
+          </div>
+          */}
+          <div className="flex items-center gap-2">
+            <span className="text-sky-400 w-20">MIDI</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={chordVolume}
+              onChange={(e) => changeChordVolume(parseFloat(e.target.value))}
+              className="w-32 h-1 accent-sky-500 cursor-pointer"
+              title="Volume du synthé MIDI (séquence de diagrammes, imports Songsterr)"
             />
             <span className="text-[10px] text-sky-400 font-mono w-9">
               {Math.round(chordVolume * 100)}%
