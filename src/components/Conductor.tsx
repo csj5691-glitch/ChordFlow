@@ -431,19 +431,25 @@ export default function Conductor({
     const primary = pickPrimary();
     const firstVocals = pickVocals();
 
+    // Un MIDI importé est la source audio du Chef : les stems (fichiers audio
+    // déjà enregistrés, avec leurs propres timbres) ne sont pas relancés, sinon
+    // ils masquaient le son importé. Un MIDI remplace aussi le synthé d'accords
+    // (la bande reste en affichage pour le défilement et les paroles).
+    const hasMidi = midiEvs.length > 0;
+    const playChords = !hasMidi && events.length > 0;
     if (primary) {
-      primary.currentTime = 0;
-      void primary.play().catch(() => {});
-      if (firstVocals !== null && firstVocals !== primary) {
-        firstVocals.currentTime = 0;
-        void firstVocals.play().catch(() => {});
+      if (hasMidi) {
+        console.info("[Chef] stems ignorés : seule la source MIDI importée est jouée");
+      } else {
+        primary.currentTime = 0;
+        void primary.play().catch(() => {});
+        if (firstVocals !== null && firstVocals !== primary) {
+          firstVocals.currentTime = 0;
+          void firstVocals.play().catch(() => {});
+        }
       }
     }
 
-    // Un MIDI importé remplace le synthé d'accords (la bande reste en
-    // affichage pour le défilement et les paroles).
-    const hasMidi = midiEvs.length > 0;
-    const playChords = !hasMidi && events.length > 0;
     let pump: (() => void) | null = null;
     if (playChords || hasMidi) {
       const Ctor =
@@ -645,10 +651,18 @@ export default function Conductor({
               className="text-[11px] font-mono text-sky-400 bg-sky-500/10 border border-sky-500/30 rounded-full px-2 py-0.5"
               title="Fichier MIDI importé depuis Songsterr — lecture multi-pistes"
             >
-              MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
-            </span>
-          )}
-        </div>
+MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
+              </span>
+            )}
+            {midiDurationMs > 0 && (
+              <span
+                className="text-[11px] font-mono text-amber-300/80 bg-amber-500/10 border border-amber-500/30 rounded-full px-2 py-0.5"
+                title="Quand un MIDI est importé, il est la seule source jouée : les stems audio et le synthé d'accords sont ignorés, et le curseur MIDI pilote tout"
+              >
+                source unique
+              </span>
+            )}
+          </div>
         <div className="flex items-center gap-2">
           {playing ? (
             <button
