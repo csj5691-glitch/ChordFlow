@@ -458,11 +458,11 @@ export function sf2PlayDrumEvent(
   return true;
 }
 
-// Shared dispatch used by both players: an event goes to the SF2 bank when one
-// is loaded, its context is running AND it can satisfy the event (program
-// present / percussion kit present); otherwise it falls back to the built-in
-// synthesizer. The running check avoids scheduling on a suspended (frozen)
-// clock, which would produce silence.
+// Shared dispatch used by the players. The GS/SoundFont bank is deliberately
+// NOT used for playback: it replaced the imported Songsterr MIDI by its own
+// instruments, which is not what the app plays now. Every event goes to the
+// built-in GM synthesizer, on the caller's gain bus (so the volume sliders of
+// the Chef d'orchestre and of « Jouer le rythme » apply live).
 export function playEngineEvent(
   ctx: AudioContext,
   ev: SynthEvent,
@@ -471,12 +471,5 @@ export function playEngineEvent(
   program: number | null | undefined,
   opts: GmPlayOptions
 ): void {
-  if (sf2Running()) {
-    if (opts.percussion) {
-      if (sf2PlayDrumEvent(ctx, ev, when, opts.gain ?? 1, opts.drumPitch)) return;
-    } else if (sf2PlayEvent(ctx, ev, when, program, opts.gain ?? 1)) {
-      return;
-    }
-  }
   playGmEvent(ctx, ev, master, when, program, opts);
 }

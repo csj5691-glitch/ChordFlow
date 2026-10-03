@@ -20,8 +20,6 @@ import { chordsToDiagrams } from "@/lib/chords-to-diagrams";
 import { importMidi } from "@/lib/midi-import";
 import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure, renderSequence } from "@/lib/chord-synth";
 import { gmProgramName } from "@/lib/gm-voice";
-import { loadSf2Bank } from "@/lib/sf2-bank";
-import { loadSf2Bank as readSf2Bank } from "@/lib/sf2-store";
 import { getSongTab } from "@/lib/mock-data";
 import { useSharedSong } from "@/lib/use-shared-song";
 import { loadGlobalOffset, saveGlobalOffset } from "@/lib/line-offsets";
@@ -252,24 +250,6 @@ function EditSongView({ id }: { id: string }) {
       setEditableContent(song.content);
     }
   }, [song]);
-
-  // Recharge silencieusement la banque Roland GS (.sf2) choisie précédemment
-  // (plus aucun bouton de chargement dans l'interface).
-  useEffect(() => {
-    let cancelled = false;
-    void readSf2Bank().then(async (record) => {
-      if (cancelled || !record) return;
-      try {
-        const file = new File([record.blob], record.name);
-        await loadSf2Bank(file, record.name);
-      } catch (err) {
-        console.error("[ChordFlow] Éditeur : restauration de la banque GS impossible", err);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     if (!toolbarMenu) return;
