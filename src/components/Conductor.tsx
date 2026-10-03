@@ -117,6 +117,11 @@ const MIDI_SHAPE_STUB: SavedChordShape = {
   capo: 0,
 };
 
+// Numéro du build affiché dans l'en-tête du Chef : si l'interface ne change pas
+// après un déploiement, c'est qu'un bundle périmé est encore servi — ce tag le
+// rend visible immédiatement. À mettre à jour à chaque déploiement.
+const BUILD_TAG = "7031996";
+
 function midiSynthEvent(ev: MidiPlaybackEvent, i: number): SynthEvent {
   return {
     id: `midi-${i}`,
@@ -661,6 +666,12 @@ export default function Conductor({
 MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
               </span>
             )}
+            <span
+              className="text-[10px] font-mono text-zinc-600"
+              title="Numéro du build en cours — sert à vérifier que le navigateur ne sert pas une version périmée"
+            >
+              build {BUILD_TAG}
+            </span>
           </div>
         <div className="flex items-center gap-2">
           {playing ? (
