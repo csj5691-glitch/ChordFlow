@@ -483,12 +483,31 @@ export default function Conductor({
             n++;
           }
         }
+        const first = midiEvs[0];
         console.info(
-          `[Chef] lecture : midi=${midiEvs.length} diagrammes=${events.length} planifiés=${n} ctx=${ctx.state}`
+          `[Chef] lecture : midi=${midiEvs.length} diagrammes=${events.length} planifiés=${n} ctx=${ctx.state} premier=${first ? first.start.toFixed(2) : "-"}sPrograms=${[...new Set(midiEvs.map((e) => e.program))].join(",")}`
         );
       } catch (err) {
         console.error("[Chef] échec de planification de la lecture", err);
       }
+      // Sonde de niveau : mesure la sortie réelle du bus pendant 3 s (peak 0
+      // = aucun signal although planifié, peak > 0 = le son part bien).
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      master.connect(analyser);
+      const samples = new Uint8Array(analyser.fftSize);
+      let peakSeen = 0;
+      const probe = window.setInterval(() => {
+        analyser.getByteTimeDomainData(samples);
+        for (let i = 0; i < samples.length; i++) {
+          const d = Math.abs(samples[i] - 128);
+          if (d > peakSeen) peakSeen = d;
+        }
+      }, 100);
+      window.setTimeout(() => {
+        window.clearInterval(probe);
+        console.info(`[Chef] niveau de sortie (3 s) : peak=${peakSeen}/128`);
+      }, 3000);
     }
 
     const startedAt = performance.now() + 100;
