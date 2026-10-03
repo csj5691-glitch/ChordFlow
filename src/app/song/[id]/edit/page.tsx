@@ -132,6 +132,10 @@ function slotKey(slot: ActiveSlot): string {
   return slot.kind === "main" ? "main" : `gp-${slot.index}`;
 }
 
+type UndoEntry =
+  | { kind: "one"; diagram: SavedChordShape; index: number }
+  | { kind: "all"; diagrams: SavedChordShape[]; copied: SavedChordShape[]; selected: Set<number> };
+
 export default function EditSongPage({
   params,
 }: {
@@ -151,6 +155,8 @@ function EditSongView({ id }: { id: string }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [copied, setCopied] = useState<SavedChordShape[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const undoRef = useRef<UndoEntry[]>([]);
+  const [undoToast, setUndoToast] = useState<{ id: number; message: string } | null>(null);
   const [conductorOpen, setConductorOpen] = useState(false);
   const [playingEventIndex, setPlayingEventIndex] = useState<number | null>(null);
   const [toolbarMenu, setToolbarMenu] = useState<"bar" | "nav" | null>(null);
@@ -302,21 +308,72 @@ function EditSongView({ id }: { id: string }) {
   const removeDiagram = useCallback(
     (diagramId: string) => {
       if (!song) return;
+      const list = song.diagrams ?? [];
+      const idx = list.findIndex((d) => d.id === diagramId);
+      if (idx < 0) return;
+      undoRef.current.push({ kind: "one", diagram: list[idx], index: idx });
       const next: SongTab = {
         ...song,
-        diagrams: (song.diagrams ?? []).filter((d) => d.id !== diagramId),
+        diagrams: list.filter((d) => d.id !== diagramId),
       };
       upsert(next);
+      setUndoToast({ id: Date.now(), message: "Diagramme supprimé" });
     },
     [song, upsert]
   );
 
   const clearDiagrams = useCallback(() => {
     if (!song) return;
+    if (!window.confirm("Supprimer tous les diagrammes ?")) return;
+    const list = song.diagrams ?? [];
+    undoRef.current.push({ kind: "all", diagrams: list, copied, selected });
     upsert({ ...song, diagrams: [] });
     setCopied([]);
     setSelected(new Set());
+    setUndoToast({
+      id: Date.now(),
+      message: `${list.length} diagramme${list.length > 1 ? "s" : ""} supprimé${list.length > 1 ? "s" : ""}`,
+    });
+  }, [song, upsert, copied, selected]);
+
+  const undoLast = useCallback(() => {
+    if (!song) return;
+    const entry = undoRef.current.pop();
+    if (!entry) return;
+    if (entry.kind === "one") {
+      const list = [...(song.diagrams ?? [])];
+      list.splice(Math.min(entry.index, list.length), 0, entry.diagram);
+      upsert({ ...song, diagrams: list });
+    } else {
+      upsert({ ...song, diagrams: entry.diagrams });
+      setCopied(entry.copied);
+      setSelected(entry.selected);
+    }
+    setUndoToast(null);
   }, [song, upsert]);
+
+  // Ferme le toast « Annuler » après 5 s (la pile reste pour Ctrl+Z).
+  useEffect(() => {
+    if (!undoToast) return;
+    const t = window.setTimeout(() => setUndoToast(null), 5000);
+    return () => window.clearTimeout(t);
+  }, [undoToast]);
+
+  // Ctrl+Z / Cmd+Z : annule la dernière suppression (jamais dans les champs
+  // de texte, pour ne pas voler l'undo natif de la grille).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+      if (e.key.toLowerCase() !== "z") return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || target?.isContentEditable) return;
+      e.preventDefault();
+      undoLast();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undoLast]);
 
   const moveDiagram = useCallback(
     (index: number, dir: -1 | 1) => {
@@ -2253,6 +2310,17 @@ function EditSongView({ id }: { id: string }) {
           lyricAnchorDiagram={lyricAnchorDiagram ?? song?.lyricAnchorDiagram ?? undefined}
           onClose={() => setConductorOpen(false)}
         />
+      )}
+      {undoToast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-3 bg-zinc-900 border border-zinc-700 text-zinc-200 px-4 py-3 rounded-xl shadow-xl text-sm max-w-[calc(100vw-2rem)]">
+          <span>{undoToast.message}</span>
+          <button
+            onClick={undoLast}
+            className="text-amber-400 font-semibold hover:text-amber-300 transition-colors flex-shrink-0"
+          >
+            Annuler
+          </button>
+        </div>
       )}
     </div>
   );
