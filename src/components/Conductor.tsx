@@ -431,22 +431,19 @@ export default function Conductor({
     const primary = pickPrimary();
     const firstVocals = pickVocals();
 
-    // Un MIDI importé est la source audio du Chef : les stems (fichiers audio
-    // déjà enregistrés, avec leurs propres timbres) ne sont pas relancés, sinon
-    // ils masquaient le son importé. Un MIDI remplace aussi le synthé d'accords
-    // (la bande reste en affichage pour le défilement et les paroles).
+    // Stems et MIDI se superposent : le stem audio (enregistrement) et la
+    // source MIDI importée jouent ensemble, chacun avec son curseur de volume
+    // (Instrumental / Chant pour le stem, MIDI pour la source importée).
+    // Un MIDI remplace aussi le synthé d'accords (la bande reste en
+    // affichage pour le défilement et les paroles).
     const hasMidi = midiEvs.length > 0;
     const playChords = !hasMidi && events.length > 0;
     if (primary) {
-      if (hasMidi) {
-        console.info("[Chef] stems ignorés : seule la source MIDI importée est jouée");
-      } else {
-        primary.currentTime = 0;
-        void primary.play().catch(() => {});
-        if (firstVocals !== null && firstVocals !== primary) {
-          firstVocals.currentTime = 0;
-          void firstVocals.play().catch(() => {});
-        }
+      primary.currentTime = 0;
+      void primary.play().catch(() => {});
+      if (firstVocals !== null && firstVocals !== primary) {
+        firstVocals.currentTime = 0;
+        void firstVocals.play().catch(() => {});
       }
     }
 
@@ -652,14 +649,6 @@ export default function Conductor({
               title="Fichier MIDI importé depuis Songsterr — lecture multi-pistes"
             >
 MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
-              </span>
-            )}
-            {midiDurationMs > 0 && (
-              <span
-                className="text-[11px] font-mono text-amber-300/80 bg-amber-500/10 border border-amber-500/30 rounded-full px-2 py-0.5"
-                title="Quand un MIDI est importé, il est la seule source jouée : les stems audio et le synthé d'accords sont ignorés, et le curseur MIDI pilote tout"
-              >
-                source unique
               </span>
             )}
           </div>
@@ -991,7 +980,7 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
               value={chordVolume}
               onChange={(e) => changeChordVolume(parseFloat(e.target.value))}
               className="w-32 h-1 accent-sky-500 cursor-pointer"
-              title="Volume de la source MIDI importée depuis Songsterr (ou du synthé d'accords) — réglage immédiat pendant la lecture"
+              title="Volume de la source MIDI importée depuis Songsterr, superposée au stem — réglage immédiat pendant la lecture"
             />
             <span className="text-[10px] text-sky-400 font-mono w-9">
               {Math.round(chordVolume * 100)}%
