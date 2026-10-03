@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const STEMS_SERVICE = process.env.STEMS_SERVICE_URL ?? "http://127.0.0.1:8765";
-const STEM_CHOICES = ["vocals", "drums", "bass", "guitar", "piano", "other"] as const;
+const STEM_CHOICES = ["vocals", "noVocals", "drums", "bass", "guitar", "piano", "other"] as const;
 
 export const runtime = "nodejs";
 export const maxDuration = 300;

@@ -613,26 +613,24 @@ function EditSongView({ id }: { id: string }) {
       ? "Service Demucs absent — lance start-stems.bat puis utilise l'app en local (localhost:3000)"
       : msg.slice(0, 160);
 
-  const handleExtractVocals = async (file: File) => {
+  const runExtraction = async (
+    doFetch: () => Promise<Response>,
+    onDone: (wav: File) => Promise<void>,
+    filename: string,
+  ) => {
     setExtracting(true);
     setExtractError(null);
     setExtractElapsed(0);
     extractStartRef.current = Date.now();
     try {
-      const form = new FormData();
-      form.set("file", file, file.name || "audio.mp3");
-      const res = await fetch("/api/stems?stem=vocals", {
-        method: "POST",
-        body: form,
-        signal: AbortSignal.timeout(600_000),
-      });
+      const res = await doFetch();
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         throw new Error(data?.error ?? `erreur ${res.status}`);
       }
       const blob = await res.blob();
-      const wav = new File([blob], "vocals.wav", { type: "audio/wav" });
-      await handleStemUpload("vocals", wav);
+      const wav = new File([blob], filename, { type: "audio/wav" });
+      await onDone(wav);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setExtractError(extractErrorText(msg));
@@ -641,37 +639,36 @@ function EditSongView({ id }: { id: string }) {
     }
   };
 
-  const handleExtractFromYouTube = async () => {
-    const videoId = ytVideoId ?? loadYouTubeId(id);
-    if (!videoId) {
-      setExtractError("Aucune vidéo YouTube liée à cette chanson");
-      return;
-    }
-    setExtracting(true);
-    setExtractError(null);
-    setExtractElapsed(0);
-    extractStartRef.current = Date.now();
-    try {
-      const res = await fetch("/api/yt-stems", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ videoId }),
-        signal: AbortSignal.timeout(600_000),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error ?? `erreur ${res.status}`);
-      }
-      const blob = await res.blob();
-      const wav = new File([blob], "vocals.wav", { type: "audio/wav" });
-      await handleStemUpload("vocals", wav);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setExtractError(extractErrorText(msg));
-    } finally {
-      setExtracting(false);
-    }
-  };
+  const handleExtractFromFile = (file: File, stem: "vocals" | "noVocals") =>
+    runExtraction(
+      () => {
+        const form = new FormData();
+        form.set("file", file, file.name || "audio.mp3");
+        return fetch(`/api/stems?stem=${stem}`, {
+          method: "POST",
+          body: form,
+          signal: AbortSignal.timeout(600_000),
+        });
+      },
+      (wav) => handleStemUpload(stem, wav),
+      `${stem}.wav`,
+    );
+
+  const handleExtractFromYouTube = (stem: "vocals" | "noVocals") =>
+    runExtraction(
+      async () => {
+        const videoId = ytVideoId ?? loadYouTubeId(id);
+        if (!videoId) throw new Error("Aucune vidéo YouTube liée à cette chanson");
+        return fetch("/api/yt-stems", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videoId, stem }),
+          signal: AbortSignal.timeout(600_000),
+        });
+      },
+      (wav) => handleStemUpload(stem, wav),
+      `${stem}.wav`,
+    );
 
   const handleGpPickFile = async (file: File) => {
     setGpImporting(true);
@@ -1309,6 +1306,52 @@ function EditSongView({ id }: { id: string }) {
                   </>
                 )}
                 <label
+                  className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit cursor-pointer select-none disabled:cursor-wait ${
+                    extracting
+                      ? "bg-amber-500/20 text-amber-300"
+                      : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
+                  }`}
+                  title="Extraire l'instrumental (sans voix) du fichier audio choisi, via Demucs en local (start-stems.bat requis)"
+                >
+                  {extracting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Music4 className="w-3.5 h-3.5" />
+                  )}
+                  {extracting ? `Extraction… ${extractElapsed}s` : "Extraire l'instrumental"}
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    className="hidden"
+                    disabled={extracting}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void handleExtractFromFile(file, "noVocals");
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                {ytVideoId && (
+                  <button
+                    type="button"
+                    onClick={() => void handleExtractFromYouTube("noVocals")}
+                    disabled={extracting}
+                    className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit cursor-pointer select-none disabled:cursor-wait ${
+                      extracting
+                        ? "bg-amber-500/20 text-amber-300"
+                        : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
+                    }`}
+                    title="Télécharge l'audio de la vidéo YouTube liée (yt-dlp) et extrait l'instrumental (sans voix) via Demucs en local"
+                  >
+                    {extracting ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Music4 className="w-3.5 h-3.5" />
+                    )}
+                    {extracting ? `Extraction… ${extractElapsed}s` : "Extraire l'instrumental (YouTube)"}
+                  </button>
+                )}
+                <label
                   className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
                   title={
                     vocalsUrl
@@ -1350,7 +1393,7 @@ function EditSongView({ id }: { id: string }) {
                     disabled={extracting}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
-                      if (file) void handleExtractVocals(file);
+                      if (file) void handleExtractFromFile(file, "vocals");
                       e.target.value = "";
                     }}
                   />
@@ -1358,7 +1401,7 @@ function EditSongView({ id }: { id: string }) {
                 {ytVideoId && (
                   <button
                     type="button"
-                    onClick={() => void handleExtractFromYouTube()}
+                    onClick={() => void handleExtractFromYouTube("vocals")}
                     disabled={extracting}
                     className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit cursor-pointer select-none disabled:cursor-wait ${
                       extracting

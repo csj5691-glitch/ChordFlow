@@ -546,7 +546,7 @@ function SongView({ id }: SongViewProps) {
     return () => window.clearInterval(t);
   }, [extracting]);
 
-  const handleExtractVocalsYouTube = async () => {
+  const handleExtractStemsYouTube = async () => {
     if (!youtubeVideoId) return;
     setExtracting(true);
     setExtractError(null);
@@ -554,19 +554,21 @@ function SongView({ id }: SongViewProps) {
     setExtractElapsed(0);
     extractStartRef.current = Date.now();
     try {
-      const res = await fetch("/api/yt-stems", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ videoId: youtubeVideoId }),
-        signal: AbortSignal.timeout(600_000),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error ?? `erreur ${res.status}`);
+      for (const stem of ["vocals", "noVocals"] as const) {
+        const res = await fetch("/api/yt-stems", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videoId: youtubeVideoId, stem }),
+          signal: AbortSignal.timeout(600_000),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          throw new Error(data?.error ?? `erreur ${res.status}`);
+        }
+        const blob = await res.blob();
+        const wav = new File([blob], `${stem}.wav`, { type: "audio/wav" });
+        await saveAudioStem(id, stem, wav);
       }
-      const blob = await res.blob();
-      const wav = new File([blob], "vocals.wav", { type: "audio/wav" });
-      await saveAudioStem(id, "vocals", wav);
       setExtractDone(true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1174,25 +1176,25 @@ function SongView({ id }: SongViewProps) {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => void handleExtractVocalsYouTube()}
+                onClick={() => void handleExtractStemsYouTube()}
                 disabled={extracting || !youtubeVideoId}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors disabled:cursor-wait ${
                   extracting
                     ? "bg-amber-500/20 text-amber-300"
                     : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
                 }`}
-                title="Télécharge l'audio de cette vidéo (yt-dlp) et extrait la piste vocale via Demucs en local — dispo dans le Chef d'orchestre (éditeur)"
+                title="Télécharge l'audio de cette vidéo (yt-dlp) et extrait la voix + l'instrumental via Demucs en local — dispo dans le Chef d'orchestre (éditeur)"
               >
                 {extracting ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <Mic2 className="w-4 h-4" />
                 )}
-                {extracting ? `Extraction de la voix… ${extractElapsed}s` : "Extraire la voix (YouTube)"}
+                {extracting ? `Extraction voix + instrumental… ${extractElapsed}s` : "Extraire voix + instrumental (YouTube)"}
               </button>
               {extractDone && !extracting && (
                 <span className="text-xs text-purple-300 bg-purple-500/10 border border-purple-500/30 rounded-full px-2.5 py-1">
-                  Voix extraite ✓ — disponible dans le Chef d&apos;orchestre (éditeur)
+                  Voix + instrumental extraits ✓ — disponibles dans le Chef d&apos;orchestre (éditeur)
                 </span>
               )}
               {extractError && (
