@@ -1,7 +1,7 @@
 "use client";
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import { X, Square, Play, RotateCcw } from "lucide-react";
 import { renderSequence, beatsForShape, legatoStringName, measureInfoFromSignature, measureForBeat, beatInMeasure, type SynthEvent } from "@/lib/chord-synth";
 import { parseChordContent } from "@/lib/chord-parser";
@@ -198,13 +198,20 @@ export default function Conductor({
   const stripRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [stemStart, setStemStart] = useState<number | null>(null);
+  const [stemDuration, setStemDuration] = useState<number | null>(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
   const stemStartRef = useRef<number | null>(null);
+  const onStemMeta = (e: SyntheticEvent<HTMLAudioElement>, volume: number) => {
+    const d = e.currentTarget.duration;
+    if (Number.isFinite(d) && d > 0) setStemDuration((prev) => prev ?? d);
+    e.currentTarget.volume = volume;
+  };
   const usesAudio = useMemo(() => Boolean(instrumentalUrl || vocalsUrl), [instrumentalUrl, vocalsUrl]);
   const totalSequenceMs = useMemo(
     () => events.reduce((a, e) => a + e.duration, 0) * 1000,
     [events]
   );
-  const totalMs = totalSequenceMs;
+  const totalMs = totalSequenceMs > 0 ? totalSequenceMs : (stemDuration ?? 0) * 1000;
 
   const stop = useCallback(() => {
     if (timerRef.current !== null) {
@@ -262,6 +269,9 @@ export default function Conductor({
   useEffect(() => {
     let cancelled = false;
     const refUrl = instrumentalUrl ?? vocalsUrl;
+    void Promise.resolve().then(() => {
+      if (!cancelled) setStemDuration(null);
+    });
     if (refUrl) {
       void detectFirstSound(refUrl).then((d) => {
         if (cancelled) return;
@@ -299,10 +309,11 @@ export default function Conductor({
 
   const play = useCallback(() => {
     stop();
-    if (events.length === 0) return;
+    if (events.length === 0 && totalMs <= 0) return;
 
     setIndex(0);
     setLyricIndex(-1);
+    setElapsedMs(0);
 
     const pickPrimary = (): HTMLAudioElement | null => {
       if (instRef.current) return instRef.current;
@@ -322,24 +333,27 @@ export default function Conductor({
       }
     }
 
-    const Ctor =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctor) return;
-    sf2Resume();
-    const ctx = new Ctor();
-    void ctx.resume().catch(() => {});
-    ctxRef.current = ctx;
-const master = ctx.createGain();
-     master.gain.value = 1.0;
-    master.connect(ctx.destination);
-    chordMasterRef.current = master;
-    const now = ctx.currentTime + 0.1;
-    for (const ev of events) playEvent(ctx, ev, master, now + ev.start);
+    if (events.length > 0) {
+      const Ctor =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctor) return;
+      sf2Resume();
+      const ctx = new Ctor();
+      void ctx.resume().catch(() => {});
+      ctxRef.current = ctx;
+      const master = ctx.createGain();
+      master.gain.value = chordVolRef.current;
+      master.connect(ctx.destination);
+      chordMasterRef.current = master;
+      const now = ctx.currentTime + 0.1;
+      for (const ev of events) playEvent(ctx, ev, master, now + ev.start);
+    }
 
     const startedAt = performance.now() + 100;
     const tick = () => {
       const t = performance.now() - startedAt;
+      if (events.length === 0) setElapsedMs(t);
       let i = events.findIndex((e) => e.start * 1000 <= t && t < (e.start + e.duration) * 1000);
       if (i < 0) i = events.filter((e) => e.start * 1000 <= t).length - 1;
       setIndex(Math.max(0, i));
@@ -376,7 +390,7 @@ const master = ctx.createGain();
         setLyricIndex(li);
       }
       if (t >= totalMs) {
-        setPlaying(false);
+        stop();
         return;
       }
       timerRef.current = window.setTimeout(tick, 40);
@@ -396,6 +410,20 @@ const master = ctx.createGain();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events]);
+
+  // Autolecture sans accords : les stems se lisent seuls dès que la durée
+  // audio est connue (les accords restent gérés par l'effet ci-dessus).
+  useEffect(() => {
+    if (events.length > 0) return;
+    if (playedRef.current || stemDuration === null) return;
+    playedRef.current = true;
+    const t = window.setTimeout(play, 50);
+    return () => {
+      window.clearTimeout(t);
+      stop();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events, stemDuration]);
 
   useEffect(() => {
     const el = itemRefs.current[index];
@@ -418,7 +446,8 @@ const master = ctx.createGain();
     return acc;
   }, []);
   const dur2 = totalMs / 1000;
-  const pct = cur ? (cur.start / dur2) * 100 : 0;
+  const elapsedPct = totalMs > 0 ? Math.min(100, (elapsedMs / totalMs) * 100) : 0;
+  const pct = cur ? (cur.start / dur2) * 100 : elapsedPct;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/95 flex flex-col">
@@ -844,6 +873,7 @@ const master = ctx.createGain();
           src={instrumentalUrl}
           preload="auto"
           className="hidden"
+          onLoadedMetadata={(e) => onStemMeta(e, instVolume)}
         />
       )}
       {vocalsUrl && (
@@ -852,6 +882,7 @@ const master = ctx.createGain();
           src={vocalsUrl}
           preload="auto"
           className="hidden"
+          onLoadedMetadata={(e) => onStemMeta(e, vocalsVolume)}
         />
       )}
     </div>
