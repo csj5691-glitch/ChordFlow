@@ -54,6 +54,8 @@ import {
   Check,
   ListMusic,
   Loader2,
+  Download,
+  Search,
 } from "lucide-react";
 
 function getStaticSong(id: string): SongTab | null {
@@ -180,6 +182,15 @@ function EditSongView({ id }: { id: string }) {
   const [sf2Error, setSf2Error] = useState<string | null>(null);
   const [gpImportingTrack, setGpImportingTrack] = useState<number | null>(null);
   const [gpSelected, setGpSelected] = useState<Set<number>>(new Set());
+  const [stOpen, setStOpen] = useState(false);
+  const [stArtist, setStArtist] = useState("");
+  const [stTitle, setStTitle] = useState("");
+  const [stResults, setStResults] = useState<
+    { songId: number; artist: string; title: string; tracksCount: number }[]
+  >([]);
+  const [stLoading, setStLoading] = useState(false);
+  const [stDownloading, setStDownloading] = useState<number | null>(null);
+  const [stError, setStError] = useState<string | null>(null);
   const [activeSlot, setActiveSlot] = useState<ActiveSlot>({ kind: "main" });
   const [gpMenuOpen, setGpMenuOpen] = useState(false);
   const [lyricsOffset, setLyricsOffset] = useState(() => (id ? loadGlobalOffset(id) : 0));
@@ -761,6 +772,50 @@ function EditSongView({ id }: { id: string }) {
       setGpError(err instanceof Error ? err.message : String(err));
     } finally {
       setGpImporting(false);
+    }
+  };
+
+  const handleStSearch = async () => {
+    const pattern = `${stArtist.trim()} ${stTitle.trim()}`.trim();
+    if (!pattern) return;
+    setStLoading(true);
+    setStError(null);
+    setStResults([]);
+    try {
+      const res = await fetch(`/api/songsterr-gp?pattern=${encodeURIComponent(pattern)}`, {
+        signal: AbortSignal.timeout(30_000),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? `erreur ${res.status}`);
+      const list: { songId: number; artist: string; title: string; tracksCount: number }[] =
+        Array.isArray(data?.results) ? data.results : [];
+      setStResults(list);
+      if (list.length === 0) setStError("Aucun résultat.");
+    } catch (err) {
+      setStError(err instanceof Error ? err.message.slice(0, 160) : String(err));
+    } finally {
+      setStLoading(false);
+    }
+  };
+
+  const handleStImport = async (songId: number) => {
+    setStDownloading(songId);
+    setStError(null);
+    try {
+      const res = await fetch(`/api/songsterr-gp?songId=${songId}`, {
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? `erreur ${res.status}`);
+      }
+      const blob = await res.blob();
+      const file = new File([blob], "songsterr.gp", { type: "application/octet-stream" });
+      await handleGpPickFile(file);
+    } catch (err) {
+      setStError(err instanceof Error ? err.message.slice(0, 160) : String(err));
+    } finally {
+      setStDownloading(null);
     }
   };
 
@@ -1511,24 +1566,28 @@ function EditSongView({ id }: { id: string }) {
                     Volume de chaque piste réglable dans le Chef d&apos;orchestre
                   </span>
                 )}
-                <label
-                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
-                  title="Importer un fichier Guitar Pro (.gp/.gp5/.gpx) : choisir la piste à convertir en diagrammes"
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStOpen((o) => !o);
+                    setStArtist((v) => v || song.artist);
+                    setStTitle((v) => v || song.title);
+                  }}
+                  disabled={gpImporting || stDownloading !== null}
+                  className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit cursor-pointer select-none disabled:cursor-wait ${
+                    stOpen
+                      ? "bg-amber-500/25 text-amber-200"
+                      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                  }`}
+                  title="Télécharger un fichier Guitar Pro depuis Songsterr puis choisir la piste à importer"
                 >
-                  <Upload className="w-3.5 h-3.5" />
-                  {gpImporting ? "Lecture…" : "Import GP"}
-                  <input
-                    type="file"
-                    accept=".gp,.gp5,.gpx,.gp4,.gp3,.gtp"
-                    className="hidden"
-                    disabled={gpImporting}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file && !gpImporting) void handleGpPickFile(file);
-                      e.target.value = "";
-                    }}
-                  />
-                </label>
+                  <Download className="w-3.5 h-3.5" />
+                  {gpImporting
+                    ? "Lecture…"
+                    : stDownloading !== null
+                      ? "Téléchargement…"
+                      : "Import GP (Songsterr)"}
+                </button>
                 <label
                   className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
                   title="Importer un fichier MIDI (.mid) : converti en diagrammes d'accords"
@@ -1598,6 +1657,97 @@ function EditSongView({ id }: { id: string }) {
                   {chartsConverting ? "Conversion…" : "Grille → Diagrammes"}
                 </button>
               </div>
+              {stOpen && (
+                <div className="flex flex-col gap-2.5 rounded-lg bg-zinc-800/70 border border-zinc-700 p-3">
+                  <p className="text-[11px] font-semibold text-zinc-300">
+                    Importer un fichier Guitar Pro depuis Songsterr
+                  </p>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <label className="flex flex-col gap-1 text-[10px] text-zinc-500">
+                      Artiste
+                      <input
+                        value={stArtist}
+                        onChange={(e) => setStArtist(e.target.value)}
+                        className="w-44 bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-500/60"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-[10px] text-zinc-500">
+                      Titre
+                      <input
+                        value={stTitle}
+                        onChange={(e) => setStTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void handleStSearch();
+                          }
+                        }}
+                        className="w-56 bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-500/60"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void handleStSearch()}
+                      disabled={stLoading}
+                      className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 transition-colors cursor-pointer disabled:cursor-wait"
+                    >
+                      {stLoading ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Search className="w-3.5 h-3.5" />
+                      )}
+                      {stLoading ? "Recherche…" : "Rechercher"}
+                    </button>
+                    <span className="text-[10px] text-zinc-600 sm:ml-auto">
+                      ou{" "}
+                      <label className="underline text-zinc-400 hover:text-zinc-300 cursor-pointer">
+                        fichier local
+                        <input
+                          type="file"
+                          accept=".gp,.gp5,.gpx,.gp4,.gp3,.gtp"
+                          className="hidden"
+                          disabled={gpImporting}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file && !gpImporting) void handleGpPickFile(file);
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                    </span>
+                  </div>
+                  {stError && <p className="text-[11px] text-red-400">{stError}</p>}
+                  {stResults.length > 0 && (
+                    <div className="flex flex-col gap-1 max-h-56 overflow-y-auto">
+                      {stResults.map((r) => (
+                        <button
+                          key={r.songId}
+                          type="button"
+                          onClick={() => void handleStImport(r.songId)}
+                          disabled={stDownloading !== null}
+                          className="flex items-center justify-between gap-2 text-left text-xs px-3 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-wait"
+                        >
+                          <span className="truncate">
+                            {r.artist || "?"} — {r.title || "?"}
+                          </span>
+                          <span className="flex items-center gap-2 shrink-0 text-[10px] text-zinc-500">
+                            {r.tracksCount > 0 && (
+                              <span>
+                                {r.tracksCount} piste{r.tracksCount > 1 ? "s" : ""}
+                              </span>
+                            )}
+                            {stDownloading === r.songId ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                            ) : (
+                              <Download className="w-3.5 h-3.5" />
+                            )}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               {gpError && (
                 <p className="text-[11px] text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-1.5">
                   {gpError}
