@@ -395,22 +395,31 @@ export function sf2PlayEvent(
 }
 
 // Plays a drum shape through the SF2 percussion kit (bank 128). Falls back to
-// false when the bank holds no percussion kit or isn't loaded.
+// false when the bank holds no percussion kit or isn't loaded. When `pitch`
+// (GM drum note) is given, plays that single drum instead of the pattern.
 export function sf2PlayDrumEvent(
   playerCtx: AudioContext,
   ev: SynthEvent,
   when: number,
-  gain = 1
+  gain = 1,
+  pitch?: number
 ): boolean {
   if (!soundfont) return false;
   const inst = samplerFor(DRUM_BANK, DRUM_PROGRAM);
   if (!inst) return false;
 
   const time = toBankTime(playerCtx, when);
-  const n = Math.max(1, ev.drumHits ?? 1);
-  const step = Math.min(Math.max(180, ev.duration * 1000) / n, 180) / 1000;
   const vel = velocityFor(gain);
   prunePendingNotes(time);
+
+  if (pitch !== undefined) {
+    const cancel = inst.start({ note: pitch, time, duration: 0.2, velocity: vel });
+    pendingNotes.push({ when: time, cancel });
+    return true;
+  }
+
+  const n = Math.max(1, ev.drumHits ?? 1);
+  const step = Math.min(Math.max(180, ev.duration * 1000) / n, 180) / 1000;
 
   const pattern: number[] = [
     GS_DRUM_NOTES.kick,
@@ -443,7 +452,7 @@ export function playEngineEvent(
 ): void {
   if (sf2Ready()) {
     if (opts.percussion) {
-      if (sf2PlayDrumEvent(ctx, ev, when, opts.gain ?? 1)) return;
+      if (sf2PlayDrumEvent(ctx, ev, when, opts.gain ?? 1, opts.drumPitch)) return;
     } else if (sf2PlayEvent(ctx, ev, when, program, opts.gain ?? 1)) {
       return;
     }

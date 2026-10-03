@@ -7,6 +7,17 @@ const DB_VERSION = 1;
 export interface AudioStemBlobs {
   noVocals: Blob | null;
   vocals: Blob | null;
+  midi?: Blob | null;
+}
+
+export type AudioStemKind = "noVocals" | "vocals" | "midi";
+
+// The MIDI file lives under its own record key so that clearing the stems
+// (clearAudioStems / DualTrackPlayer) never deletes an imported MIDI.
+const MIDI_KEY_SUFFIX = "!midi";
+
+function recordKey(songId: string, kind: AudioStemKind): string {
+  return kind === "midi" ? songId + MIDI_KEY_SUFFIX : songId;
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -33,15 +44,16 @@ function getDB(): Promise<IDBDatabase> {
 
 export function saveAudioStem(
   songId: string,
-  kind: "noVocals" | "vocals",
+  kind: AudioStemKind,
   blob: Blob | null
 ): Promise<void> {
+  const key = recordKey(songId, kind);
   return getDB().then(
     (db) =>
       new Promise((resolve, reject) => {
         const tx = db.transaction(STORE, "readwrite");
         const store = tx.objectStore(STORE);
-        store.get(songId).onsuccess = (ev) => {
+        store.get(key).onsuccess = (ev) => {
           const existing = (ev.target as IDBRequest).result as
             | Partial<AudioStemBlobs>
             | undefined;
@@ -51,7 +63,7 @@ export function saveAudioStem(
           } else {
             delete next[kind];
           }
-          store.put(next, songId);
+          store.put(next, key);
         };
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
@@ -79,6 +91,21 @@ export function loadAudioStems(songId: string): Promise<AudioStemBlobs | null> {
 
 export function getAudioStemUrl(blob: Blob | null): string | null {
   return blob ? URL.createObjectURL(blob) : null;
+}
+
+export function loadMidiBlob(songId: string): Promise<Blob | null> {
+  return getDB().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, "readonly");
+        const req = tx.objectStore(STORE).get(recordKey(songId, "midi"));
+        req.onsuccess = () => {
+          const result = req.result as Partial<AudioStemBlobs> | undefined;
+          resolve(result?.midi ?? null);
+        };
+        req.onerror = () => reject(req.error);
+      })
+  );
 }
 
 export function clearAudioStems(songId: string): Promise<void> {

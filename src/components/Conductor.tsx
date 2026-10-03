@@ -9,7 +9,8 @@ import { decodeHtmlEntities } from "@/lib/ug-scraper";
 import type { SavedChordShape, SongTab } from "@/lib/types";
 import ChordShapeView from "@/components/ChordShapeView";
 import { BarGlyph } from "@/components/BarGlyph";
-import { playEngineEvent, sf2Resume, sf2StopAll } from "@/lib/sf2-bank";
+import { playEngineEvent, sf2Ready, sf2Resume, sf2StopAll, freqToMidi } from "@/lib/sf2-bank";
+import { midiPlaybackEvents, type MidiPlaybackEvent } from "@/lib/midi-import";
 
 interface ConductorProps {
   diagrams: SavedChordShape[];
@@ -20,6 +21,7 @@ interface ConductorProps {
   officialSynced?: string;
   instrumentalUrl?: string | null;
   vocalsUrl?: string | null;
+  midiUrl?: string | null;
   program?: number | null;
   percussion?: boolean;
   lyricOffset?: number;
@@ -100,6 +102,33 @@ function strumDirection(startBeat: number, beats: number): "D" | "U" {
   return Math.round(startBeat / step) % 2 === 0 ? "D" : "U";
 }
 
+// Les événements MIDI ne portent pas de diagramme : forme minimale factice
+// utilisée uniquement par le moteur audio (la bande d'accords n'en contient
+// jamais).
+const MIDI_SHAPE_STUB: SavedChordShape = {
+  id: "midi",
+  label: "",
+  fingers: [],
+  barreOn: false,
+  barreCount: 0,
+  muted: [],
+  baseFret: 1,
+  capo: 0,
+};
+
+function midiSynthEvent(ev: MidiPlaybackEvent, i: number): SynthEvent {
+  return {
+    id: `midi-${i}`,
+    label: "",
+    notes: [ev.freq],
+    start: ev.start,
+    duration: Math.max(0.05, ev.duration),
+    silence: false,
+    shape: MIDI_SHAPE_STUB,
+    drumHits: ev.percussion ? 1 : 0,
+  };
+}
+
 export default function Conductor({
   diagrams,
   bpm,
@@ -109,6 +138,7 @@ export default function Conductor({
   officialSynced,
   instrumentalUrl,
   vocalsUrl,
+  midiUrl,
   program,
   percussion,
   lyricOffset: externalLyricOffset,
@@ -172,6 +202,10 @@ export default function Conductor({
   };
   const chordVolRef = useRef(chordVolume);
   const chordMasterRef = useRef<GainNode | null>(null);
+  const [midiDurationMs, setMidiDurationMs] = useState(0);
+  const midiDurRef = useRef(0);
+  const midiPromiseRef = useRef<Promise<MidiPlaybackEvent[]> | null>(null);
+  const playTokenRef = useRef(0);
   const changeChordVolume = (v: number) => {
     setChordVolume(v);
     chordVolRef.current = v;
@@ -211,9 +245,17 @@ export default function Conductor({
     () => events.reduce((a, e) => a + e.duration, 0) * 1000,
     [events]
   );
-  const totalMs = totalSequenceMs > 0 ? totalSequenceMs : (stemDuration ?? 0) * 1000;
+  // Sans MIDI, identique à avant : séquence d'abord, sinon stems. Un fichier
+  // MIDI importé étend la durée (bande d'accords plus courte que le morceau).
+  const totalMs =
+    Math.max(totalSequenceMs, midiDurationMs) > 0
+      ? Math.max(totalSequenceMs, midiDurationMs)
+      : (stemDuration ?? 0) * 1000;
 
   const stop = useCallback(() => {
+    // Invalide une play() en attente (fetch/parse MIDI) pour éviter qu'elle
+    // ne planifie la lecture après un arrêt.
+    playTokenRef.current++;
     if (timerRef.current !== null) {
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -294,6 +336,41 @@ export default function Conductor({
     };
   }, [instrumentalUrl, vocalsUrl]);
 
+  // MIDI Songsterr : fetch + parse une seule fois par fichier ; la promesse
+  // est mémoarisée pour que play() puisse l'attendre avant la planification.
+  useEffect(() => {
+    let cancelled = false;
+    midiPromiseRef.current = null;
+    midiDurRef.current = 0;
+    void Promise.resolve().then(() => {
+      if (!cancelled) setMidiDurationMs(0);
+    });
+    if (!midiUrl) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    midiPromiseRef.current = (async () => {
+      try {
+        const res = await fetch(midiUrl);
+        const buf = new Uint8Array(await res.arrayBuffer());
+        const { events: evs, durationSec } = midiPlaybackEvents(buf);
+        if (cancelled) return [];
+        midiDurRef.current = durationSec * 1000;
+        setMidiDurationMs(durationSec * 1000);
+        return evs;
+      } catch (err) {
+        console.error("[ChordFlow] Chef d'orchestre : échec de lecture du MIDI", err);
+        return [];
+      }
+    })();
+    return () => {
+      cancelled = true;
+      midiPromiseRef.current = null;
+      midiDurRef.current = 0;
+    };
+  }, [midiUrl]);
+
   const playEvent = (
     ctx: AudioContext,
     ev: SynthEvent,
@@ -303,13 +380,23 @@ export default function Conductor({
     playEngineEvent(ctx, ev, master, when, program, {
       strum: strumming,
       percussion,
-      gain: 1,
+      // La banque SF2 ne passe pas par `master` (chaîne interne dédiée) :
+      // le curseur s'applique alors en vélocité au moment de la planification.
+      // Le synthé de secours vit sur `master` (volume live) — pas de double
+      // mise à l'échelle sur l'un ou l'autre chemin.
+      gain: sf2Ready() ? chordVolRef.current : 1,
     });
   };
 
-  const play = useCallback(() => {
+  const play = useCallback(async () => {
     stop();
-    if (events.length === 0 && totalMs <= 0) return;
+    const tok = playTokenRef.current;
+    // Attente du parse MIDI (mémoisé) avant toute planification ; sans MIDI,
+    // aucune promesse : exécution strictement synchrone comme avant.
+    const midiEvs = midiPromiseRef.current ? await midiPromiseRef.current : [];
+    if (playTokenRef.current !== tok) return;
+    const midiTotalMs = midiDurRef.current;
+    if (events.length === 0 && totalMs <= 0 && midiTotalMs <= 0) return;
 
     setIndex(0);
     setLyricIndex(-1);
@@ -333,7 +420,11 @@ export default function Conductor({
       }
     }
 
-    if (events.length > 0) {
+    // Un MIDI importé remplace le synthé d'accords (la bande reste en
+    // affichage pour le défilement et les paroles).
+    const hasMidi = midiEvs.length > 0;
+    const playChords = !hasMidi && events.length > 0;
+    if (playChords || hasMidi) {
       const Ctor =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -347,12 +438,26 @@ export default function Conductor({
       master.connect(ctx.destination);
       chordMasterRef.current = master;
       const now = ctx.currentTime + 0.1;
-      for (const ev of events) playEvent(ctx, ev, master, now + ev.start);
+      if (playChords) {
+        for (const ev of events) playEvent(ctx, ev, master, now + ev.start);
+      } else {
+        const gain = sf2Ready() ? chordVolRef.current : 1;
+        let n = 0;
+        for (const ev of midiEvs) {
+          playEngineEvent(ctx, midiSynthEvent(ev, n++), master, now + ev.start, ev.program, {
+            strum: "off",
+            percussion: ev.percussion,
+            ...(ev.percussion ? { drumPitch: freqToMidi(ev.freq) } : {}),
+            gain,
+          });
+        }
+      }
     }
 
     const startedAt = performance.now() + 100;
     const tick = () => {
       const t = performance.now() - startedAt;
+      const limit = Math.max(totalMs, midiDurRef.current);
       if (events.length === 0) setElapsedMs(t);
       let i = events.findIndex((e) => e.start * 1000 <= t && t < (e.start + e.duration) * 1000);
       if (i < 0) i = events.filter((e) => e.start * 1000 <= t).length - 1;
@@ -379,7 +484,7 @@ export default function Conductor({
             const start = vs * 1000;
             const clock = lyricClockMs + lyricOffsetRef.current * 1000;
             if (clock >= start) {
-              const span = Math.max(1, totalMs - start);
+              const span = Math.max(1, limit - start);
               li = Math.min(
                 flatLyrics.length - 1,
                 Math.max(0, Math.floor(((clock - start) / span) * flatLyrics.length))
@@ -389,7 +494,7 @@ export default function Conductor({
         }
         setLyricIndex(li);
       }
-      if (t >= totalMs) {
+      if (t >= limit) {
         stop();
         return;
       }
@@ -461,6 +566,14 @@ export default function Conductor({
             {dur2.toFixed(1)} s
             {flatLyrics.length > 0 && <> · {flatLyrics.length} lignes de paroles</>}
           </span>
+          {midiDurationMs > 0 && (
+            <span
+              className="text-[11px] font-mono text-sky-400 bg-sky-500/10 border border-sky-500/30 rounded-full px-2 py-0.5"
+              title="Fichier MIDI importé depuis Songsterr — lecture multi-pistes"
+            >
+              MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {playing ? (
@@ -790,7 +903,7 @@ export default function Conductor({
               value={chordVolume}
               onChange={(e) => changeChordVolume(parseFloat(e.target.value))}
               className="w-32 h-1 accent-sky-500 cursor-pointer"
-              title="Volume du synthé MIDI (séquence de diagrammes, imports Songsterr)"
+              title="Volume du son MIDI (fichier importé depuis Songsterr, sinon synthé d'accords) — appliqué au lancement si une banque GS est chargée"
             />
             <span className="text-[10px] text-sky-400 font-mono w-9">
               {Math.round(chordVolume * 100)}%

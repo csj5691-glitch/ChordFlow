@@ -525,6 +525,9 @@ export interface GmPlayOptions {
   strum: "down" | "up" | "off";
   gain?: number;
   percussion?: boolean;
+  /** GM drum note (35..81): plays that single drum instead of the generic
+   * stroke pattern — used by real MIDI drum tracks (Songsterr imports). */
+  drumPitch?: number;
 }
 
 // Plays one synthesized chord event with the timbre of the given GS instrument
@@ -541,8 +544,13 @@ export function playGmEvent(
   const dur = Math.max(0.35, ev.duration);
   const gain = opts.gain ?? 1;
 
-  // Batterie : chaque forme percussion déclenche un coup de batterie.
+  // Batterie : une note MIDI drum pitchée joue ce coup précis ; une forme
+  // percussion (diagramme) déclenche le motif générique de coups.
   if (opts.percussion) {
+    if (opts.drumPitch !== undefined) {
+      playDrumHit(ctx, master, when, drumKindForPitch(opts.drumPitch), gain);
+      return;
+    }
     playDrums(ctx, master, when, dur, ev.drumHits ?? 1, gain);
     return;
   }
@@ -647,6 +655,17 @@ function playDrums(
   for (let i = 0; i < n; i++) {
     playDrumHit(ctx, master, when + i * step, pattern[i % pattern.length], gain);
   }
+}
+
+// Note GM drum (35..81) → voix de kit synthétisée : caisse pour les bass
+// drums et toms, caisse-claquante pour les snares/rimshots, hi-hat pour les
+// cymbales, charlestons et percussions légères.
+function drumKindForPitch(pitch: number): "kick" | "snare" | "hat" {
+  if (pitch <= 36) return "kick";
+  if (pitch >= 37 && pitch <= 40) return "snare";
+  if (pitch === 42 || pitch === 44 || pitch === 46) return "hat";
+  if (pitch >= 41 && pitch <= 50) return "kick";
+  return "hat";
 }
 
 // Export for the SF2 engine: GS drum note names for labels.

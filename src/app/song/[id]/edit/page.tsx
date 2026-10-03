@@ -9,7 +9,7 @@ import { BarGlyph } from "@/components/BarGlyph";
 import { NavGlyph } from "@/components/NavGlyph";
 import SynthPlayer from "@/components/SynthPlayer";
 import Conductor from "@/components/Conductor";
-import { loadAudioStems, saveAudioStem, getAudioStemUrl } from "@/lib/audio-store";
+import { loadAudioStems, loadMidiBlob, saveAudioStem, getAudioStemUrl } from "@/lib/audio-store";
 import {
   analyzeGuitarProFile,
   guitarProToMidi,
@@ -168,6 +168,7 @@ function EditSongView({ id }: { id: string }) {
   const [instName, setInstName] = useState("");
   const [vocalsUrl, setVocalsUrl] = useState<string | null>(null);
   const [vocalsName, setVocalsName] = useState("");
+  const [midiUrl, setMidiUrl] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [extractElapsed, setExtractElapsed] = useState(0);
   const [extractError, setExtractError] = useState<string | null>(null);
@@ -200,6 +201,7 @@ function EditSongView({ id }: { id: string }) {
   const [chartsConverting, setChartsConverting] = useState(false);
   const instUrlRef = useRef<string | null>(null);
   const vocalsUrlRef = useRef<string | null>(null);
+  const midiUrlRef = useRef<string | null>(null);
   const hydratedContent = useRef(false);
 
   const baseSong = getStaticSong(id);
@@ -636,6 +638,14 @@ function EditSongView({ id }: { id: string }) {
           setVocalsName("Voix");
         }
       }
+      const midiBlob = await loadMidiBlob(id);
+      if (!cancelled && midiBlob) {
+        const url = getAudioStemUrl(midiBlob);
+        if (url) {
+          midiUrlRef.current = url;
+          setMidiUrl(url);
+        }
+      }
     })();
     return () => {
       cancelled = true;
@@ -646,6 +656,10 @@ function EditSongView({ id }: { id: string }) {
       if (vocalsUrlRef.current) {
         URL.revokeObjectURL(vocalsUrlRef.current);
         vocalsUrlRef.current = null;
+      }
+      if (midiUrlRef.current) {
+        URL.revokeObjectURL(midiUrlRef.current);
+        midiUrlRef.current = null;
       }
     };
   }, [id]);
@@ -875,10 +889,26 @@ function EditSongView({ id }: { id: string }) {
     try {
       const buffer = await file.arrayBuffer();
       const data = new Uint8Array(buffer);
+      // Conserve le fichier MIDI pour la lecture multi-pistes du Chef
+      // d'orchestre (IndexedDB, record séparé des stems).
+      const url = getAudioStemUrl(file);
+      if (url) {
+        if (midiUrlRef.current) URL.revokeObjectURL(midiUrlRef.current);
+        midiUrlRef.current = url;
+        setMidiUrl(url);
+      }
+      try {
+        await saveAudioStem(id, "midi", file);
+      } catch (err) {
+        console.error("[ChordFlow] Éditeur : échec de sauvegarde du MIDI", err);
+      }
       const result = importMidi(file.name, data, song);
       if (!song) return;
       if (result.diagrams.length === 0) {
-        setGpError("Aucun accord détecté dans ce MIDI : aucun diagramme ajouté.");
+        setGpWarnings((w) => [
+          ...w,
+          "Aucun accord détecté dans ce MIDI : la lecture MIDI est conservée pour le Chef d'orchestre, aucun diagramme ajouté.",
+        ]);
         return;
       }
       const drops = await upsert({
@@ -2500,6 +2530,7 @@ function EditSongView({ id }: { id: string }) {
           officialSynced={song?.officialSynced}
           instrumentalUrl={instUrl}
           vocalsUrl={vocalsUrl}
+          midiUrl={midiUrl}
           program={activeProgram}
           percussion={activePercussion}
           lyricOffset={lyricsOffset}

@@ -32,6 +32,17 @@ interface ParsedTrack {
   isDrums: boolean;
 }
 
+interface MidiTempo {
+  tick: number;
+  microsPerBeat: number;
+}
+
+interface MidiProgramChange {
+  tick: number;
+  channel: number;
+  program: number;
+}
+
 function readVarint(data: Uint8Array, pos: number): [number, number] {
   let result = 0;
   while (true) {
@@ -46,6 +57,8 @@ function parseMidi(data: Uint8Array): {
   ticksPerBeat: number;
   bpm: number;
   tracks: ParsedTrack[];
+  tempos: MidiTempo[];
+  programs: MidiProgramChange[];
 } {
   let pos = 0;
 
@@ -63,6 +76,8 @@ function parseMidi(data: Uint8Array): {
 
   let bpm = 120;
   const tracks: ParsedTrack[] = [];
+  const tempos: MidiTempo[] = [];
+  const programs: MidiProgramChange[] = [];
   const ticksPerBeat = rawDivision !== 0 && (rawDivision & 0x8000) === 0 ? rawDivision : 480;
 
   while (pos < data.length - 4) {
@@ -134,6 +149,13 @@ function parseMidi(data: Uint8Array): {
         } else if (msgType === 0xa0 || msgType === 0xb0 || msgType === 0xe0) {
           pos += 2;
         } else if (msgType === 0xc0 || msgType === 0xd0) {
+          if (msgType === 0xc0) {
+            programs.push({
+              tick: currentTick,
+              channel: status & 0x0f,
+              program: data[pos],
+            });
+          }
           pos += 1;
         } else if (status === 0xff) {
           const metaType = data[pos];
@@ -145,6 +167,7 @@ function parseMidi(data: Uint8Array): {
           } else if (metaType === 0x51 && len === 3) {
             const microsPerBeat = (data[pos] << 16) | (data[pos + 1] << 8) | data[pos + 2];
             bpm = Math.round(60_000_000 / microsPerBeat);
+            tempos.push({ tick: currentTick, microsPerBeat });
           } else if (metaType === 0x58 && len === 4) {
             // time signature
           }
@@ -170,7 +193,102 @@ function parseMidi(data: Uint8Array): {
     }
   }
 
-  return { ticksPerBeat, bpm, tracks };
+  return { ticksPerBeat, bpm, tracks, tempos, programs };
+}
+
+export interface MidiPlaybackEvent {
+  /** Start offset in seconds from the beginning of the file. */
+  start: number;
+  /** Note length in seconds. */
+  duration: number;
+  freq: number;
+  /** GM program of the note's channel at that tick (0 for percussion). */
+  program: number;
+  /** Channel 10 (index 9): General MIDI drum kit. */
+  percussion: boolean;
+  /** Velocity mapped to 0..1 (floored so quiet passages stay audible). */
+  gain: number;
+}
+
+interface TempoSegment {
+  tick: number;
+  sec: number;
+  microsPerBeat: number;
+}
+
+function tempoSegments(tempos: MidiTempo[], ticksPerBeat: number): TempoSegment[] {
+  const sorted = [...tempos].sort((a, b) => a.tick - b.tick);
+  const segs: TempoSegment[] = [{ tick: 0, sec: 0, microsPerBeat: 500_000 }];
+  for (const t of sorted) {
+    const last = segs[segs.length - 1];
+    if (t.tick === last.tick) {
+      last.microsPerBeat = t.microsPerBeat;
+      continue;
+    }
+    const sec = last.sec + ((t.tick - last.tick) / ticksPerBeat) * (last.microsPerBeat / 1e6);
+    segs.push({ tick: t.tick, sec, microsPerBeat: t.microsPerBeat });
+  }
+  return segs;
+}
+
+function tickToSeconds(tick: number, ticksPerBeat: number, segs: TempoSegment[]): number {
+  let seg = segs[0];
+  for (let i = segs.length - 1; i >= 0; i--) {
+    if (segs[i].tick <= tick) {
+      seg = segs[i];
+      break;
+    }
+  }
+  return seg.sec + ((tick - seg.tick) / ticksPerBeat) * (seg.microsPerBeat / 1e6);
+}
+
+// Converts a parsed MIDI file into flat, time-sorted note events ready to be
+// scheduled on the WebAudio engine (one note per event, per-channel program
+// resolved at the note's tick, tempo map honoured).
+export function midiPlaybackEvents(data: Uint8Array): {
+  events: MidiPlaybackEvent[];
+  durationSec: number;
+} {
+  const { ticksPerBeat, tracks, tempos, programs } = parseMidi(data);
+  const segs = tempoSegments(tempos, ticksPerBeat);
+
+  const byChannel = new Map<number, MidiProgramChange[]>();
+  for (const p of programs) {
+    const list = byChannel.get(p.channel);
+    if (list) list.push(p);
+    else byChannel.set(p.channel, [p]);
+  }
+  for (const list of byChannel.values()) list.sort((a, b) => a.tick - b.tick);
+  const programAt = (channel: number, tick: number): number => {
+    const list = byChannel.get(channel);
+    if (!list) return 0;
+    let prog = 0;
+    for (const p of list) {
+      if (p.tick <= tick) prog = p.program;
+      else break;
+    }
+    return prog;
+  };
+
+  const events: MidiPlaybackEvent[] = [];
+  for (const track of tracks) {
+    for (const note of track.notes) {
+      const start = tickToSeconds(note.startTick, ticksPerBeat, segs);
+      const end = tickToSeconds(note.startTick + note.durationTicks, ticksPerBeat, segs);
+      const percussion = note.channel === 9;
+      events.push({
+        start,
+        duration: Math.max(0.05, end - start),
+        freq: 440 * Math.pow(2, (note.pitch - 69) / 12),
+        program: percussion ? 0 : programAt(note.channel, note.startTick),
+        percussion,
+        gain: Math.max(0.3, Math.min(1, note.velocity / 127)),
+      });
+    }
+  }
+  events.sort((a, b) => a.start - b.start);
+  const durationSec = events.reduce((m, e) => Math.max(m, e.start + e.duration), 0);
+  return { events, durationSec };
 }
 
 function identifyChord(pitches: number[]): string | null {
@@ -283,8 +401,9 @@ export function importMidi(
         ? frets.reduce((acc, f) => (f > 0 ? Math.max(acc, f) : acc), 0)
         : 0;
 
+      // String indices are 0-based app-wide (shapeNotes, gp-import STRING_INDEX).
       const fingers = frets.map((f, i) => ({
-        string: i + 1,
+        string: i,
         fret: f,
         finger: shape.fingers[i] || 0,
       })).filter((f) => f.fret > 0);
