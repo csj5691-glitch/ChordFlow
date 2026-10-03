@@ -20,8 +20,8 @@ import { chordsToDiagrams } from "@/lib/chords-to-diagrams";
 import { importMidi } from "@/lib/midi-import";
 import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure, renderSequence } from "@/lib/chord-synth";
 import { gmProgramName } from "@/lib/gm-voice";
-import { loadSf2Bank, unloadSf2Bank, sf2BankName } from "@/lib/sf2-bank";
-import { saveSf2Bank as persistSf2Bank, loadSf2Bank as readSf2Bank, clearSf2Bank as clearPersistedSf2Bank } from "@/lib/sf2-store";
+import { loadSf2Bank } from "@/lib/sf2-bank";
+import { loadSf2Bank as readSf2Bank } from "@/lib/sf2-store";
 import { getSongTab } from "@/lib/mock-data";
 import { useSharedSong } from "@/lib/use-shared-song";
 import { loadGlobalOffset, saveGlobalOffset } from "@/lib/line-offsets";
@@ -50,7 +50,6 @@ import {
   Music,
   Music4,
   Upload,
-  Disc3,
   Pencil,
   Check,
   ListMusic,
@@ -179,9 +178,6 @@ function EditSongView({ id }: { id: string }) {
   const [gpWarnings, setGpWarnings] = useState<string[]>([]);
   const [gpTracks, setGpTracks] = useState<GpTrackInfo[]>([]);
   const [gpPendingFile, setGpPendingFile] = useState<File | null>(null);
-  const [sf2Name, setSf2Name] = useState<string | null>(null);
-  const [sf2Loading, setSf2Loading] = useState(false);
-  const [sf2Error, setSf2Error] = useState<string | null>(null);
   const [gpImportingTrack, setGpImportingTrack] = useState<number | null>(null);
   const [gpSelected, setGpSelected] = useState<Set<number>>(new Set());
   const [stOpen, setStOpen] = useState(false);
@@ -257,18 +253,15 @@ function EditSongView({ id }: { id: string }) {
     }
   }, [song]);
 
-  // Recharge la banque Roland GS (.sf2) choisie précédemment.
+  // Recharge silencieusement la banque Roland GS (.sf2) choisie précédemment
+  // (plus aucun bouton de chargement dans l'interface).
   useEffect(() => {
     let cancelled = false;
     void readSf2Bank().then(async (record) => {
-      if (cancelled || !record) {
-        if (!cancelled) setSf2Name(sf2BankName());
-        return;
-      }
+      if (cancelled || !record) return;
       try {
         const file = new File([record.blob], record.name);
         await loadSf2Bank(file, record.name);
-        if (!cancelled) setSf2Name(record.name);
       } catch (err) {
         console.error("[ChordFlow] Éditeur : restauration de la banque GS impossible", err);
       }
@@ -851,36 +844,6 @@ function EditSongView({ id }: { id: string }) {
       setStError(err instanceof Error ? err.message.slice(0, 160) : String(err));
     } finally {
       setStDownloading(null);
-    }
-  };
-
-  const handleSf2PickFile = async (file: File) => {
-    setSf2Loading(true);
-    setSf2Error(null);
-    try {
-      await persistSf2Bank(file);
-      await loadSf2Bank(file, file.name);
-      setSf2Name(file.name);
-    } catch (err) {
-      setSf2Error(
-        err instanceof Error
-          ? `Impossible de charger la banque GS : ${err.message}`
-          : "Impossible de charger la banque GS."
-      );
-      console.error("[ChordFlow] Éditeur : échec de chargement SoundFont", err);
-    } finally {
-      setSf2Loading(false);
-    }
-  };
-
-  const handleSf2Remove = async () => {
-    unloadSf2Bank();
-    setSf2Name(null);
-    setSf2Error(null);
-    try {
-      await clearPersistedSf2Bank();
-    } catch (err) {
-      console.error("[ChordFlow] Éditeur : échec de suppression de la banque GS", err);
     }
   };
 
@@ -1663,48 +1626,6 @@ function EditSongView({ id }: { id: string }) {
                       ? "Téléchargement…"
                       : "Import MIDI (Songsterr)"}
                 </button>
-                <label
-                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
-                  title="Importer un SoundFont Roland GS / General MIDI (.sf2) pour reproduire les sons MIDI authentiques des pistes"
-                >
-                  <Disc3 className="w-3.5 h-3.5" />
-                  {sf2Name ? "Changer la banque GS" : "SoundFont GS (.sf2)"}
-                  <input
-                    type="file"
-                    accept=".sf2"
-                    className="hidden"
-                    disabled={sf2Loading}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) void handleSf2PickFile(file);
-                      e.target.value = "";
-                    }}
-                  />
-                </label>
-                {sf2Name && (
-                  <div className="flex flex-col gap-1.5 rounded-lg bg-zinc-800/70 border border-zinc-700 px-3 py-2">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="flex items-center gap-1.5 text-[11px] text-emerald-300">
-                        <Check className="w-3 h-3" />
-                        Banque GS chargée : {sf2Name}
-                      </span>
-                      <button
-                        onClick={() => void handleSf2Remove()}
-                        className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-md bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors cursor-pointer"
-                        title="Retirer la banque GS (les pistes rejouent avec la synthèse intégrée)"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                        Retirer
-                      </button>
-                    </div>
-                    <span className="text-[10px] text-zinc-500">
-                      « Jouer le rythme » et « Chef d&apos;orchestre » utilisent ces sons MIDI (GS) pour chaque piste.
-                    </span>
-                    {sf2Error && (
-                      <span className="text-[11px] text-red-400">{sf2Error}</span>
-                    )}
-                  </div>
-                )}
                 <button
                   onClick={() => void handleChordsToDiagrams()}
                   disabled={chartsConverting}

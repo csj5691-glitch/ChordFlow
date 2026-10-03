@@ -141,6 +141,25 @@ export function sf2Resume(): void {
   }
 }
 
+// Variante asynchrone : attend la reprise effective du contexte. Les lecteurs
+// qui planifient des centaines d'événements doivent savoir, AVANT de scheduler,
+// si la banque tourne vraiment — sinon les notes se planifient sur une horloge
+// gelée et le résultat est un silence total.
+export async function sf2ResumeAsync(): Promise<void> {
+  const context = ensureContext();
+  if (!context || context.state === "running") return;
+  try {
+    await context.resume();
+  } catch {
+    // L'état réel est relu via sf2Running() chez l'appelant.
+  }
+}
+
+// Vrai uniquement si une banque est chargée ET que son contexte tourne.
+export function sf2Running(): boolean {
+  return soundfont !== null && ctx !== null && ctx.state === "running";
+}
+
 // Fréquence de coupure du filtre passe-bas master (en Hz).
 // Plus la valeur est basse, plus le son est doux/masqué (défaut 5000).
 export function setMasterFilter(cutoffHz: number): void {
@@ -440,8 +459,10 @@ export function sf2PlayDrumEvent(
 }
 
 // Shared dispatch used by both players: an event goes to the SF2 bank when one
-// is loaded AND it can satisfy the event (program present / percussion kit
-// present); otherwise it falls back to the built-in synthesizer.
+// is loaded, its context is running AND it can satisfy the event (program
+// present / percussion kit present); otherwise it falls back to the built-in
+// synthesizer. The running check avoids scheduling on a suspended (frozen)
+// clock, which would produce silence.
 export function playEngineEvent(
   ctx: AudioContext,
   ev: SynthEvent,
@@ -450,7 +471,7 @@ export function playEngineEvent(
   program: number | null | undefined,
   opts: GmPlayOptions
 ): void {
-  if (sf2Ready()) {
+  if (sf2Running()) {
     if (opts.percussion) {
       if (sf2PlayDrumEvent(ctx, ev, when, opts.gain ?? 1, opts.drumPitch)) return;
     } else if (sf2PlayEvent(ctx, ev, when, program, opts.gain ?? 1)) {

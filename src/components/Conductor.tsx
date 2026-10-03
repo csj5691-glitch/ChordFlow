@@ -9,7 +9,7 @@ import { decodeHtmlEntities } from "@/lib/ug-scraper";
 import type { SavedChordShape, SongTab } from "@/lib/types";
 import ChordShapeView from "@/components/ChordShapeView";
 import { BarGlyph } from "@/components/BarGlyph";
-import { playEngineEvent, sf2Ready, sf2Resume, sf2StopAll, freqToMidi } from "@/lib/sf2-bank";
+import { playEngineEvent, sf2Ready, sf2ResumeAsync, sf2Running, sf2StopAll, freqToMidi } from "@/lib/sf2-bank";
 import { midiPlaybackEvents, type MidiPlaybackEvent } from "@/lib/midi-import";
 
 interface ConductorProps {
@@ -204,7 +204,12 @@ export default function Conductor({
   const chordMasterRef = useRef<GainNode | null>(null);
   const [midiDurationMs, setMidiDurationMs] = useState(0);
   const midiDurRef = useRef(0);
-  const midiPromiseRef = useRef<Promise<MidiPlaybackEvent[]> | null>(null);
+  // Source unique de vérité du MIDI : remplie par l'effet ci-dessous, lue par
+  // play(). L'étiquette « MIDI Songsterr » et la lecture partagent la même
+  // variable — impossible d'afficher un fichier qu'on ne joue pas.
+  const midiEventsRef = useRef<MidiPlaybackEvent[] | null>(null);
+  const midiLoadRef = useRef<Promise<void> | null>(null);
+  const midiUrlRef = useRef<string | null>(midiUrl);
   const playTokenRef = useRef(0);
   const changeChordVolume = (v: number) => {
     setChordVolume(v);
@@ -336,11 +341,14 @@ export default function Conductor({
     };
   }, [instrumentalUrl, vocalsUrl]);
 
-  // MIDI Songsterr : fetch + parse une seule fois par fichier ; la promesse
-  // est mémoarisée pour que play() puisse l'attendre avant la planification.
+  // MIDI Songsterr : fetch + parse une seule fois par fichier. L'octet brut
+  // est mémoisé (midiLoadRef) et les événements parsés vivent dans
+  // midiEventsRef — la même source que l'étiquette du header et play().
   useEffect(() => {
     let cancelled = false;
-    midiPromiseRef.current = null;
+    midiUrlRef.current = midiUrl;
+    midiEventsRef.current = null;
+    midiLoadRef.current = null;
     midiDurRef.current = 0;
     void Promise.resolve().then(() => {
       if (!cancelled) setMidiDurationMs(0);
@@ -350,23 +358,28 @@ export default function Conductor({
         cancelled = true;
       };
     }
-    midiPromiseRef.current = (async () => {
+    const load = (async () => {
       try {
         const res = await fetch(midiUrl);
         const buf = new Uint8Array(await res.arrayBuffer());
         const { events: evs, durationSec } = midiPlaybackEvents(buf);
-        if (cancelled) return [];
+        if (cancelled) return;
+        midiEventsRef.current = evs;
         midiDurRef.current = durationSec * 1000;
         setMidiDurationMs(durationSec * 1000);
-        return evs;
+        console.info(`[Chef] MIDI : ${evs.length} événements, ${durationSec.toFixed(1)}s`);
       } catch (err) {
-        console.error("[ChordFlow] Chef d'orchestre : échec de lecture du MIDI", err);
-        return [];
+        console.error("[Chef] échec de lecture du MIDI", err);
+        // On libère la promesse pour permettre une nouvelle tentative au
+        // prochain lancement (le fetch blob est instantané, risque quasi nul).
+        if (!cancelled) midiLoadRef.current = null;
       }
     })();
+    midiLoadRef.current = load;
     return () => {
       cancelled = true;
-      midiPromiseRef.current = null;
+      midiEventsRef.current = null;
+      midiLoadRef.current = null;
       midiDurRef.current = 0;
     };
   }, [midiUrl]);
@@ -383,19 +396,28 @@ export default function Conductor({
       // La banque SF2 ne passe pas par `master` (chaîne interne dédiée) :
       // le curseur s'applique alors en vélocité au moment de la planification.
       // Le synthé de secours vit sur `master` (volume live) — pas de double
-      // mise à l'échelle sur l'un ou l'autre chemin.
-      gain: sf2Ready() ? chordVolRef.current : 1,
+      // mise à l'échelle sur l'un ou l'autre chemin. sf2Running() aligne le
+      // choix du gain sur le chemin réellement emprunté par playEngineEvent.
+      gain: sf2Running() ? chordVolRef.current : 1,
     });
   };
 
   const play = useCallback(async () => {
     stop();
     const tok = playTokenRef.current;
-    // Attente du parse MIDI (mémoisé) avant toute planification ; sans MIDI,
-    // aucune promesse : exécution strictement synchrone comme avant.
-    const midiEvs = midiPromiseRef.current ? await midiPromiseRef.current : [];
-    if (playTokenRef.current !== tok) return;
+    // On attend le fetch/parse du MIDI (mémoisé) AVANT toute décision : si un
+    // fichier est importé, midiEventsRef sera rempli au réveil — jamais de
+    // repli silencieux sur les accords alors que l'étiquette affiche le MIDI.
+    if (midiUrlRef.current && midiLoadRef.current) await midiLoadRef.current;
+    if (playTokenRef.current !== tok) {
+      console.info("[Chef] lecture annulée pendant le chargement du MIDI");
+      return;
+    }
+    const midiEvs = midiEventsRef.current ?? [];
     const midiTotalMs = midiDurRef.current;
+    if (midiUrlRef.current && midiEvs.length === 0) {
+      console.warn("[Chef] MIDI importé mais aucun événement — repli synthé d'accords");
+    }
     if (events.length === 0 && totalMs <= 0 && midiTotalMs <= 0) return;
 
     setIndex(0);
@@ -429,28 +451,45 @@ export default function Conductor({
         window.AudioContext ||
         (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!Ctor) return;
-      sf2Resume();
+      if (sf2Ready()) await sf2ResumeAsync();
       const ctx = new Ctor();
-      void ctx.resume().catch(() => {});
+      try {
+        await ctx.resume();
+        if (ctx.state !== "running") await ctx.resume();
+      } catch {
+        // L'état est relu juste en dessous.
+      }
+      if (ctx.state !== "running") {
+        console.warn(`[Chef] contexte audio "${ctx.state}" — son possiblement muet`);
+      }
       ctxRef.current = ctx;
       const master = ctx.createGain();
       master.gain.value = chordVolRef.current;
       master.connect(ctx.destination);
       chordMasterRef.current = master;
       const now = ctx.currentTime + 0.1;
-      if (playChords) {
-        for (const ev of events) playEvent(ctx, ev, master, now + ev.start);
-      } else {
-        const gain = sf2Ready() ? chordVolRef.current : 1;
+      try {
         let n = 0;
-        for (const ev of midiEvs) {
-          playEngineEvent(ctx, midiSynthEvent(ev, n++), master, now + ev.start, ev.program, {
-            strum: "off",
-            percussion: ev.percussion,
-            ...(ev.percussion ? { drumPitch: freqToMidi(ev.freq) } : {}),
-            gain,
-          });
+        if (playChords) {
+          for (const ev of events) playEvent(ctx, ev, master, now + ev.start);
+          n = events.length;
+        } else {
+          const gain = sf2Running() ? chordVolRef.current : 1;
+          for (const ev of midiEvs) {
+            playEngineEvent(ctx, midiSynthEvent(ev, n), master, now + ev.start, ev.program, {
+              strum: "off",
+              percussion: ev.percussion,
+              ...(ev.percussion ? { drumPitch: freqToMidi(ev.freq) } : {}),
+              gain,
+            });
+            n++;
+          }
         }
+        console.info(
+          `[Chef] lecture : midi=${midiEvs.length} diagrammes=${events.length} planifiés=${n} sf2=${sf2Running()} ctx=${ctx.state}`
+        );
+      } catch (err) {
+        console.error("[Chef] échec de planification de la lecture", err);
       }
     }
 
