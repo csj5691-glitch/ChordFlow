@@ -56,11 +56,14 @@ function parseMidi(data: Uint8Array): {
 
   const headerLen = (data[pos] << 24) | (data[pos + 1] << 16) | (data[pos + 2] << 8) | data[pos + 3];
   pos += 4;
+  // MThd payload: format (2 bytes), track count (2), division (2). Division =
+  // ticks per quarter note; bit 15 set means SMPTE timing (unsupported → 480).
+  const rawDivision = headerLen >= 6 ? ((data[pos + 4] << 8) | data[pos + 5]) : 0;
   pos += headerLen;
 
   let bpm = 120;
   const tracks: ParsedTrack[] = [];
-  const ticksPerBeat = 480;
+  const ticksPerBeat = rawDivision !== 0 && (rawDivision & 0x8000) === 0 ? rawDivision : 480;
 
   while (pos < data.length - 4) {
     if (data[pos] === 0x4d && data[pos + 1] === 0x54 && data[pos + 2] === 0x72 && data[pos + 3] === 0x6b) {
@@ -73,7 +76,6 @@ function parseMidi(data: Uint8Array): {
       let runningStatus = 0;
       let currentTick = 0;
       let trackName = "";
-      const channel = 0;
       const noteOnMap = new Map<string, { pitch: number; velocity: number; startTick: number }>();
 
       while (pos < trackEnd) {
@@ -92,6 +94,7 @@ function parseMidi(data: Uint8Array): {
         const msgType = status & 0xf0;
 
         if (msgType === 0x90) {
+          const channel = status & 0x0f;
           const pitch = data[pos];
           const velocity = data[pos + 1];
           pos += 2;
@@ -113,6 +116,7 @@ function parseMidi(data: Uint8Array): {
             }
           }
         } else if (msgType === 0x80) {
+          const channel = status & 0x0f;
           const pitch = data[pos];
           pos += 2;
           const key = `${channel}-${pitch}`;
@@ -154,8 +158,10 @@ function parseMidi(data: Uint8Array): {
       tracks.push({
         name: trackName,
         notes,
-        channel,
-        isDrums: false,
+        channel: notes.length > 0 ? notes[0].channel : 0,
+        // General MIDI puts the drum kit on channel 10 (index 9); a track whose
+        // notes all come from that channel is percussion.
+        isDrums: notes.length > 0 && notes.every((n) => n.channel === 9),
       });
 
       pos = trackEnd;
@@ -210,9 +216,9 @@ export function importMidi(
   data: Uint8Array,
   baseSong?: SongTab | null
 ): MidiImportResult {
-  const { bpm, tracks } = parseMidi(data);
+  const { bpm, tracks, ticksPerBeat } = parseMidi(data);
 
-  const diagrams: SavedChordShape[] = [];
+  const perTrackDiagrams: SavedChordShape[][] = [];
   const trackInfos: MidiTrackInfo[] = [];
 
   const sortedTracks = tracks
@@ -232,9 +238,10 @@ export function importMidi(
       channel: track.channel,
     });
 
+    const trackDiagrams: SavedChordShape[] = [];
     const notesByBeat = new Map<number, MidiNote[]>();
     for (const note of track.notes) {
-      const beat = Math.floor(note.startTick / 480);
+      const beat = Math.floor(note.startTick / ticksPerBeat);
       if (!notesByBeat.has(beat)) notesByBeat.set(beat, []);
       notesByBeat.get(beat)!.push(note);
     }
@@ -294,8 +301,8 @@ export function importMidi(
         duration,
       };
 
-      if (lastChordId && diagrams.length > 0) {
-        const prev = diagrams[diagrams.length - 1];
+      if (lastChordId && trackDiagrams.length > 0) {
+        const prev = trackDiagrams[trackDiagrams.length - 1];
         if (
           prev.id === lastChordId &&
           prev.label === chordName &&
@@ -307,10 +314,21 @@ export function importMidi(
         }
       }
 
-      diagrams.push(diagram);
+      trackDiagrams.push(diagram);
       lastChordId = diagram.id;
     }
+
+    perTrackDiagrams.push(trackDiagrams);
   });
+
+  // Multi-track files (Songsterr tabs ship guitars, bass, vocals, drums…) would
+  // repeat the whole song if every track's chords were concatenated: keep only
+  // the richest track — the chord source — like picking one track in the
+  // Guitar Pro import.
+  const diagrams = perTrackDiagrams.reduce(
+    (best, cur) => (cur.length > best.length ? cur : best),
+    [] as SavedChordShape[]
+  );
 
   const song: SongTab = {
     ...(baseSong ?? {
@@ -326,5 +344,5 @@ export function importMidi(
     diagrams,
   };
 
-  return { song, diagrams, tracks: trackInfos, bpm, ticksPerBeat: 480 };
+  return { song, diagrams, tracks: trackInfos, bpm, ticksPerBeat };
 }

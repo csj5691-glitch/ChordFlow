@@ -12,6 +12,7 @@ import Conductor from "@/components/Conductor";
 import { loadAudioStems, saveAudioStem, getAudioStemUrl } from "@/lib/audio-store";
 import {
   analyzeGuitarProFile,
+  guitarProToMidi,
   importGuitarProTrack,
   type GpTrackInfo,
 } from "@/lib/gp-import";
@@ -191,6 +192,7 @@ function EditSongView({ id }: { id: string }) {
   const [stLoading, setStLoading] = useState(false);
   const [stDownloading, setStDownloading] = useState<number | null>(null);
   const [stError, setStError] = useState<string | null>(null);
+  const [stMode, setStMode] = useState<"gp" | "midi">("gp");
   const [activeSlot, setActiveSlot] = useState<ActiveSlot>({ kind: "main" });
   const [gpMenuOpen, setGpMenuOpen] = useState(false);
   const [lyricsOffset, setLyricsOffset] = useState(() => (id ? loadGlobalOffset(id) : 0));
@@ -775,6 +777,19 @@ function EditSongView({ id }: { id: string }) {
     }
   };
 
+  // Opens the Songsterr import panel for the requested mode (gp | midi);
+  // clicking the button of the mode already open closes the panel.
+  const toggleSt = (mode: "gp" | "midi") => {
+    if (stOpen && stMode === mode) {
+      setStOpen(false);
+      return;
+    }
+    setStMode(mode);
+    setStOpen(true);
+    setStArtist((v) => v || (song?.artist ?? ""));
+    setStTitle((v) => v || (song?.title ?? ""));
+  };
+
   const handleStSearch = async () => {
     const pattern = `${stArtist.trim()} ${stTitle.trim()}`.trim();
     if (!pattern) return;
@@ -811,7 +826,13 @@ function EditSongView({ id }: { id: string }) {
       }
       const blob = await res.blob();
       const file = new File([blob], "songsterr.gp", { type: "application/octet-stream" });
-      await handleGpPickFile(file);
+      if (stMode === "midi") {
+        const bytes = await guitarProToMidi(file);
+        const midiFile = new File([bytes], "songsterr.mid", { type: "audio/midi" });
+        await handleMidiPickFile(midiFile);
+      } else {
+        await handleGpPickFile(file);
+      }
     } catch (err) {
       setStError(err instanceof Error ? err.message.slice(0, 160) : String(err));
     } finally {
@@ -850,11 +871,16 @@ function EditSongView({ id }: { id: string }) {
   };
 
   const handleMidiPickFile = async (file: File) => {
+    setGpError(null);
     try {
       const buffer = await file.arrayBuffer();
       const data = new Uint8Array(buffer);
       const result = importMidi(file.name, data, song);
       if (!song) return;
+      if (result.diagrams.length === 0) {
+        setGpError("Aucun accord détecté dans ce MIDI : aucun diagramme ajouté.");
+        return;
+      }
       const drops = await upsert({
         ...song,
         bpm: song.bpm ?? result.bpm,
@@ -865,6 +891,11 @@ function EditSongView({ id }: { id: string }) {
       }
     } catch (err) {
       console.error("[ChordFlow] Éditeur : échec d'analyse MIDI", err);
+      setGpError(
+        err instanceof Error
+          ? `Impossible d'importer le MIDI : ${err.message}`
+          : "Impossible d'importer le MIDI."
+      );
     }
   };
 
@@ -1568,14 +1599,10 @@ function EditSongView({ id }: { id: string }) {
                 )}
                 <button
                   type="button"
-                  onClick={() => {
-                    setStOpen((o) => !o);
-                    setStArtist((v) => v || song.artist);
-                    setStTitle((v) => v || song.title);
-                  }}
+                  onClick={() => toggleSt("gp")}
                   disabled={gpImporting || stDownloading !== null}
                   className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit cursor-pointer select-none disabled:cursor-wait ${
-                    stOpen
+                    stOpen && stMode === "gp"
                       ? "bg-amber-500/25 text-amber-200"
                       : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
                   }`}
@@ -1588,23 +1615,24 @@ function EditSongView({ id }: { id: string }) {
                       ? "Téléchargement…"
                       : "Import GP (Songsterr)"}
                 </button>
-                <label
-                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
-                  title="Importer un fichier MIDI (.mid) : converti en diagrammes d'accords"
+                <button
+                  type="button"
+                  onClick={() => toggleSt("midi")}
+                  disabled={gpImporting || stDownloading !== null}
+                  className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit cursor-pointer select-none disabled:cursor-wait ${
+                    stOpen && stMode === "midi"
+                      ? "bg-amber-500/25 text-amber-200"
+                      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                  }`}
+                  title="Télécharger un fichier MIDI depuis Songsterr (généré depuis le Guitar Pro de la tab)"
                 >
                   <Music className="w-3.5 h-3.5" />
-                  Import MIDI
-                  <input
-                    type="file"
-                    accept=".mid,.midi"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) void handleMidiPickFile(file);
-                      e.target.value = "";
-                    }}
-                  />
-                </label>
+                  {gpImporting
+                    ? "Lecture…"
+                    : stDownloading !== null
+                      ? "Téléchargement…"
+                      : "Import MIDI (Songsterr)"}
+                </button>
                 <label
                   className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
                   title="Importer un SoundFont Roland GS / General MIDI (.sf2) pour reproduire les sons MIDI authentiques des pistes"
@@ -1660,7 +1688,9 @@ function EditSongView({ id }: { id: string }) {
               {stOpen && (
                 <div className="flex flex-col gap-2.5 rounded-lg bg-zinc-800/70 border border-zinc-700 p-3">
                   <p className="text-[11px] font-semibold text-zinc-300">
-                    Importer un fichier Guitar Pro depuis Songsterr
+                    {stMode === "midi"
+                      ? "Importer un fichier MIDI depuis Songsterr (généré depuis le Guitar Pro de la tab)"
+                      : "Importer un fichier Guitar Pro depuis Songsterr"}
                   </p>
                   <div className="flex flex-wrap items-end gap-2">
                     <label className="flex flex-col gap-1 text-[10px] text-zinc-500">
@@ -1704,12 +1734,18 @@ function EditSongView({ id }: { id: string }) {
                         fichier local
                         <input
                           type="file"
-                          accept=".gp,.gp5,.gpx,.gp4,.gp3,.gtp"
+                          accept={stMode === "midi" ? ".mid,.midi" : ".gp,.gp5,.gpx,.gp4,.gp3,.gtp"}
                           className="hidden"
                           disabled={gpImporting}
                           onChange={(e) => {
                             const file = e.target.files?.[0];
-                            if (file && !gpImporting) void handleGpPickFile(file);
+                            if (file) {
+                              if (stMode === "midi") {
+                                void handleMidiPickFile(file);
+                              } else if (!gpImporting) {
+                                void handleGpPickFile(file);
+                              }
+                            }
                             e.target.value = "";
                           }}
                         />

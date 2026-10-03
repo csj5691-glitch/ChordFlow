@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
 import type { SavedChordShape, SongTab } from "./types";
-import { importer, model } from "@coderline/alphatab";
+import { importer, midi, model } from "@coderline/alphatab";
 import { getChordShape, parseChordName } from "./chord-data";
 
 const STRING_COUNT = 6;
@@ -87,6 +87,20 @@ function durationToBeats(duration: model.Duration, dots: number, tupletNumerator
 async function loadScore(file: File): Promise<model.Score> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   return importer.ScoreLoader.loadScoreFromBytes(bytes);
+}
+
+// Converts a Guitar Pro file into a standard SMF1 MIDI file (multi-track),
+// used by the Songsterr MIDI import (Songsterr's own MIDI export is Plus-only).
+export async function guitarProToMidi(file: File): Promise<Uint8Array<ArrayBuffer>> {
+  const score = await loadScore(file);
+  const midiFile = new midi.MidiFile();
+  // SMF1: one MTrk per instrument (format 0 would mix every channel into a
+  // single track, which hides drums from the percussion filter on import).
+  midiFile.format = midi.MidiFileFormat.MultiTrack;
+  const handler = new midi.AlphaSynthMidiFileHandler(midiFile, true);
+  new midi.MidiFileGenerator(score, null, handler).generate();
+  // Fresh copy so the buffer is a plain ArrayBuffer (satisfies File/BlobPart typing).
+  return new Uint8Array(midiFile.toBinary());
 }
 
 function isVocalTrack(track: model.Track, staff: model.Staff | undefined): boolean {
