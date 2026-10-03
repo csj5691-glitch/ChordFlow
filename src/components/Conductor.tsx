@@ -212,6 +212,8 @@ export default function Conductor({
   const midiLoadRef = useRef<Promise<void> | null>(null);
   const midiUrlRef = useRef<string | null>(midiUrl);
   const playTokenRef = useRef(0);
+  const probeRef = useRef<number | null>(null);
+  const [midiLevel, setMidiLevel] = useState(0);
   const changeChordVolume = (v: number) => {
     setChordVolume(v);
     chordVolRef.current = v;
@@ -266,6 +268,11 @@ export default function Conductor({
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
     }
+    if (probeRef.current !== null) {
+      window.clearInterval(probeRef.current);
+      probeRef.current = null;
+    }
+    setMidiLevel(0);
     if (ctxRef.current && ctxRef.current.state === "running") {
       ctxRef.current.close().catch(() => {});
     }
@@ -503,23 +510,26 @@ export default function Conductor({
       } catch (err) {
         console.error("[Chef] échec de planification de la lecture", err);
       }
-      // Sonde de niveau : mesure la sortie réelle du bus pendant 3 s (peak 0
-      // = aucun signal bien que planifié, peak > 0 = le son part bien).
+      // Sonde de niveau : mesure la sortie réelle du bus MIDI (peak 0 = aucun
+      // signal bien que planifié). Elle alimente le vumètre affiché à côté du
+      // curseur « MIDI » — visible sans ouvrir la console.
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 2048;
+      analyser.fftSize = 1024;
       master.connect(analyser);
       const samples = new Uint8Array(analyser.fftSize);
       let peakSeen = 0;
-      const probe = window.setInterval(() => {
+      probeRef.current = window.setInterval(() => {
         analyser.getByteTimeDomainData(samples);
+        let peak = 0;
         for (let i = 0; i < samples.length; i++) {
           const d = Math.abs(samples[i] - 128);
-          if (d > peakSeen) peakSeen = d;
+          if (d > peak) peak = d;
         }
+        if (peak > peakSeen) peakSeen = peak;
+        setMidiLevel(Math.min(1, peak / 90));
       }, 100);
       window.setTimeout(() => {
-        window.clearInterval(probe);
-        console.info(`[Chef] niveau de sortie (3 s) : peak=${peakSeen}/128`);
+        console.info(`[Chef] niveau de sortie MIDI (3 s) : peak=${peakSeen}/128`);
       }, 3000);
     }
 
@@ -984,6 +994,15 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
             />
             <span className="text-[10px] text-sky-400 font-mono w-9">
               {Math.round(chordVolume * 100)}%
+            </span>
+            <span
+              className="h-1.5 w-14 bg-zinc-800 rounded-full overflow-hidden"
+              title="Niveau du signal MIDI : la barre bouge-t-elle quand la source joue ?"
+            >
+              <span
+                className="block h-full bg-emerald-500 transition-[width] duration-100"
+                style={{ width: `${Math.round(midiLevel * 100)}%` }}
+              />
             </span>
           </div>
         </div>
