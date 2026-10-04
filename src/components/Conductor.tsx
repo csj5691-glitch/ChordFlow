@@ -122,10 +122,6 @@ const MIDI_SHAPE_STUB: SavedChordShape = {
 // rend visible immédiatement. À mettre à jour à chaque déploiement.
 const BUILD_TAG = "7031996";
 
-// Le stem instrumental reste une présence discrète : la source MIDI importée de
-// Songsterr est la source principale, on ne laisse donc pas le stem l'étouffer.
-const STEM_MAX_VOLUME = 0.1;
-
 function midiSynthEvent(ev: MidiPlaybackEvent, i: number): SynthEvent {
   return {
     id: `midi-${i}`,
@@ -948,12 +944,12 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
               <input
                 type="range"
                 min={0}
-                max={STEM_MAX_VOLUME}
-                step={0.01}
+                max={1}
+                step={0.05}
                 value={instVolume}
                 onChange={(e) => changeInstVolume(parseFloat(e.target.value))}
                 className="w-32 h-1 accent-amber-500 cursor-pointer"
-                title={`Volume du stem instrumental (plafonné à ${Math.round(STEM_MAX_VOLUME * 100)} % pour que la source MIDI importée reste dominante)`}
+                title="Volume du stem instrumental — à équilibrer avec le curseur de la source (MIDI ou Accords)"
               />
               <span className="text-[10px] text-zinc-500 font-mono w-9">
                 {Math.round(instVolume * 100)}%
