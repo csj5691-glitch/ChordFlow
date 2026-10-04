@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ytdlpFailure } from "@/lib/yt-dlp-error";
 
 const execFileP = promisify(execFile);
 
@@ -54,19 +55,31 @@ export async function POST(req: NextRequest) {
         console.log(`[yt-stems] téléchargement de ${videoId}…`);
         await execFileP(
           "yt-dlp",
-          ["--no-playlist", "--no-warnings", "-f", "bestaudio", "-o", audioPath, watchUrl],
+          [
+            "--no-playlist",
+            "--no-warnings",
+            "--retries",
+            "3",
+            "--fragment-retries",
+            "3",
+            "-f",
+            "bestaudio",
+            "-o",
+            audioPath,
+            watchUrl,
+          ],
           { timeout: 240_000, maxBuffer: 8 * 1024 * 1024 }
         );
       } catch (e) {
         const err = e as { message?: string; stderr?: Buffer | string };
-        const stderr = err?.stderr ? String(err.stderr).slice(0, 400) : "";
+        const stderr = err?.stderr ? String(err.stderr) : "";
         console.error(`[yt-stems] yt-dlp a échoué pour ${videoId}: ${err?.message ?? e}\n${stderr}`);
         const msg = err?.message ?? String(e);
         return NextResponse.json(
           {
             error: msg.includes("ENOENT")
               ? "yt-dlp introuvable sur cette machine — installe-le puis utilise l'app en local"
-              : `téléchargement YouTube impossible: ${msg.slice(0, 300)}`,
+              : `téléchargement YouTube impossible: ${ytdlpFailure(stderr, msg)}`,
           },
           { status: 500 }
         );

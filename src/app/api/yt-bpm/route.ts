@@ -7,6 +7,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { analyzePcm } from "@/lib/bpm-detect";
+import { ytdlpFailure } from "@/lib/yt-dlp-error";
 
 const execFileP = promisify(execFile);
 
@@ -90,6 +91,10 @@ export async function POST(req: NextRequest) {
       [
         "--no-playlist",
         "--no-warnings",
+        "--retries",
+        "3",
+        "--fragment-retries",
+        "3",
         "-f",
         "bestaudio",
         "-o",
@@ -126,9 +131,9 @@ export async function POST(req: NextRequest) {
     result.confidence = analysis.confidence;
   } catch (err) {
     const e = err as { stderr?: Buffer | string; message?: string };
-    errorMsg = e?.message ?? "échec";
-    const stderr = e?.stderr ? String(e.stderr).slice(0, 500) : "";
-    console.error(`[yt-bpm] échec pour ${videoId} : ${errorMsg}\n${stderr}`);
+    const stderr = e?.stderr ? String(e.stderr) : "";
+    console.error(`[yt-bpm] échec pour ${videoId} : ${e?.message ?? "?"}\n${stderr}`);
+    errorMsg = ytdlpFailure(stderr, e?.message ?? "échec");
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
