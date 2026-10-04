@@ -208,6 +208,19 @@ export interface MidiPlaybackEvent {
   percussion: boolean;
   /** Velocity mapped to 0..1 (floored so quiet passages stay audible). */
   gain: number;
+  /** Index of the source MIDI track, so each track gets its own mixer strip. */
+  track: number;
+}
+
+/** One mixer strip worth of MIDI content (a Songsterr tab track: guitar, bass, drums…). */
+export interface MidiTrackSummary {
+  index: number;
+  name: string;
+  channel: number;
+  /** GM program shared by the track's notes (0 on the drum channel). */
+  program: number;
+  percussion: boolean;
+  eventCount: number;
 }
 
 interface TempoSegment {
@@ -247,6 +260,7 @@ function tickToSeconds(tick: number, ticksPerBeat: number, segs: TempoSegment[])
 // resolved at the note's tick, tempo map honoured).
 export function midiPlaybackEvents(data: Uint8Array): {
   events: MidiPlaybackEvent[];
+  tracks: MidiTrackSummary[];
   durationSec: number;
 } {
   const { ticksPerBeat, tracks, tempos, programs } = parseMidi(data);
@@ -271,11 +285,14 @@ export function midiPlaybackEvents(data: Uint8Array): {
   };
 
   const events: MidiPlaybackEvent[] = [];
-  for (const track of tracks) {
+  const summaries: MidiTrackSummary[] = [];
+  for (let t = 0; t < tracks.length; t++) {
+    const track = tracks[t];
+    if (track.notes.length === 0) continue;
+    const percussion = track.channel === 9;
     for (const note of track.notes) {
       const start = tickToSeconds(note.startTick, ticksPerBeat, segs);
       const end = tickToSeconds(note.startTick + note.durationTicks, ticksPerBeat, segs);
-      const percussion = note.channel === 9;
       events.push({
         start,
         duration: Math.max(0.05, end - start),
@@ -283,12 +300,22 @@ export function midiPlaybackEvents(data: Uint8Array): {
         program: percussion ? 0 : programAt(note.channel, note.startTick),
         percussion,
         gain: Math.max(0.3, Math.min(1, note.velocity / 127)),
+        track: summaries.length,
       });
     }
+    const first = track.notes[0];
+    summaries.push({
+      index: summaries.length,
+      name: track.name,
+      channel: track.channel,
+      program: percussion ? 0 : programAt(first.channel, first.startTick),
+      percussion,
+      eventCount: track.notes.length,
+    });
   }
   events.sort((a, b) => a.start - b.start);
   const durationSec = events.reduce((m, e) => Math.max(m, e.start + e.duration), 0);
-  return { events, durationSec };
+  return { events, tracks: summaries, durationSec };
 }
 
 function identifyChord(pitches: number[]): string | null {

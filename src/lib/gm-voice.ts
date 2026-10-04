@@ -100,6 +100,28 @@ export function gmDrumName(note: number): string | null {
   return GS_DRUM_NAMES[note] ?? null;
 }
 
+// Famille d'instruments GM : sert à regrouper les pistes d'un MIDI importé
+// (batterie, voix, vents, clavier, piano…) dans le mixeur du Chef d'orchestre.
+export function gmProgramFamily(program: number | null | undefined, percussion = false): string {
+  if (percussion) return "Batterie";
+  const p = program ?? 0;
+  if (p <= 7) return "Piano";
+  if (p <= 15) return "Timbres";
+  if (p <= 23) return "Clavier";
+  if (p <= 31) return "Guitare";
+  if (p <= 39) return "Basse";
+  if (p <= 47) return "Cordes";
+  if (p <= 51) return "Cordes";
+  if (p <= 55) return "Voix";
+  if (p <= 63) return "Cuivres";
+  if (p <= 71) return "Bois";
+  if (p <= 79) return "Flûtes";
+  if (p <= 87) return "Synthé";
+  if (p <= 95) return "Nappes";
+  if (p <= 103) return "FX";
+  return "Sons";
+}
+
 // ---------------------------------------------------------------------------
 // Internal synthesizer. Each GS program is rendered with a per-family timbre
 // (waveform + harmonic partials + optional detune ensemble, noise transient,

@@ -10,8 +10,8 @@ import type { SavedChordShape, SongTab } from "@/lib/types";
 import ChordShapeView from "@/components/ChordShapeView";
 import { BarGlyph } from "@/components/BarGlyph";
 import { freqToMidi } from "@/lib/sf2-bank";
-import { playGmEvent } from "@/lib/gm-voice";
-import { midiPlaybackEvents, type MidiPlaybackEvent } from "@/lib/midi-import";
+import { playGmEvent, gmProgramName, gmProgramFamily } from "@/lib/gm-voice";
+import { midiPlaybackEvents, type MidiPlaybackEvent, type MidiTrackSummary } from "@/lib/midi-import";
 
 interface ConductorProps {
   diagrams: SavedChordShape[];
@@ -120,7 +120,27 @@ const MIDI_SHAPE_STUB: SavedChordShape = {
 // Numéro du build affiché dans l'en-tête du Chef : si l'interface ne change pas
 // après un déploiement, c'est qu'un bundle périmé est encore servi — ce tag le
 // rend visible immédiatement. À mettre à jour à chaque déploiement.
-const BUILD_TAG = "7031996";
+const BUILD_TAG = "mixeur-pistes";
+
+// Une piste MIDI = un strip de mixage : volume + EQ 3 bandes (graves 220 Hz,
+// médiums 1,2 kHz, aigus 4,2 kHz). Les valeurs sont en dB pour l'EQ.
+interface TrackEq {
+  low: number;
+  mid: number;
+  high: number;
+}
+interface TrackMix {
+  volume: number;
+  eq: TrackEq;
+}
+interface TrackNodes {
+  input: GainNode;
+  low: BiquadFilterNode;
+  mid: BiquadFilterNode;
+  high: BiquadFilterNode;
+}
+const DEFAULT_MIX: TrackMix = { volume: 1, eq: { low: 0, mid: 0, high: 0 } };
+const EQ_FREQS = { low: 220, mid: 1200, high: 4200 };
 
 function midiSynthEvent(ev: MidiPlaybackEvent, i: number): SynthEvent {
   return {
@@ -219,6 +239,46 @@ export default function Conductor({
   const playTokenRef = useRef(0);
   const probeRef = useRef<number | null>(null);
   const [midiLevel, setMidiLevel] = useState(0);
+  // Pistes du MIDI importé et mixage par piste (volume + EQ), comme une table
+  // de mixage : chaque piste a son propre strip.
+  const [midiTracks, setMidiTracks] = useState<MidiTrackSummary[]>([]);
+  const [trackMix, setTrackMix] = useState<Record<number, TrackMix>>({});
+  const trackMixRef = useRef<Record<number, TrackMix>>({});
+  const trackNodesRef = useRef<Map<number, TrackNodes>>(new Map());
+  const writeMix = (next: Record<number, TrackMix>) => {
+    trackMixRef.current = next;
+    setTrackMix(next);
+  };
+  const changeTrackVolume = (index: number, v: number) => {
+    const cur = trackMixRef.current[index] ?? DEFAULT_MIX;
+    writeMix({ ...trackMixRef.current, [index]: { ...cur, volume: v } });
+    const nodes = trackNodesRef.current.get(index);
+    if (nodes) {
+      nodes.input.gain.setTargetAtTime(v, nodes.input.context.currentTime, 0.02);
+    }
+  };
+  const changeTrackEq = (index: number, band: keyof TrackEq, v: number) => {
+    const cur = trackMixRef.current[index] ?? DEFAULT_MIX;
+    writeMix({
+      ...trackMixRef.current,
+      [index]: { ...cur, eq: { ...cur.eq, [band]: v } },
+    });
+    const nodes = trackNodesRef.current.get(index);
+    if (nodes) {
+      nodes[band].gain.setTargetAtTime(v, nodes[band].context.currentTime, 0.02);
+    }
+  };
+  const resetTrackMix = () => {
+    writeMix({});
+    for (const [index, nodes] of trackNodesRef.current) {
+      const at = nodes.input.context.currentTime;
+      nodes.input.gain.setTargetAtTime(1, at, 0.02);
+      nodes.low.gain.setTargetAtTime(0, at, 0.02);
+      nodes.mid.gain.setTargetAtTime(0, at, 0.02);
+      nodes.high.gain.setTargetAtTime(0, at, 0.02);
+      if (index < 0) nodes.input.disconnect();
+    }
+  };
   // Source jouée par le Chef : le fichier MIDI importé de Songsterr ou la
   // séquence de diagrammes d'accords synthétisée (l'ancien comportement).
   const [sourceMode, setSourceMode] = useState<"midi" | "chords">("midi");
@@ -366,7 +426,10 @@ export default function Conductor({
     midiLoadRef.current = null;
     midiDurRef.current = 0;
     void Promise.resolve().then(() => {
-      if (!cancelled) setMidiDurationMs(0);
+      if (!cancelled) {
+        setMidiDurationMs(0);
+        setMidiTracks([]);
+      }
     });
     if (!midiUrl) {
       return () => {
@@ -377,12 +440,16 @@ export default function Conductor({
       try {
         const res = await fetch(midiUrl);
         const buf = new Uint8Array(await res.arrayBuffer());
-        const { events: evs, durationSec } = midiPlaybackEvents(buf);
+        const { events: evs, tracks: trks, durationSec } = midiPlaybackEvents(buf);
         if (cancelled) return;
         midiEventsRef.current = evs;
         midiDurRef.current = durationSec * 1000;
         setMidiDurationMs(durationSec * 1000);
-        console.info(`[Chef] MIDI : ${evs.length} événements, ${durationSec.toFixed(1)}s`);
+        setMidiTracks(trks);
+        writeMix({});
+        console.info(
+          `[Chef] MIDI : ${evs.length} événements, ${durationSec.toFixed(1)}s, ${trks.length} pistes`
+        );
       } catch (err) {
         console.error("[Chef] échec de lecture du MIDI", err);
         // On libère la promesse pour permettre une nouvelle tentative au
@@ -490,6 +557,35 @@ export default function Conductor({
       const horizonSec = () => ctx.currentTime - t0 + 0.6;
       let chordPtr = 0;
       let midiPtr = 0;
+      // Un strip par piste : volume + EQ 3 bandes, créé à la première note de
+      // la piste (donc juste avant qu'on l'entende) et relié au bus du Chef.
+      trackNodesRef.current = new Map();
+      const busFor = (index: number): GainNode => {
+        const cached = trackNodesRef.current.get(index);
+        if (cached) return cached.input;
+        const mix = trackMixRef.current[index] ?? DEFAULT_MIX;
+        const input = ctx.createGain();
+        input.gain.value = mix.volume;
+        const low = ctx.createBiquadFilter();
+        low.type = "lowshelf";
+        low.frequency.value = EQ_FREQS.low;
+        const mid = ctx.createBiquadFilter();
+        mid.type = "peaking";
+        mid.frequency.value = EQ_FREQS.mid;
+        mid.Q.value = 0.9;
+        const high = ctx.createBiquadFilter();
+        high.type = "highshelf";
+        high.frequency.value = EQ_FREQS.high;
+        low.gain.value = mix.eq.low;
+        mid.gain.value = mix.eq.mid;
+        high.gain.value = mix.eq.high;
+        input.connect(low);
+        low.connect(mid);
+        mid.connect(high);
+        high.connect(master);
+        trackNodesRef.current.set(index, { input, low, mid, high });
+        return input;
+      };
       pump = () => {
         const horizon = horizonSec();
         while (playChords && chordPtr < events.length && events[chordPtr].start <= horizon) {
@@ -498,7 +594,7 @@ export default function Conductor({
         }
         while (hasMidi && midiPtr < midiEvs.length && midiEvs[midiPtr].start <= horizon) {
           const ev = midiEvs[midiPtr];
-          playGmEvent(ctx, midiSynthEvent(ev, midiPtr), master, t0 + ev.start, ev.program, {
+          playGmEvent(ctx, midiSynthEvent(ev, midiPtr), busFor(ev.track), t0 + ev.start, ev.program, {
             strum: "off",
             percussion: ev.percussion,
             ...(ev.percussion ? { drumPitch: freqToMidi(ev.freq) } : {}),
@@ -509,7 +605,7 @@ export default function Conductor({
       };
       const first = midiEvs[0];
       console.info(
-        `[Chef] lecture : source=${playChords ? "diagrammes" : "MIDI"}(${midiEvs.length}/${events.length}) ctx=${ctx.state} premier=${first ? first.start.toFixed(2) : "-"}s fenêtre=0.6s`
+        `[Chef] lecture : source=${playChords ? "Accords" : "MIDI"}(${midiEvs.length}/${events.length}) pistes=${midiTracks.length} ctx=${ctx.state} premier=${first ? first.start.toFixed(2) : "-"}s fenêtre=0.6s`
       );
       try {
         pump();
@@ -539,8 +635,9 @@ export default function Conductor({
       }, 3000);
     }
 
-    const startedAt = performance.now() + 100;
+    let startedAt = 0;
     const tick = () => {
+      if (startedAt === 0) startedAt = performance.now() + 100;
       if (pump) {
         try {
           pump();
@@ -595,7 +692,7 @@ export default function Conductor({
     };
     timerRef.current = window.setTimeout(tick, 40);
     setPlaying(true);
-  }, [events, stop, totalMs, flatLyrics, sourceMode]);
+  }, [events, stop, totalMs, flatLyrics, sourceMode, midiTracks]);
 
   const playedRef = useRef(false);
   useEffect(() => {
@@ -1005,6 +1102,70 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
               />
             </span>
           </div>
+          {midiTracks.length > 0 && (
+            <div className="flex flex-col gap-1.5 rounded-lg bg-zinc-900/70 border border-zinc-800 px-3 py-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-zinc-400">
+                  Pistes MIDI ({midiTracks.length} bandes) — volume + EQ par piste
+                </span>
+                <button
+                  type="button"
+                  onClick={resetTrackMix}
+                  className="text-[10px] font-bold px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:bg-zinc-700 transition-colors cursor-pointer"
+                  title="Remettre tous les volumes à 100 % et les EQ à 0 dB"
+                >
+                  Réinitialiser
+                </button>
+              </div>
+              <div className="flex flex-col gap-1 max-h-44 overflow-y-auto pr-1">
+                {midiTracks.map((t) => {
+                  const mix = trackMix[t.index] ?? DEFAULT_MIX;
+                  const family = gmProgramFamily(t.program, t.percussion);
+                  const label = t.name || `${family} ${t.index + 1}`;
+                  return (
+                    <div
+                      key={t.index}
+                      className="flex items-center gap-2 text-[11px]"
+                      title={`${label}${gmProgramName(t.program) ? ` — ${gmProgramName(t.program)}` : ""} — ${t.eventCount} notes`}
+                    >
+                      <span className="w-28 truncate text-zinc-300">{label}</span>
+                      <span className="w-14 text-[10px] text-zinc-500">{family}</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1.4}
+                        step={0.05}
+                        value={mix.volume}
+                        onChange={(e) => changeTrackVolume(t.index, parseFloat(e.target.value))}
+                        className="w-20 h-1 accent-sky-500 cursor-pointer"
+                        title="Volume de la piste"
+                      />
+                      <span className="text-[10px] text-zinc-500 font-mono w-8">
+                        {Math.round(mix.volume * 100)}%
+                      </span>
+                      {(["low", "mid", "high"] as const).map((band) => (
+                        <span key={band} className="flex items-center gap-1">
+                          <span className="text-[9px] text-zinc-600 uppercase">
+                            {band === "low" ? "G" : band === "mid" ? "M" : "A"}
+                          </span>
+                          <input
+                            type="range"
+                            min={-12}
+                            max={12}
+                            step={1}
+                            value={mix.eq[band]}
+                            onChange={(e) => changeTrackEq(t.index, band, parseFloat(e.target.value))}
+                            className="w-12 h-1 accent-emerald-500 cursor-pointer"
+                            title={`${band === "low" ? "Graves" : band === "mid" ? "Médiums" : "Aigus"} (${EQ_FREQS[band]} Hz) — ${mix.eq[band] > 0 ? "+" : ""}${mix.eq[band]} dB`}
+                          />
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {midiDurationMs > 0 && (
             <div className="flex items-center gap-2">
               <span className="text-zinc-500 w-20">Source</span>
