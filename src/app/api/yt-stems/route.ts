@@ -120,13 +120,21 @@ export async function POST(req: NextRequest) {
     res = await fetch(`${STEMS_SERVICE}/separate?stem=${encodeURIComponent(stem)}`, {
       method: "POST",
       body: upstream,
-      signal: AbortSignal.timeout(590_000),
+      // Séparation Demucs CPU : mesurée à ~3,7x le temps réel (45 s d'audio
+      // → 167 s), donc une chanson de 4 min demande ~15 min. Le timeout doit
+      // dépasser ça, sinon le téléchargement échoue toujours en fin de morceau.
+      signal: AbortSignal.timeout(1_750_000),
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "erreur inconnue";
+    const timeout = /timeout|abort/i.test(msg) || (e as { name?: string })?.name === "AbortError";
     return NextResponse.json(
-      { error: `service stems injoignable (${STEMS_SERVICE}) — ${msg}` },
-      { status: 502 }
+      {
+        error: timeout
+          ? `séparation trop longue (service CPU) — le service garde le résultat en cache : relance le téléchargement, il répondra immédiatement`
+          : `service stems injoignable (${STEMS_SERVICE}) — ${msg}`,
+      },
+      { status: timeout ? 504 : 502 }
     );
   }
 

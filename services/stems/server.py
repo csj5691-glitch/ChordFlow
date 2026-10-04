@@ -12,6 +12,7 @@ from demucs_onnx import separate
 from fastapi import FastAPI, File, HTTPException, UploadFile, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from starlette.concurrency import run_in_threadpool
 
 app = FastAPI(title="ChordFlow Stems Service")
 
@@ -29,6 +30,9 @@ CACHE_ROOT = Path(tempfile.gettempdir()) / "chordflow-stems-cache"
 CACHE_TTL = 1800  # 30 minutes
 CACHE_MAX = 4
 
+# onnxruntime peut annoncer CUDAExecutionProvider sans que cuDNN soit
+# réellement présent : on tente le GPU et _separate_with_fallback bascule sur
+# le CPU au premier échec.
 _use_cuda = True
 
 
@@ -122,7 +126,11 @@ async def separate_audio(file: UploadFile = File(...), stem: str = Query("vocals
         stems_dir.mkdir(exist_ok=True)
         try:
             t0 = time.time()
-            _separate_with_fallback(str(src), str(stems_dir))
+            # `separate()` est bloquant (ONNX CPU) : on le déporte dans un
+            # thread pour que la boucle d'événements reste libre — sinon
+            # /health ne répond plus pendant plusieurs minutes et les requêtes
+            # suivantes s'empilent.
+            await run_in_threadpool(_separate_with_fallback, str(src), str(stems_dir))
             print(f"[stems] séparation {key[:12]} en {time.time() - t0:.1f}s", flush=True)
         except Exception as e:
             shutil.rmtree(entry, ignore_errors=True)
