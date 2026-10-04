@@ -223,6 +223,9 @@ export default function Conductor({
   const playTokenRef = useRef(0);
   const probeRef = useRef<number | null>(null);
   const [midiLevel, setMidiLevel] = useState(0);
+  // Source jouée par le Chef : le fichier MIDI importé de Songsterr ou la
+  // séquence de diagrammes d'accords synthétisée (l'ancien comportement).
+  const [sourceMode, setSourceMode] = useState<"midi" | "chords">("midi");
   const changeChordVolume = (v: number) => {
     setChordVolume(v);
     chordVolRef.current = v;
@@ -447,12 +450,10 @@ export default function Conductor({
     const primary = pickPrimary();
     const firstVocals = pickVocals();
 
-    // Stems et MIDI se superposent : le stem audio (enregistrement) et la
-    // source MIDI importée jouent ensemble, chacun avec son curseur de volume
-    // (Instrumental / Chant pour le stem, MIDI pour la source importée).
-    // Un MIDI remplace aussi le synthé d'accords (la bande reste en
-    // affichage pour le défilement et les paroles).
-    const hasMidi = midiEvs.length > 0;
+    // Stems et source jouée se superposent : le stem audio (enregistrement) et
+    // la source choisie (MIDI importé ou accords synthétisés) jouent ensemble,
+    // chacun avec son curseur de volume.
+    const hasMidi = midiEvs.length > 0 && sourceMode === "midi";
     const playChords = !hasMidi && events.length > 0;
     if (primary) {
       primary.currentTime = 0;
@@ -495,11 +496,11 @@ export default function Conductor({
       let midiPtr = 0;
       pump = () => {
         const horizon = horizonSec();
-        while (chordPtr < events.length && events[chordPtr].start <= horizon) {
+        while (playChords && chordPtr < events.length && events[chordPtr].start <= horizon) {
           playEvent(ctx, events[chordPtr], master, t0 + events[chordPtr].start);
           chordPtr++;
         }
-        while (midiPtr < midiEvs.length && midiEvs[midiPtr].start <= horizon) {
+        while (hasMidi && midiPtr < midiEvs.length && midiEvs[midiPtr].start <= horizon) {
           const ev = midiEvs[midiPtr];
           playGmEvent(ctx, midiSynthEvent(ev, midiPtr), master, t0 + ev.start, ev.program, {
             strum: "off",
@@ -598,7 +599,7 @@ export default function Conductor({
     };
     timerRef.current = window.setTimeout(tick, 40);
     setPlaying(true);
-  }, [events, stop, totalMs, flatLyrics]);
+  }, [events, stop, totalMs, flatLyrics, sourceMode]);
 
   const playedRef = useRef(false);
   useEffect(() => {
@@ -977,26 +978,10 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
               </span>
             </div>
           )}
-          {/* Ancien curseur « Accords » — remplacé par « MIDI » (même gain synthé) :
           <div className="flex items-center gap-2">
-            <span className="text-sky-400 w-20">Accords</span>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={chordVolume}
-              onChange={(e) => changeChordVolume(parseFloat(e.target.value))}
-              className="w-32 h-1 accent-sky-500 cursor-pointer"
-              title="Volume des accords synthétisés par-dessus le stem"
-            />
-            <span className="text-[10px] text-sky-400 font-mono w-9">
-              {Math.round(chordVolume * 100)}%
+            <span className="text-sky-400 w-20">
+              {sourceMode === "chords" ? "Accords" : "MIDI"}
             </span>
-          </div>
-          */}
-          <div className="flex items-center gap-2">
-            <span className="text-sky-400 w-20">MIDI</span>
             <input
               type="range"
               min={0}
@@ -1005,14 +990,18 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
               value={chordVolume}
               onChange={(e) => changeChordVolume(parseFloat(e.target.value))}
               className="w-32 h-1 accent-sky-500 cursor-pointer"
-              title="Volume de la source MIDI importée depuis Songsterr, superposée au stem — réglage immédiat pendant la lecture"
+              title={
+                sourceMode === "chords"
+                  ? "Volume des accords synthétisés par-dessus le stem"
+                  : "Volume de la source MIDI importée depuis Songsterr, superposée au stem — réglage immédiat pendant la lecture"
+              }
             />
             <span className="text-[10px] text-sky-400 font-mono w-9">
               {Math.round(chordVolume * 100)}%
             </span>
             <span
               className="h-1.5 w-14 bg-zinc-800 rounded-full overflow-hidden"
-              title="Niveau du signal MIDI : la barre bouge-t-elle quand la source joue ?"
+              title="Niveau du signal de la source jouée (MIDI ou accords) : la barre bouge-t-elle ?"
             >
               <span
                 className="block h-full bg-emerald-500 transition-[width] duration-100"
@@ -1020,6 +1009,37 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
               />
             </span>
           </div>
+          {midiDurationMs > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-zinc-500 w-20">Source</span>
+              <div className="flex overflow-hidden rounded-md border border-zinc-700 w-fit">
+                <button
+                  type="button"
+                  onClick={() => setSourceMode("midi")}
+                  className={`px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer ${
+                    sourceMode === "midi"
+                      ? "bg-sky-500/25 text-sky-200"
+                      : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                  }`}
+                  title="Jouer le fichier MIDI importé depuis Songsterr, superposé au stem"
+                >
+                  MIDI
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSourceMode("chords")}
+                  className={`px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer ${
+                    sourceMode === "chords"
+                      ? "bg-sky-500/25 text-sky-200"
+                      : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                  }`}
+                  title="Jouer la séquence de diagrammes d'accords synthétisée, comme auparavant"
+                >
+                  Accords
+                </button>
+              </div>
+            </div>
+          )}
         </div>
         {usesAudio && (
           <div className="flex flex-col gap-1 text-xs text-zinc-400">
