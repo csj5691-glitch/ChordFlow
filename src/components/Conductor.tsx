@@ -242,6 +242,9 @@ export default function Conductor({
   // Pistes du MIDI importé et mixage par piste (volume + EQ), comme une table
   // de mixage : chaque piste a son propre strip.
   const [midiTracks, setMidiTracks] = useState<MidiTrackSummary[]>([]);
+  // Le mixeur est replié par défaut : sur un petit écran il poussait les
+  // paroles hors du champ. Un clic sur l'en-tête le déploie (défilement interne).
+  const [mixerOpen, setMixerOpen] = useState(false);
   const [trackMix, setTrackMix] = useState<Record<number, TrackMix>>({});
   const trackMixRef = useRef<Record<number, TrackMix>>({});
   const trackNodesRef = useRef<Map<number, TrackNodes>>(new Map());
@@ -880,7 +883,7 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-start sm:justify-center overflow-y-auto px-6 pt-4 sm:pt-0 pb-44 sm:pb-16 relative z-10 gap-4 sm:gap-6">
+      <div className="flex-1 flex flex-col items-center justify-start sm:justify-center overflow-y-auto px-6 pt-3 sm:pt-0 pb-24 sm:pb-14 relative z-10 gap-3 sm:gap-5">
         {flatLyrics.length > 0 && (
           <div className="text-center max-w-3xl w-full">
             {lyricIndex > 0 && flatLyrics[lyricIndex - 1] && (
@@ -888,13 +891,13 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
                 {flatLyrics[lyricIndex - 1].text}
               </p>
             )}
-            <div className="min-h-16 flex flex-col items-center justify-center">
+            <div className="min-h-12 sm:min-h-16 flex flex-col items-center justify-center">
               {flatLyrics[lyricIndex]?.label && (
                 <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-zinc-500 mb-1">
                   {flatLyrics[lyricIndex].label}
                 </p>
               )}
-              <p className="text-3xl sm:text-4xl font-bold text-white leading-tight drop-shadow-[0_2px_12px_rgba(251,191,36,0.35)] text-balance">
+              <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white leading-tight drop-shadow-[0_2px_12px_rgba(251,191,36,0.35)] text-balance">
                 {flatLyrics[lyricIndex]?.text}
               </p>
             </div>
@@ -1105,19 +1108,28 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
           {midiTracks.length > 0 && (
             <div className="flex flex-col gap-1.5 rounded-lg bg-zinc-900/70 border border-zinc-800 px-3 py-2">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-zinc-400">
-                  Pistes MIDI ({midiTracks.length} bandes) — volume + EQ par piste
-                </span>
                 <button
                   type="button"
-                  onClick={resetTrackMix}
-                  className="text-[10px] font-bold px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:bg-zinc-700 transition-colors cursor-pointer"
-                  title="Remettre tous les volumes à 100 % et les EQ à 0 dB"
+                  onClick={() => setMixerOpen((v) => !v)}
+                  className="flex items-center gap-1.5 text-[11px] font-semibold text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+                  title="Déplier/replier le mixeur des pistes MIDI"
                 >
-                  Réinitialiser
+                  <span className="text-[9px] text-zinc-500">{mixerOpen ? "▼" : "▶"}</span>
+                  Pistes MIDI ({midiTracks.length} bandes) — volume + EQ par piste
                 </button>
+                {mixerOpen && (
+                  <button
+                    type="button"
+                    onClick={resetTrackMix}
+                    className="text-[10px] font-bold px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:bg-zinc-700 transition-colors cursor-pointer"
+                    title="Remettre tous les volumes à 100 % et les EQ à 0 dB"
+                  >
+                    Réinitialiser
+                  </button>
+                )}
               </div>
-              <div className="flex flex-col gap-1 max-h-44 overflow-y-auto pr-1">
+              {mixerOpen && (
+                <div className="flex flex-col gap-1 max-h-40 overflow-y-auto pr-1">
                 {midiTracks.map((t) => {
                   const mix = trackMix[t.index] ?? DEFAULT_MIX;
                   const family = gmProgramFamily(t.program, t.percussion);
@@ -1163,7 +1175,8 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
                     </div>
                   );
                 })}
-              </div>
+                </div>
+              )}
             </div>
           )}
           {midiDurationMs > 0 && (
