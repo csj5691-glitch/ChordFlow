@@ -318,6 +318,87 @@ export function midiPlaybackEvents(data: Uint8Array): {
   return { events, tracks: summaries, durationSec };
 }
 
+/** Un accord de la bande de diagrammes, positionné en secondes sur la tempo map. */
+export interface MidiChordEvent {
+  start: number;
+  duration: number;
+  label: string;
+  shape: SavedChordShape;
+}
+
+// Chord timeline of the richest melodic track (the chord source), timed with the
+// file's own tempo map. The Conductor displays this band instead of the
+// partition-derived one so the diagrams move exactly with the imported audio.
+export function midiChordTimeline(data: Uint8Array): MidiChordEvent[] {
+  const { ticksPerBeat, tracks, tempos } = parseMidi(data);
+  const segs = tempoSegments(tempos, ticksPerBeat);
+
+  const perTrack: MidiChordEvent[][] = [];
+  for (const track of tracks) {
+    if (track.isDrums || track.notes.length === 0) continue;
+    const byBeat = new Map<number, MidiNote[]>();
+    for (const note of track.notes) {
+      const beat = Math.floor(note.startTick / ticksPerBeat);
+      const list = byBeat.get(beat);
+      if (list) list.push(note);
+      else byBeat.set(beat, [note]);
+    }
+    const beats = [...byBeat.keys()].sort((a, b) => a - b);
+    const out: MidiChordEvent[] = [];
+    for (let i = 0; i < beats.length; i++) {
+      const beat = beats[i];
+      const chordName = identifyChord((byBeat.get(beat) ?? []).map((n) => n.pitch));
+      if (!chordName) continue;
+      const parsed = parseChordName(chordName);
+      if (!parsed) continue;
+      const shape = getChordShape(parsed.note, parsed.quality);
+      if (!shape) continue;
+
+      const nextBeat = i + 1 < beats.length ? beats[i + 1] : beat + 1;
+      const startTick = beat * ticksPerBeat;
+      const start = tickToSeconds(startTick, ticksPerBeat, segs);
+      const duration = Math.max(
+        0.25,
+        tickToSeconds(nextBeat * ticksPerBeat, ticksPerBeat, segs) - start
+      );
+      const frets = shape.frets;
+      const barreOn = frets.some((f) => f > 0) && frets.every((f) => f === -1 || f >= 3);
+      const fingers = frets
+        .map((f, string) => ({ string, fret: f, finger: shape.fingers[string] || 0 }))
+        .filter((f) => f.fret > 0);
+      out.push({
+        start,
+        duration,
+        label: chordName,
+        shape: {
+          id: midiId(),
+          label: chordName,
+          fingers,
+          barreOn,
+          barreCount: barreOn
+            ? frets.reduce((acc, f) => (f > 0 ? Math.max(acc, f) : acc), 0)
+            : 0,
+          muted: frets.map((f) => f === -1),
+          baseFret: shape.baseFret,
+          capo: 0,
+          duration,
+        },
+      });
+    }
+    perTrack.push(out);
+  }
+
+  // Une piste multi-pistes répéterait le morceau piste après piste : on garde
+  // une seule piste d'accords. Plutôt que la plus riche en nombre d'accords
+  // (qui peut démarrer 50 s plus tard que la musique), on prend celle qui
+  // commence avec la musique, parmi celles qui restent substantiellement
+  // aussi riches (>= 50 % du maximum).
+  const maxCount = perTrack.reduce((m, t) => Math.max(m, t.length), 0);
+  const eligible = perTrack.filter((t) => t.length > 0 && t.length >= maxCount * 0.5);
+  if (eligible.length === 0) return [];
+  return eligible.reduce((best, cur) => (cur[0].start < best[0].start - 0.05 ? cur : best));
+}
+
 function identifyChord(pitches: number[]): string | null {
   if (pitches.length < 2) return null;
 

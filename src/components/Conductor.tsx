@@ -11,7 +11,7 @@ import ChordShapeView from "@/components/ChordShapeView";
 import { BarGlyph } from "@/components/BarGlyph";
 import { freqToMidi } from "@/lib/sf2-bank";
 import { playGmEvent, gmProgramName, gmProgramFamily } from "@/lib/gm-voice";
-import { midiPlaybackEvents, type MidiPlaybackEvent, type MidiTrackSummary } from "@/lib/midi-import";
+import { midiPlaybackEvents, midiChordTimeline, type MidiPlaybackEvent, type MidiChordEvent, type MidiTrackSummary } from "@/lib/midi-import";
 
 interface ConductorProps {
   diagrams: SavedChordShape[];
@@ -242,6 +242,10 @@ export default function Conductor({
   // Pistes du MIDI importé et mixage par piste (volume + EQ), comme une table
   // de mixage : chaque piste a son propre strip.
   const [midiTracks, setMidiTracks] = useState<MidiTrackSummary[]>([]);
+  // Accords du MIDI en secondes (tempo map du fichier) : la bande de
+  // diagrammes les affiche quand le MIDI est la source jouée, donc les
+  // diagrammes sont synchronisés avec la musique importée.
+  const [midiChords, setMidiChords] = useState<MidiChordEvent[]>([]);
   // Le mixeur est replié par défaut : sur un petit écran il poussait les
   // paroles hors du champ. Un clic sur l'en-tête le déploie (défilement interne).
   const [mixerOpen, setMixerOpen] = useState(false);
@@ -285,6 +289,23 @@ export default function Conductor({
   // Source jouée par le Chef : le fichier MIDI importé de Songsterr ou la
   // séquence de diagrammes d'accords synthétisée (l'ancien comportement).
   const [sourceMode, setSourceMode] = useState<"midi" | "chords">("midi");
+  // Bande affichée : quand le MIDI importé est la source jouée, on affiche SES
+  // accords (positionnés sur la tempo map du fichier) au lieu de la frise
+  // recalculée depuis le BPM de la partition — sinon les diagrammes ne
+  // suivaient pas la musique importée.
+  const useMidiBand = sourceMode === "midi" && midiChords.length > 0;
+  const bandEvents = useMemo<SynthEvent[]>(() => {
+    if (!useMidiBand) return events;
+    return midiChords.map((c, i) => ({
+      id: `midi-chord-${i}`,
+      label: c.label,
+      notes: [],
+      start: c.start,
+      duration: c.duration,
+      silence: false,
+      shape: c.shape,
+    }));
+  }, [events, useMidiBand, midiChords]);
   const changeChordVolume = (v: number) => {
     setChordVolume(v);
     chordVolRef.current = v;
@@ -432,6 +453,7 @@ export default function Conductor({
       if (!cancelled) {
         setMidiDurationMs(0);
         setMidiTracks([]);
+        setMidiChords([]);
       }
     });
     if (!midiUrl) {
@@ -444,11 +466,13 @@ export default function Conductor({
         const res = await fetch(midiUrl);
         const buf = new Uint8Array(await res.arrayBuffer());
         const { events: evs, tracks: trks, durationSec } = midiPlaybackEvents(buf);
+        const chords = midiChordTimeline(buf);
         if (cancelled) return;
         midiEventsRef.current = evs;
         midiDurRef.current = durationSec * 1000;
         setMidiDurationMs(durationSec * 1000);
         setMidiTracks(trks);
+        setMidiChords(chords);
         writeMix({});
         console.info(
           `[Chef] MIDI : ${evs.length} événements, ${durationSec.toFixed(1)}s, ${trks.length} pistes`
@@ -651,9 +675,11 @@ export default function Conductor({
       }
       const t = performance.now() - startedAt;
       const limit = Math.max(totalMs, midiDurRef.current);
-      if (events.length === 0) setElapsedMs(t);
-      let i = events.findIndex((e) => e.start * 1000 <= t && t < (e.start + e.duration) * 1000);
-      if (i < 0) i = events.filter((e) => e.start * 1000 <= t).length - 1;
+      if (bandEvents.length === 0) setElapsedMs(t);
+      let i = bandEvents.findIndex(
+        (e) => e.start * 1000 <= t && t < (e.start + e.duration) * 1000
+      );
+      if (i < 0) i = bandEvents.filter((e) => e.start * 1000 <= t).length - 1;
       setIndex(Math.max(0, i));
       if (flatLyrics.length > 0) {
         const hasTimes = flatLyrics[0].time !== null;
@@ -667,8 +693,8 @@ export default function Conductor({
           const lyricClockMs = vocalsRef.current ? vocalsRef.current.currentTime * 1000 : t;
           const vs = stemStartRef.current ?? 0;
           const anchor = lyricAnchorRef.current;
-          if (anchor !== null && events.length > 1) {
-            const perc = (i - anchor) / (events.length - 1 - anchor);
+          if (anchor !== null && bandEvents.length > 1) {
+            const perc = (i - anchor) / (bandEvents.length - 1 - anchor);
             li = Math.min(
               flatLyrics.length - 1,
               Math.max(0, Math.floor(perc * flatLyrics.length))
@@ -695,7 +721,7 @@ export default function Conductor({
     };
     timerRef.current = window.setTimeout(tick, 40);
     setPlaying(true);
-  }, [events, stop, totalMs, flatLyrics, sourceMode, midiTracks]);
+  }, [events, stop, totalMs, flatLyrics, sourceMode, midiTracks, bandEvents]);
 
   const playedRef = useRef(false);
   useEffect(() => {
@@ -730,14 +756,16 @@ export default function Conductor({
     }
   }, [index]);
 
-  const totalBeat = diagrams.reduce((a, d) => a + (d.bar ? 0 : beatsForShape(d)), 0);
-  const cur = events[index];
+  const totalBeat = useMidiBand
+    ? midiChords.reduce((a, c) => a + beatsForShape(c.shape), 0)
+    : diagrams.reduce((a, d) => a + (d.bar ? 0 : beatsForShape(d)), 0);
+  const cur = bandEvents[index];
   const curBeats = cur ? beatsForShape(cur.shape) : 0;
   const curNv = cur ? noteValueInfo(curBeats) : null;
   const curMeasureIdx = cur ? measureForBeat((cur.start * bpm) / 60, measureInfo) : -1;
   const mStart = curMeasureIdx * measureInfo.beatsPerMeasure;
   const mEnd = mStart + measureInfo.beatsPerMeasure;
-  const measureIdxs = events.reduce<number[]>((acc, ev, i) => {
+  const measureIdxs = bandEvents.reduce<number[]>((acc, ev, i) => {
     const s = (ev.start * bpm) / 60;
     const e = s + beatsForShape(ev.shape);
     if (s < mEnd - 1e-6 && e > mStart + 1e-6) acc.push(i);
