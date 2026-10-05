@@ -459,6 +459,38 @@ function voiceForProgram(program: number | null | undefined): GmVoice {
   };
 }
 
+// Un même buffer de bruit sert pour toutes les notes d'une même durée : sans
+// ce cache, chaque note allouait un AudioBuffer et remplissait ~2 000 échantillons
+// avec Math.random() (des milliers d'allocations par morceau).
+const noiseBuffers = new Map<string, AudioBuffer>();
+
+function noiseBuffer(ctx: AudioContext, decay: number): AudioBuffer {
+  const key = `${decay.toFixed(3)}@${ctx.sampleRate}`;
+  const cached = noiseBuffers.get(key);
+  if (cached) return cached;
+  const nLen = Math.max(1, Math.ceil(ctx.sampleRate * decay));
+  const buf = ctx.createBuffer(1, nLen, ctx.sampleRate);
+  const nd = buf.getChannelData(0);
+  for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * (1 - i / nd.length);
+  noiseBuffers.set(key, buf);
+  if (noiseBuffers.size > 24) {
+    const oldest = noiseBuffers.keys().next().value;
+    if (oldest !== undefined) noiseBuffers.delete(oldest);
+  }
+  return buf;
+}
+
+// Plafond de polyphonie : au-delà, les nouvelles notes passent en voix allégée
+// (1 oscillateur, pas de détune, pas de bruit) au lieu d'empiler des nœuds.
+// Web Audio n'a aucun上限 natif : sans ce garde-fou, les passages denses
+// saturent la mémoire et le thread audio.
+const MAX_VOICES = 48;
+let activeVoices = 0;
+
+export function gmActiveVoices(): number {
+  return activeVoices;
+}
+
 function pluckNote(
   ctx: AudioContext,
   voice: GmVoice,
@@ -466,7 +498,8 @@ function pluckNote(
   when: number,
   dur: number,
   gainScale: number,
-  master: GainNode
+  master: GainNode,
+  lite = false
 ) {
   const release = voice.release ?? 0.35;
   const end = when + dur + release;
@@ -482,6 +515,11 @@ function pluckNote(
   const osc = ctx.createOscillator();
   osc.type = voice.wave;
   osc.frequency.value = freq;
+  // Une note peut être interrompue : on tient le compteur de polyphonie exact.
+  activeVoices++;
+  osc.onended = () => {
+    activeVoices = Math.max(0, activeVoices - 1);
+  };
   const gate = ctx.createGain();
   gate.gain.setValueAtTime(0, when);
   gate.gain.linearRampToValueAtTime(voice.peak * gainScale, when + voice.attack);
@@ -493,6 +531,7 @@ function pluckNote(
   osc.stop(end + 0.05);
 
   for (const h of voice.harmonics) {
+    if (lite && h.gain < 0.2) continue;
     const ho = ctx.createOscillator();
     ho.type = "sine";
     ho.frequency.value = freq * h.ratio;
@@ -507,7 +546,7 @@ function pluckNote(
     ho.stop(end + 0.05);
   }
 
-  if (voice.detune) {
+  if (voice.detune && !lite) {
     const det = ctx.createOscillator();
     det.type = "sine";
     det.frequency.value = freq * voice.detune.ratio * 1.004;
@@ -522,13 +561,10 @@ function pluckNote(
     det.stop(end + 0.05);
   }
 
-  if (voice.noise) {
-    const nLen = Math.max(1, Math.ceil(ctx.sampleRate * voice.noise.decay));
-    const nBuf = ctx.createBuffer(1, nLen, ctx.sampleRate);
-    const nd = nBuf.getChannelData(0);
-    for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * (1 - i / nd.length);
+  if (voice.noise && !lite) {
+    // Buffer mutualisé (voir noiseBuffer) : plus d'allocation par note.
     const ns = ctx.createBufferSource();
-    ns.buffer = nBuf;
+    ns.buffer = noiseBuffer(ctx, voice.noise.decay);
     const np = ctx.createBiquadFilter();
     np.type = "highpass";
     np.frequency.value = voice.noise.highpass;
@@ -550,6 +586,9 @@ export interface GmPlayOptions {
   /** GM drum note (35..81): plays that single drum instead of the generic
    * stroke pattern — used by real MIDI drum tracks (Songsterr imports). */
   drumPitch?: number;
+  /** Voix allégée : 1 oscillateur, pas de détune ni de bruit. Utilisée pour les
+   * notes très courtes ou quand la polyphonie est au plafond (RAM/CPU). */
+  lite?: boolean;
 }
 
 // Plays one synthesized chord event with the timbre of the given GS instrument
@@ -589,6 +628,8 @@ export function playGmEvent(
 
   const voice = voiceForProgram(program);
   const chordNotes = ev.notes.filter((f) => f > 0);
+  // Voix allégée si demandée (note très courte) ou si la polyphonie est pleine.
+  const lite = opts.lite === true || activeVoices >= MAX_VOICES;
   if (chordNotes.length > 0) {
     const strumDelay = opts.strum === "off" ? 0 : 0.025;
     const sortedNotes =
@@ -596,14 +637,14 @@ export function playGmEvent(
         ? [...chordNotes].sort((a, b) => b - a)
         : [...chordNotes].sort((a, b) => a - b);
     sortedNotes.forEach((freq, i) => {
-      pluckNote(ctx, voice, freq, at + i * strumDelay, dur, gain, master);
+      pluckNote(ctx, voice, freq, at + i * strumDelay, dur, gain, master, lite);
     });
   }
 
   if (ev.mutedNotes && ev.mutedNotes.length > 0) {
     const mutedVoice = { ...voice, attack: 0.004, peak: 0.4 };
     for (const f of ev.mutedNotes) {
-      pluckNote(ctx, mutedVoice, f, at, 0.18, gain, master);
+      pluckNote(ctx, mutedVoice, f, at, 0.18, gain, master, lite);
     }
   }
 }

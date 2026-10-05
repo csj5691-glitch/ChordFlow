@@ -640,7 +640,10 @@ export default function Conductor({
       // reprise après pause et les sauts vers un diagramme deviennent possibles.
       const t0 = ctx.currentTime + 0.15 - seek;
       t0Ref.current = t0;
-      const horizonSec = () => ctx.currentTime - t0 + 0.6;
+      // Fenêtre courte : 0,3 s suffit (le tick revient toutes les 40 ms) et ne laisse
+      // que quelques notes vivantes à la fois — c'est ce qui plafonne la RAM.
+      const LOOKAHEAD = 0.3;
+      const horizonSec = () => ctx.currentTime - t0 + LOOKAHEAD;
       let chordPtr = 0;
       let midiPtr = 0;
       // Reprise : on saute les événements déjà terminés avant la position.
@@ -717,6 +720,9 @@ export default function Conductor({
               strum: "off",
               percussion: ev.percussion,
               ...(ev.percussion ? { drumPitch: freqToMidi(ev.freq) } : {}),
+              // Notes très courtes (runs, hi-hat, subdivisions) en voix
+              // allégée : moins d'oscillateurs par note, donc moins de RAM/CPU.
+              lite: ev.duration < 0.2,
               gain: 1,
             }
           );
