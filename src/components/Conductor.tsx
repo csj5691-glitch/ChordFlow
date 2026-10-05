@@ -648,14 +648,14 @@ export default function Conductor({
       while (
         playChords &&
         chordPtr < events.length &&
-        events[chordPtr].start + events[chordPtr].duration <= seek
+        events[chordPtr].start + chordShift + events[chordPtr].duration <= seek
       ) {
         chordPtr++;
       }
       while (
         hasMidi &&
         midiPtr < midiEvs.length &&
-        midiEvs[midiPtr].start + midiEvs[midiPtr].duration <= seek
+        midiEvs[midiPtr].start + chordShift + midiEvs[midiPtr].duration <= seek
       ) {
         midiPtr++;
       }
@@ -694,24 +694,32 @@ export default function Conductor({
         // `seek` sonne maintenant, donc un événement déjà entamé donnerait un
         // instant de programmation négatif (RangeError). On saute ce qui a
         // commencé avant la reprise et on ne programme jamais dans le passé.
+        // `chordShift` décale les diagrammes ET leurs sons par rapport à l'audio.
         const now = ctx.currentTime;
         while (playChords && chordPtr < events.length && events[chordPtr].start <= horizon) {
           const ev = events[chordPtr];
           chordPtr++;
-          if (ev.start < seek - 0.01) continue;
+          if (ev.start + chordShift < seek - 0.01) continue;
           playEvent(ctx, ev, master, Math.max(now, t0 + ev.start + chordShift));
         }
         while (hasMidi && midiPtr < midiEvs.length && midiEvs[midiPtr].start <= horizon) {
           const ev = midiEvs[midiPtr];
           const n = midiPtr;
           midiPtr++;
-          if (ev.start < seek - 0.01) continue;
-          playGmEvent(ctx, midiSynthEvent(ev, n), busFor(ev.track), Math.max(now, t0 + ev.start), ev.program, {
-            strum: "off",
-            percussion: ev.percussion,
-            ...(ev.percussion ? { drumPitch: freqToMidi(ev.freq) } : {}),
-            gain: 1,
-          });
+          if (ev.start + chordShift < seek - 0.01) continue;
+          playGmEvent(
+            ctx,
+            midiSynthEvent(ev, n),
+            busFor(ev.track),
+            Math.max(now, t0 + ev.start + chordShift),
+            ev.program,
+            {
+              strum: "off",
+              percussion: ev.percussion,
+              ...(ev.percussion ? { drumPitch: freqToMidi(ev.freq) } : {}),
+              gain: 1,
+            }
+          );
         }
       };
       const first = midiEvs[0];
@@ -760,7 +768,12 @@ export default function Conductor({
         }
       }
       const t = performance.now() - startedAt;
-      const limit = Math.max(totalMs, midiDurRef.current);
+      // Le décalage de synchro peut repousser la fin du MIDI : on ne doit pas
+      // arrêter avant lui.
+      const limit = Math.max(
+        totalMs,
+        midiDurRef.current + Math.max(0, bandOffsetRef.current) * 1000
+      );
       if (bandEvents.length === 0) setElapsedMs(t);
       // Le décalage de bande rend la synchro malléable : un décalage positif
       // retarde l'affichage des diagrammes par rapport à la musique.
@@ -1302,18 +1315,18 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
           </div>
           {bandEvents.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
-              <span className="text-zinc-500 w-20">Diagrammes</span>
+              <span className="text-zinc-500 w-20">Synchro</span>
               <button
                 onClick={() => changeBandOffset(-1)}
                 className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
-                title="Retarder la bande de 1 s"
+                title="Avancer les sons MIDI et les diagrammes de 1 s par rapport à l'audio"
               >
                 -1
               </button>
               <button
                 onClick={() => changeBandOffset(-0.1)}
                 className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-400 transition-colors"
-                title="Retarder la bande de 0,1 s"
+                title="Avancer de 0,1 s (ajustement fin)"
               >
                 -.1
               </button>
@@ -1324,14 +1337,14 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
               <button
                 onClick={() => changeBandOffset(0.1)}
                 className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-400 transition-colors"
-                title="Avancer la bande de 0,1 s"
+                title="Retarder de 0,1 s (ajustement fin)"
               >
                 +.1
               </button>
               <button
                 onClick={() => changeBandOffset(1)}
                 className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
-                title="Avancer la bande de 1 s"
+                title="Retarder les sons MIDI et les diagrammes de 1 s par rapport à l'audio"
               >
                 +1
               </button>
@@ -1339,13 +1352,13 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
                 <button
                   onClick={() => changeBandOffset(-bandOffset)}
                   className="text-zinc-500 hover:text-zinc-300 underline transition-colors"
-                  title="Remettre le décalage de la bande à 0"
+                  title="Remettre la synchro à 0"
                 >
                   Reset
                 </button>
               )}
               <span className="text-[10px] text-zinc-600">
-                recale les diagrammes sur la musique (sauvegardé par chanson)
+                sons MIDI + diagrammes par rapport à l&apos;audio (sauvegardé par chanson)
               </span>
             </div>
           )}
