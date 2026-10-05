@@ -26,6 +26,20 @@ app.add_middleware(
 STEM_NAMES = ["vocals", "drums", "bass", "guitar", "piano", "other"]
 ALL_STEMS = STEM_NAMES + ["noVocals"]
 
+# Modèle de séparation :
+#  - "htdemucs"     : 4 pistes (vocals, drums, bass, other) — ~30 % plus rapide,
+#                     pas de séparation piano/guitare ;
+#  - "htdemucs_6s"  : 6 pistes (+ guitar, piano) — plus lent.
+# Surcharge possible via la variable d'environnement STEMS_MODEL.
+MODEL = os.environ.get("STEMS_MODEL", "htdemucs")
+MODEL_STEMS = {
+    "htdemucs": ["vocals", "drums", "bass", "other"],
+    "htdemucs_6s": ["vocals", "drums", "bass", "guitar", "piano", "other"],
+}
+if MODEL not in MODEL_STEMS:
+    raise SystemExit(f"STEMS_MODEL inconnu: {MODEL} (attendu: {', '.join(MODEL_STEMS)})")
+MODEL_STEM_NAMES = MODEL_STEMS[MODEL]
+
 CACHE_ROOT = Path(tempfile.gettempdir()) / "chordflow-stems-cache"
 CACHE_TTL = 1800  # 30 minutes
 CACHE_MAX = 4
@@ -67,7 +81,7 @@ def _separate_with_fallback(src: str, out_dir: str) -> None:
             separate(
                 str(src),
                 str(out_dir),
-                model="htdemucs_6s",
+                model=MODEL,
                 providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
             )
             return
@@ -77,14 +91,15 @@ def _separate_with_fallback(src: str, out_dir: str) -> None:
             for f in Path(out_dir).glob("*"):
                 if f.is_file():
                     f.unlink()
-    separate(str(src), str(out_dir), model="htdemucs_6s", providers=["CPUExecutionProvider"])
+    separate(str(src), str(out_dir), model=MODEL, providers=["CPUExecutionProvider"])
 
 
 def _write_no_vocals(stems_dir: Path) -> Path:
-    """Instrumental = somme des 5 pistes non-voix déjà séparées."""
+    """Instrumental = somme des pistes non-voix effectivement générées."""
+    names = [n for n in MODEL_STEM_NAMES if n != "vocals"]
     total = None
     sample_rate = None
-    for name in ["drums", "bass", "guitar", "piano", "other"]:
+    for name in names:
         p = stems_dir / f"{name}.wav"
         if not p.is_file():
             raise HTTPException(500, f"missing stem {name}")
@@ -99,13 +114,25 @@ def _write_no_vocals(stems_dir: Path) -> Path:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "stems": ALL_STEMS}
+    return {
+        "ok": True,
+        "stems": ALL_STEMS,
+        "model": MODEL,
+        "available": MODEL_STEM_NAMES + ["noVocals"],
+    }
 
 
 @app.post("/separate")
 async def separate_audio(file: UploadFile = File(...), stem: str = Query("vocals")):
     if stem not in ALL_STEMS:
         raise HTTPException(402, f"stem must be one of {ALL_STEMS}")
+    if stem not in MODEL_STEM_NAMES and stem != "noVocals":
+        raise HTTPException(
+            400,
+            f"stem « {stem} » indisponible avec le modèle {MODEL} "
+            f"(pistes disponibles : {', '.join(MODEL_STEM_NAMES)}). "
+            "Relance avec STEMS_MODEL=htdemucs_6s pour la séparation piano/guitare.",
+        )
 
     suffix = Path(file.filename or "audio.mp3").suffix or ".mp3"
     data = await file.read()
