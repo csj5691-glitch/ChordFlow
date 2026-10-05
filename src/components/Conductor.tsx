@@ -138,6 +138,8 @@ interface TrackEq {
 interface TrackMix {
   volume: number;
   eq: TrackEq;
+  /**.piste coupée : gain forcé à 0 sans perdre le volume réglé. */
+  muted: boolean;
 }
 interface TrackNodes {
   input: GainNode;
@@ -145,7 +147,7 @@ interface TrackNodes {
   mid: BiquadFilterNode;
   high: BiquadFilterNode;
 }
-const DEFAULT_MIX: TrackMix = { volume: 1, eq: { low: 0, mid: 0, high: 0 } };
+const DEFAULT_MIX: TrackMix = { volume: 1, eq: { low: 0, mid: 0, high: 0 }, muted: false };
 const EQ_FREQS = { low: 220, mid: 1200, high: 4200 };
 
 function midiSynthEvent(ev: MidiPlaybackEvent, i: number): SynthEvent {
@@ -289,7 +291,28 @@ export default function Conductor({
     writeMix({ ...trackMixRef.current, [index]: { ...cur, volume: v } });
     const nodes = trackNodesRef.current.get(index);
     if (nodes) {
-      nodes.input.gain.setTargetAtTime(v, nodes.input.context.currentTime, 0.02);
+      // Si la piste est coupée, le gain audible reste à 0 : le curseur continue
+      // de mémoriser le volume pour le réinstant.
+      nodes.input.gain.setTargetAtTime(
+        cur.muted ? 0 : v,
+        nodes.input.context.currentTime,
+        0.02
+      );
+    }
+  };
+  // Coupe/réactive une piste : gain forcé à 0 % (immédiat) en gardant les
+  // réglages de volume et d'EQ pour le retour.
+  const toggleTrackMute = (index: number) => {
+    const cur = trackMixRef.current[index] ?? DEFAULT_MIX;
+    const muted = !cur.muted;
+    writeMix({ ...trackMixRef.current, [index]: { ...cur, muted } });
+    const nodes = trackNodesRef.current.get(index);
+    if (nodes) {
+      nodes.input.gain.setTargetAtTime(
+        muted ? 0 : cur.volume,
+        nodes.input.context.currentTime,
+        0.02
+      );
     }
   };
   const changeTrackEq = (index: number, band: keyof TrackEq, v: number) => {
@@ -305,13 +328,12 @@ export default function Conductor({
   };
   const resetTrackMix = () => {
     writeMix({});
-    for (const [index, nodes] of trackNodesRef.current) {
+    for (const nodes of trackNodesRef.current.values()) {
       const at = nodes.input.context.currentTime;
       nodes.input.gain.setTargetAtTime(1, at, 0.02);
       nodes.low.gain.setTargetAtTime(0, at, 0.02);
       nodes.mid.gain.setTargetAtTime(0, at, 0.02);
       nodes.high.gain.setTargetAtTime(0, at, 0.02);
-      if (index < 0) nodes.input.disconnect();
     }
   };
   // Source jouée par le Chef : le fichier MIDI importé de Songsterr ou la
@@ -645,7 +667,7 @@ export default function Conductor({
         if (cached) return cached.input;
         const mix = trackMixRef.current[index] ?? DEFAULT_MIX;
         const input = ctx.createGain();
-        input.gain.value = mix.volume;
+        input.gain.value = mix.muted ? 0 : mix.volume;
         const low = ctx.createBiquadFilter();
         low.type = "lowshelf";
         low.frequency.value = EQ_FREQS.low;
@@ -1359,10 +1381,21 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
                   return (
                     <div
                       key={t.index}
-                      className="flex items-center gap-2 text-[11px]"
+                      className={`flex items-center gap-2 text-[11px] ${mix.muted ? "opacity-45" : ""}`}
                       title={`${label}${gmProgramName(t.program) ? ` — ${gmProgramName(t.program)}` : ""} — ${t.eventCount} notes`}
                     >
-                      <span className="w-28 truncate text-zinc-300">{label}</span>
+                      <label
+                        className="flex items-center gap-1.5 w-28 cursor-pointer"
+                        title={mix.muted ? "Réactiver cette piste" : "Couper cette piste (0 %)"}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={mix.muted}
+                          onChange={() => toggleTrackMute(t.index)}
+                          className="w-3 h-3 accent-rose-500 shrink-0 cursor-pointer"
+                        />
+                        <span className="truncate text-zinc-300">{label}</span>
+                      </label>
                       <span className="w-14 text-[10px] text-zinc-500">{family}</span>
                       <input
                         type="range"
@@ -1372,10 +1405,12 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
                         value={mix.volume}
                         onChange={(e) => changeTrackVolume(t.index, parseFloat(e.target.value))}
                         className="w-20 h-1 accent-sky-500 cursor-pointer"
-                        title="Volume de la piste"
+                        title={mix.muted ? "Volume mémorisé (piste coupée)" : "Volume de la piste"}
                       />
-                      <span className="text-[10px] text-zinc-500 font-mono w-8">
-                        {Math.round(mix.volume * 100)}%
+                      <span
+                        className={`text-[10px] font-mono w-8 ${mix.muted ? "text-rose-400" : "text-zinc-500"}`}
+                      >
+                        {mix.muted ? "MUTE" : `${Math.round(mix.volume * 100)}%`}
                       </span>
                       {(["low", "mid", "high"] as const).map((band) => (
                         <span key={band} className="flex items-center gap-1">
