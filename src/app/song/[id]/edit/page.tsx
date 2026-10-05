@@ -2436,6 +2436,10 @@ function EditSongView({ id }: { id: string }) {
           percussion={activePercussion}
           lyricOffset={lyricsOffset}
           lyricAnchorDiagram={lyricAnchorDiagram ?? song?.lyricAnchorDiagram ?? undefined}
+          onLyricOffsetChange={(offset) => {
+            setLyricsOffset(offset);
+            if (id) saveGlobalOffset(id, offset);
+          }}
           onClose={() => setConductorOpen(false)}
         />
       )}

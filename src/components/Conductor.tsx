@@ -27,6 +27,8 @@ interface ConductorProps {
   percussion?: boolean;
   lyricOffset?: number;
   lyricAnchorDiagram?: number;
+  /**.appelé à chaque réglage d'offset des paroles (pour le sauvegarder). */
+  onLyricOffsetChange?: (offset: number) => void;
   onClose: () => void;
 }
 
@@ -169,6 +171,7 @@ export default function Conductor({
   percussion,
   lyricOffset: externalLyricOffset,
   lyricAnchorDiagram,
+  onLyricOffsetChange,
   onClose,
 }: ConductorProps) {
   const events = useMemo(() => renderSequence(diagrams, bpm), [diagrams, bpm]);
@@ -221,8 +224,11 @@ export default function Conductor({
   };
   const changeLyricOffset = (delta: number) => {
     setLyricOffset((o) => {
-      const next = Math.max(-30, Math.min(30, o + delta));
+      const next = Math.round(Math.max(-30, Math.min(30, o + delta)) * 10) / 10;
       lyricOffsetRef.current = next;
+      // L'éditeur mémorise l'offset (par chanson) : sans ce rappel, le réglage
+      // était perdu au rechargement.
+      onLyricOffsetChange?.(next);
       return next;
     });
   };
@@ -1257,10 +1263,24 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
               >
                 -1
               </button>
+              <button
+                onClick={() => changeLyricOffset(-0.1)}
+                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-400 transition-colors"
+                title="-0,1 s (ajustement fin)"
+              >
+                -.1
+              </button>
               <span className="font-mono text-amber-400 w-16 text-center">
                 {lyricOffset >= 0 ? "+" : ""}
                 {lyricOffset.toFixed(1)} s
               </span>
+              <button
+                onClick={() => changeLyricOffset(0.1)}
+                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-400 transition-colors"
+                title="+0,1 s (ajustement fin)"
+              >
+                +.1
+              </button>
               <button
                 onClick={() => changeLyricOffset(1)}
                 className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
