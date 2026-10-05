@@ -697,13 +697,15 @@ export default function Conductor({
         // `seek` sonne maintenant, donc un événement déjà entamé donnerait un
         // instant de programmation négatif (RangeError). On saute ce qui a
         // commencé avant la reprise et on ne programme jamais dans le passé.
-        // `chordShift` décale les diagrammes ET leurs sons par rapport à l'audio.
         const now = ctx.currentTime;
+        // Décalage relu à chaque passe : le réglage « Synchro » s'applique en
+        // direct pendant la lecture, pas seulement au lancement.
+        const shift = bandOffsetRef.current;
         while (playChords && chordPtr < events.length && events[chordPtr].start <= horizon) {
           const ev = events[chordPtr];
           chordPtr++;
           if (ev.start + chordShift < seek - 0.01) continue;
-          playEvent(ctx, ev, master, Math.max(now, t0 + ev.start + chordShift));
+          playEvent(ctx, ev, master, Math.max(now, t0 + ev.start + shift));
         }
         while (hasMidi && midiPtr < midiEvs.length && midiEvs[midiPtr].start <= horizon) {
           const ev = midiEvs[midiPtr];
@@ -714,7 +716,7 @@ export default function Conductor({
             ctx,
             midiSynthEvent(ev, n),
             busFor(ev.track),
-            Math.max(now, t0 + ev.start + chordShift),
+            Math.max(now, t0 + ev.start + shift),
             ev.program,
             {
               strum: "off",
