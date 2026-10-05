@@ -195,4 +195,18 @@ async def separate_audio(file: UploadFile = File(...), stem: str = Query("vocals
 
 if __name__ == "__main__":
     port = int(os.environ.get("STEMS_PORT", "8765"))
+    # Un service déjà en écoute ne doit pas provoquer une erreur de bind
+    # ([WinError 10048]) ni une boucle de redémarrage dans start-stems.bat.
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.5)
+        already_up = probe.connect_ex(("127.0.0.1", port)) == 0
+    if already_up:
+        print(
+            f"[stems] un service ecoute deja sur le port {port} — rien a faire "
+            "(ferme l'autre fenetre ou attends qu'il s'arrete).",
+            flush=True,
+        )
+        raise SystemExit(0)
     uvicorn.run(app, host="127.0.0.1", port=port)

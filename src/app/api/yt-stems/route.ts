@@ -11,6 +11,9 @@ const execFileP = promisify(execFile);
 const STEMS_SERVICE = process.env.STEMS_SERVICE_URL ?? "http://127.0.0.1:8765";
 const VIDEO_ID_RE = /^[A-Za-z0-9_-]{6,20}$/;
 const STEM_CHOICES = ["vocals", "noVocals", "drums", "bass", "guitar", "piano", "other"] as const;
+// Modèle 4 pistes (htdemucs) : ni piano ni guitar. On sert « other » plutôt
+// qu'une erreur, et l'en-tête X-Stem-Substituted prévient l'appelant.
+const STEM_FALLBACK: Record<string, string> = { guitar: "other", piano: "other" };
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -112,37 +115,52 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const upstream = new FormData();
-  upstream.set("file", new File([new Uint8Array(wav)], "youtube.wav", { type: "audio/wav" }));
-
-  let res: Response;
-  try {
-    res = await fetch(`${STEMS_SERVICE}/separate?stem=${encodeURIComponent(stem)}`, {
-      method: "POST",
-      body: upstream,
-      // Séparation Demucs CPU : mesurée à ~3,7x le temps réel (45 s d'audio
-      // → 167 s), donc une chanson de 4 min demande ~15 min. Le timeout doit
-      // dépasser ça, sinon le téléchargement échoue toujours en fin de morceau.
-      signal: AbortSignal.timeout(1_750_000),
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "erreur inconnue";
-    const timeout = /timeout|abort/i.test(msg) || (e as { name?: string })?.name === "AbortError";
-    return NextResponse.json(
-      {
-        error: timeout
-          ? `séparation trop longue (service CPU) — le service garde le résultat en cache : relance le téléchargement, il répondra immédiatement`
-          : `service stems injoignable (${STEMS_SERVICE}) — ${msg}`,
-      },
-      { status: timeout ? 504 : 502 }
-    );
+  // Deux essais : le stem demandé puis « other » si le modèle ne le produit
+  // pas (le WAV est déjà en cache, le 2e appel est immédiat).
+  const candidates = [stem, STEM_FALLBACK[stem]].filter(
+    (s, i, arr): s is string => !!s && arr.indexOf(s) === i
+  );
+  let res: Response | null = null;
+  let used = stem;
+  let lastBody = "";
+  let lastStatus = 502;
+  for (const candidate of candidates) {
+    const upstream = new FormData();
+    upstream.set("file", new File([new Uint8Array(wav)], "youtube.wav", { type: "audio/wav" }));
+    try {
+      res = await fetch(`${STEMS_SERVICE}/separate?stem=${encodeURIComponent(candidate)}`, {
+        method: "POST",
+        body: upstream,
+        // Séparation Demucs CPU : mesurée à ~3,7x le temps réel (45 s d'audio
+        // → 115 s), donc une chanson de 4 min demande ~9 min. Le timeout doit
+        // dépasser ça, sinon le téléchargement échoue en fin de morceau.
+        signal: AbortSignal.timeout(1_800_000),
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "erreur inconnue";
+      const timeout = /timeout|abort/i.test(msg) || (e as { name?: string })?.name === "AbortError";
+      return NextResponse.json(
+        {
+          error: timeout
+            ? `séparation trop longue (service CPU) — le service garde le résultat en cache : relance le téléchargement, il répondra immédiatement`
+            : `service stems injoignable (${STEMS_SERVICE}) — ${msg}`,
+        },
+        { status: timeout ? 504 : 502 }
+      );
+    }
+    if (res.ok) {
+      used = candidate;
+      break;
+    }
+    lastBody = await res.text().catch(() => "");
+    lastStatus = res.status;
+    res = null;
   }
 
-  if (!res.ok) {
-    const bodyText = await res.text().catch(() => "");
+  if (!res) {
     return NextResponse.json(
-      { error: `échec séparation: ${bodyText || res.statusText}` },
-      { status: res.status }
+      { error: `échec séparation: ${lastBody || "aucune piste produite"}` },
+      { status: lastStatus }
     );
   }
 
@@ -152,6 +170,7 @@ export async function POST(req: NextRequest) {
     headers: {
       "Content-Type": "audio/wav",
       "Content-Disposition": `attachment; filename="${stem}.wav"`,
+      ...(used !== stem ? { "X-Stem-Substituted": used } : {}),
     },
   });
 }

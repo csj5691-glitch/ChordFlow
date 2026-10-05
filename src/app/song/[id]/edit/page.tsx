@@ -727,8 +727,10 @@ function EditSongView({ id }: { id: string }) {
         const res = await fetch("/api/yt-stems", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ videoId, stem }),
-          signal: AbortSignal.timeout(600_000),
+body: JSON.stringify({ videoId, stem }),
+        // ~9 min de calcul CPU pour une chanson de 4 min : au-delà de 10 min
+        // l'extraction était abandonnée avant la fin.
+        signal: AbortSignal.timeout(1_800_000),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => null);
