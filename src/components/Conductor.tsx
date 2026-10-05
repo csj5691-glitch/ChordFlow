@@ -199,16 +199,15 @@ export default function Conductor({
   const [strumming, setStrumming] = useState<"down" | "up" | "off">("down");
   const [instVolume, setInstVolume] = useState(1);
   const [vocalsVolume, setVocalsVolume] = useState(0.9);
-  const [lyricOffset, setLyricOffset] = useState(0);
-
-  useEffect(() => {
-    if (externalLyricOffset !== undefined) {
-      lyricOffsetRef.current = externalLyricOffset;
-      setLyricOffset(externalLyricOffset);
-    }
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-  }, [externalLyricOffset]);
+  const [localLyricOffset, setLocalLyricOffset] = useState(0);
+  // L'offset est une valeur contrôlée : dès que l'éditeur fournit la prop, c'est
+  // lui qui fait foi. Avant, un effet synchronisait l'état local avec la prop et
+  // l'éditeur réutilisait la valeur renvoyée → boucle « maximum update depth ».
+  const lyricOffset = externalLyricOffset ?? localLyricOffset;
   const lyricOffsetRef = useRef(0);
+  useEffect(() => {
+    lyricOffsetRef.current = lyricOffset;
+  }, [lyricOffset]);
   const lyricAnchorRef = useRef<number | null>(null);
   useEffect(() => {
     if (lyricAnchorDiagram !== undefined) {
@@ -222,22 +221,14 @@ export default function Conductor({
     setAnchorDisplay(val);
     lyricAnchorRef.current = idx;
   };
-const changeLyricOffset = (delta: number) => {
-    setLyricOffset((o) => {
-      const next = Math.round(Math.max(-30, Math.min(30, o + delta)) * 10) / 10;
-      lyricOffsetRef.current = next;
-      return next;
-    });
+  const changeLyricOffset = (delta: number) => {
+    const next = Math.round(Math.max(-30, Math.min(30, lyricOffset + delta)) * 10) / 10;
+    // Le parent mémorise l'offset (par chanson) : sans ce rappel, le réglage
+    // était perdu au rechargement. Appelé depuis un handler, donc autorisé.
+    setLocalLyricOffset(next);
+    lyricOffsetRef.current = next;
+    onLyricOffsetChange?.(next);
   };
-  // L'éditeur mémorise l'offset par chanson (sans ça, le réglage était perdu au
-  // rechargement). Notification après le commit : appeler setState chez le parent
-  // depuis un updater (ou pendant le rendu) est interdit par React.
-  const notifiedOffsetRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (notifiedOffsetRef.current === lyricOffset) return;
-    notifiedOffsetRef.current = lyricOffset;
-    onLyricOffsetChange?.(lyricOffset);
-  }, [lyricOffset, onLyricOffsetChange]);
   const chordVolRef = useRef(chordVolume);
   const chordMasterRef = useRef<GainNode | null>(null);
   const [midiDurationMs, setMidiDurationMs] = useState(0);
@@ -1303,11 +1294,9 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
               </button>
               {lyricOffset !== 0 && (
                 <button
-                  onClick={() => {
-                    lyricOffsetRef.current = 0;
-                    setLyricOffset(0);
-                  }}
+                  onClick={() => changeLyricOffset(-lyricOffset)}
                   className="text-zinc-500 hover:text-zinc-300 underline transition-colors"
+                  title="Remettre l'offset des paroles à 0"
                 >
                   Reset
                 </button>
