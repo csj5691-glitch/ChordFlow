@@ -222,16 +222,22 @@ export default function Conductor({
     setAnchorDisplay(val);
     lyricAnchorRef.current = idx;
   };
-  const changeLyricOffset = (delta: number) => {
+const changeLyricOffset = (delta: number) => {
     setLyricOffset((o) => {
       const next = Math.round(Math.max(-30, Math.min(30, o + delta)) * 10) / 10;
       lyricOffsetRef.current = next;
-      // L'éditeur mémorise l'offset (par chanson) : sans ce rappel, le réglage
-      // était perdu au rechargement.
-      onLyricOffsetChange?.(next);
       return next;
     });
   };
+  // L'éditeur mémorise l'offset par chanson (sans ça, le réglage était perdu au
+  // rechargement). Notification après le commit : appeler setState chez le parent
+  // depuis un updater (ou pendant le rendu) est interdit par React.
+  const notifiedOffsetRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (notifiedOffsetRef.current === lyricOffset) return;
+    notifiedOffsetRef.current = lyricOffset;
+    onLyricOffsetChange?.(lyricOffset);
+  }, [lyricOffset, onLyricOffsetChange]);
   const chordVolRef = useRef(chordVolume);
   const chordMasterRef = useRef<GainNode | null>(null);
   const [midiDurationMs, setMidiDurationMs] = useState(0);
