@@ -41,6 +41,33 @@ function getAllGlobal(): Record<string, number> {
   }
 }
 
+const BAND_OFFSET_KEY = "chordflow-band-offset";
+
+function getAllBand(): Record<string, number> {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(localStorage.getItem(BAND_OFFSET_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+// Décalage de la bande de diagrammes par rapport à la musique (secondes) :
+// permet de caler l'affichage sur la lecture quand les deux horloges diffèrent.
+export function loadBandOffset(songId: string): number {
+  return getAllBand()[songId] || 0;
+}
+
+export function saveBandOffset(songId: string, offset: number): void {
+  const all = getAllBand();
+  if (offset === 0) {
+    delete all[songId];
+  } else {
+    all[songId] = offset;
+  }
+  localStorage.setItem(BAND_OFFSET_KEY, JSON.stringify(all));
+}
+
 export function loadGlobalOffset(songId: string): number {
   return getAllGlobal()[songId] || 0;
 }

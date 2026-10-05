@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
-import { X, Square, Play, RotateCcw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pause, Square, Play, RotateCcw, X } from "lucide-react";
 import { renderSequence, beatsForShape, legatoStringName, measureInfoFromSignature, measureForBeat, beatInMeasure, type SynthEvent } from "@/lib/chord-synth";
 import { parseChordContent } from "@/lib/chord-parser";
 import { decodeHtmlEntities } from "@/lib/ug-scraper";
@@ -29,6 +29,10 @@ interface ConductorProps {
   lyricAnchorDiagram?: number;
   /**.appelé à chaque réglage d'offset des paroles (pour le sauvegarder). */
   onLyricOffsetChange?: (offset: number) => void;
+  /**.décalage de la bande de diagrammes sur la musique, en secondes. */
+  bandOffset?: number;
+  /**.notifié à chaque réglage du décalage de la bande. */
+  onBandOffsetChange?: (offset: number) => void;
   onClose: () => void;
 }
 
@@ -172,6 +176,8 @@ export default function Conductor({
   lyricOffset: externalLyricOffset,
   lyricAnchorDiagram,
   onLyricOffsetChange,
+  bandOffset: externalBandOffset,
+  onBandOffsetChange,
   onClose,
 }: ConductorProps) {
   const events = useMemo(() => renderSequence(diagrams, bpm), [diagrams, bpm]);
@@ -229,6 +235,20 @@ export default function Conductor({
     lyricOffsetRef.current = next;
     onLyricOffsetChange?.(next);
   };
+  // Décalage de la bande de diagrammes sur la musique (contrôlé par l'éditeur,
+  // comme l'offset des paroles) : c'est le réglage qui rend la synchro malléable.
+  const [localBandOffset, setLocalBandOffset] = useState(0);
+  const bandOffset = externalBandOffset ?? localBandOffset;
+  const bandOffsetRef = useRef(0);
+  useEffect(() => {
+    bandOffsetRef.current = bandOffset;
+  }, [bandOffset]);
+  const changeBandOffset = (delta: number) => {
+    const next = Math.round(Math.max(-10, Math.min(10, bandOffset + delta)) * 10) / 10;
+    setLocalBandOffset(next);
+    bandOffsetRef.current = next;
+    onBandOffsetChange?.(next);
+  };
   const chordVolRef = useRef(chordVolume);
   const chordMasterRef = useRef<GainNode | null>(null);
   const [midiDurationMs, setMidiDurationMs] = useState(0);
@@ -241,6 +261,11 @@ export default function Conductor({
   const midiUrlRef = useRef<string | null>(midiUrl);
   const playTokenRef = useRef(0);
   const probeRef = useRef<number | null>(null);
+  // Pause/reprise : on mémorise la position dans le morceau, puis on rejoue
+  // depuis cet instant (les événements déjà passés sont sautés).
+  const [paused, setPaused] = useState(false);
+  const seekRef = useRef(0);
+  const t0Ref = useRef<number | null>(null);
   const [midiLevel, setMidiLevel] = useState(0);
   // Pistes du MIDI importé et mixage par piste (volume + EQ), comme une table
   // de mixage : chaque piste a son propre strip.
@@ -367,7 +392,10 @@ export default function Conductor({
       window.clearInterval(probeRef.current);
       probeRef.current = null;
     }
+    t0Ref.current = null;
     setMidiLevel(0);
+    setPaused(false);
+    seekRef.current = 0;
     if (ctxRef.current && ctxRef.current.state === "running") {
       ctxRef.current.close().catch(() => {});
     }
@@ -512,7 +540,8 @@ export default function Conductor({
     });
   };
 
-  const play = useCallback(async () => {
+  /**`.fromSec` permet la reprise après pause et le saut vers un diagramme. */
+  const play = useCallback(async (fromSec = 0) => {
     stop();
     const tok = playTokenRef.current;
     // On attend le fetch/parse du MIDI (mémoisé) AVANT toute décision : si un
@@ -530,9 +559,11 @@ export default function Conductor({
     }
     if (events.length === 0 && totalMs <= 0 && midiTotalMs <= 0) return;
 
-    setIndex(0);
+    const seek = Math.max(0, fromSec);
+    seekRef.current = seek;
+    setPaused(false);
     setLyricIndex(-1);
-    setElapsedMs(0);
+    setElapsedMs(seek * 1000);
 
     const pickPrimary = (): HTMLAudioElement | null => {
       if (instRef.current) return instRef.current;
@@ -549,10 +580,10 @@ export default function Conductor({
     const hasMidi = midiEvs.length > 0 && sourceMode === "midi";
     const playChords = !hasMidi && events.length > 0;
     if (primary) {
-      primary.currentTime = 0;
+      primary.currentTime = seek;
       void primary.play().catch(() => {});
       if (firstVocals !== null && firstVocals !== primary) {
-        firstVocals.currentTime = 0;
+        firstVocals.currentTime = seek;
         void firstVocals.play().catch(() => {});
       }
     }
@@ -583,10 +614,29 @@ export default function Conductor({
       // 3 700+ événements MIDI d'un coup saturaient le graphe (des dizaines de
       // milliers de nœuds) et rien ne sortait ; en plus, chaque note planifiée
       // ainsi reçoit le volume en cours au moment où elle est créée.
-      const t0 = ctx.currentTime + 0.15;
+      // t0 est calé pour que la position `seek` du morceau sonne maintenant : la
+      // reprise après pause et les sauts vers un diagramme deviennent possibles.
+      const t0 = ctx.currentTime + 0.15 - seek;
+      t0Ref.current = t0;
       const horizonSec = () => ctx.currentTime - t0 + 0.6;
       let chordPtr = 0;
       let midiPtr = 0;
+      // Reprise : on saute les événements déjà terminés avant la position.
+      const chordShift = bandOffsetRef.current;
+      while (
+        playChords &&
+        chordPtr < events.length &&
+        events[chordPtr].start + events[chordPtr].duration <= seek
+      ) {
+        chordPtr++;
+      }
+      while (
+        hasMidi &&
+        midiPtr < midiEvs.length &&
+        midiEvs[midiPtr].start + midiEvs[midiPtr].duration <= seek
+      ) {
+        midiPtr++;
+      }
       // Un strip par piste : volume + EQ 3 bandes, créé à la première note de
       // la piste (donc juste avant qu'on l'entende) et relié au bus du Chef.
       trackNodesRef.current = new Map();
@@ -619,7 +669,7 @@ export default function Conductor({
       pump = () => {
         const horizon = horizonSec();
         while (playChords && chordPtr < events.length && events[chordPtr].start <= horizon) {
-          playEvent(ctx, events[chordPtr], master, t0 + events[chordPtr].start);
+          playEvent(ctx, events[chordPtr], master, t0 + events[chordPtr].start + chordShift);
           chordPtr++;
         }
         while (hasMidi && midiPtr < midiEvs.length && midiEvs[midiPtr].start <= horizon) {
@@ -667,7 +717,9 @@ export default function Conductor({
 
     let startedAt = 0;
     const tick = () => {
-      if (startedAt === 0) startedAt = performance.now() + 100;
+      // L'horloge d'interface démarre à la position de lecture (t = seek au
+      // démarrage), pour que pause/reprise et sauts restent exacts.
+      if (startedAt === 0) startedAt = performance.now() + 100 - seek * 1000;
       if (pump) {
         try {
           pump();
@@ -679,10 +731,13 @@ export default function Conductor({
       const t = performance.now() - startedAt;
       const limit = Math.max(totalMs, midiDurRef.current);
       if (bandEvents.length === 0) setElapsedMs(t);
+      // Le décalage de bande rend la synchro malléable : un décalage positif
+      // retarde l'affichage des diagrammes par rapport à la musique.
+      const tb = t + bandOffsetRef.current * 1000;
       let i = bandEvents.findIndex(
-        (e) => e.start * 1000 <= t && t < (e.start + e.duration) * 1000
+        (e) => e.start * 1000 <= tb && tb < (e.start + e.duration) * 1000
       );
-      if (i < 0) i = bandEvents.filter((e) => e.start * 1000 <= t).length - 1;
+      if (i < 0) i = bandEvents.filter((e) => e.start * 1000 <= tb).length - 1;
       setIndex(Math.max(0, i));
       if (flatLyrics.length > 0) {
         const hasTimes = flatLyrics[0].time !== null;
@@ -727,10 +782,58 @@ export default function Conductor({
   }, [events, stop, totalMs, flatLyrics, sourceMode, midiTracks, bandEvents]);
 
   const playedRef = useRef(false);
+  // Position courante dans le morceau (s), que la lecture soit active ou en pause.
+  const currentPosSec = useCallback((): number => {
+    const t0 = t0Ref.current;
+    const ctx = ctxRef.current;
+    if (t0 !== null && ctx) return Math.max(0, ctx.currentTime - t0);
+    return seekRef.current;
+  }, []);
+
+  const togglePlay = useCallback(() => {
+    if (playing) {
+      // Pause : on mémorise la position avant de tout couper.
+      const pos = currentPosSec();
+      stop();
+      seekRef.current = pos;
+      setPaused(true);
+      return;
+    }
+    void play(paused ? seekRef.current : 0);
+  }, [playing, paused, play, stop, currentPosSec]);
+
+  // Diagramme précédent / suivant : saute la lecture au début de ce diagramme.
+  const jumpDiagram = useCallback(
+    (dir: -1 | 1) => {
+      const list = bandEvents;
+      if (list.length === 0) return;
+      const shift = bandOffsetRef.current;
+      const tSec = currentPosSec() + shift;
+      let target: number;
+      if (dir === 1) {
+        const found = list.findIndex((e) => e.start > tSec + 0.05);
+        target = found < 0 ? list.length - 1 : found;
+      } else {
+        target = 0;
+        for (let k = 0; k < list.length; k++) {
+          if (list[k].start < tSec - 0.35) target = k;
+        }
+      }
+      const start = Math.max(0, list[target].start - shift);
+      setIndex(target);
+      if (playing || paused) {
+        void play(start);
+      } else {
+        seekRef.current = start;
+        setElapsedMs(start * 1000);
+      }
+    },
+    [bandEvents, currentPosSec, play, playing, paused]
+  );
   useEffect(() => {
     if (playedRef.current || events.length === 0) return;
     playedRef.current = true;
-    const t = window.setTimeout(play, 50);
+    const t = window.setTimeout(() => void play(0), 50);
     return () => {
       window.clearTimeout(t);
       stop();
@@ -744,7 +847,7 @@ export default function Conductor({
     if (events.length > 0) return;
     if (playedRef.current || stemDuration === null) return;
     playedRef.current = true;
-    const t = window.setTimeout(play, 50);
+    const t = window.setTimeout(() => void play(0), 50);
     return () => {
       window.clearTimeout(t);
       stop();
@@ -806,24 +909,54 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
             </span>
           </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => jumpDiagram(-1)}
+            className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
+            title="Diagramme précédent (et saut de la lecture à ce diagramme)"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={togglePlay}
+            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${
+              playing
+                ? "bg-amber-500 text-black hover:bg-amber-400"
+                : paused
+                  ? "bg-emerald-500 text-black hover:bg-emerald-400"
+                  : "bg-emerald-500 text-black hover:bg-emerald-400"
+            }`}
+            title={playing ? "Pause (reprend où tu t'es arrêté)" : "Lecture"}
+          >
+            {playing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+          </button>
+          <button
+            onClick={() => jumpDiagram(1)}
+            className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
+            title="Diagramme suivant (et saut de la lecture à ce diagramme)"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
           {playing ? (
             <button
               onClick={stop}
               className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-500 text-white hover:bg-red-400 transition-colors"
+              title="Arrêter et revenir au début"
             >
               <Square className="w-3.5 h-3.5" />
             </button>
           ) : (
-            <button
-              onClick={play}
-              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500 text-black hover:bg-emerald-400 transition-colors"
-              title="Relancer"
-            >
-              <Play className="w-3.5 h-3.5" />
-            </button>
+            paused && (
+              <button
+                onClick={stop}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-500 text-white hover:bg-red-400 transition-colors"
+                title="Arrêter et revenir au début"
+              >
+                <Square className="w-3.5 h-3.5" />
+              </button>
+            )
           )}
           <button
-            onClick={play}
+            onClick={() => void play(0)}
             className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
             title="Rejouer depuis le début"
           >
@@ -1136,6 +1269,55 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
               />
             </span>
           </div>
+          {bandEvents.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+              <span className="text-zinc-500 w-20">Diagrammes</span>
+              <button
+                onClick={() => changeBandOffset(-1)}
+                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
+                title="Retarder la bande de 1 s"
+              >
+                -1
+              </button>
+              <button
+                onClick={() => changeBandOffset(-0.1)}
+                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-400 transition-colors"
+                title="Retarder la bande de 0,1 s"
+              >
+                -.1
+              </button>
+              <span className="font-mono text-amber-400 w-16 text-center">
+                {bandOffset >= 0 ? "+" : ""}
+                {bandOffset.toFixed(1)} s
+              </span>
+              <button
+                onClick={() => changeBandOffset(0.1)}
+                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-400 transition-colors"
+                title="Avancer la bande de 0,1 s"
+              >
+                +.1
+              </button>
+              <button
+                onClick={() => changeBandOffset(1)}
+                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
+                title="Avancer la bande de 1 s"
+              >
+                +1
+              </button>
+              {bandOffset !== 0 && (
+                <button
+                  onClick={() => changeBandOffset(-bandOffset)}
+                  className="text-zinc-500 hover:text-zinc-300 underline transition-colors"
+                  title="Remettre le décalage de la bande à 0"
+                >
+                  Reset
+                </button>
+              )}
+              <span className="text-[10px] text-zinc-600">
+                recale les diagrammes sur la musique (sauvegardé par chanson)
+              </span>
+            </div>
+          )}
           {midiTracks.length > 0 && (
             <div className="flex flex-col gap-1.5 rounded-lg bg-zinc-900/70 border border-zinc-800 px-3 py-2">
               <div className="flex items-center justify-between">

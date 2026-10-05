@@ -22,7 +22,7 @@ import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure,
 import { gmProgramName } from "@/lib/gm-voice";
 import { getSongTab } from "@/lib/mock-data";
 import { useSharedSong } from "@/lib/use-shared-song";
-import { loadGlobalOffset, saveGlobalOffset } from "@/lib/line-offsets";
+import { loadGlobalOffset, saveGlobalOffset, loadBandOffset, saveBandOffset } from "@/lib/line-offsets";
 import { loadYouTubeId } from "@/lib/youtube-store";
 import {
   BAR_KINDS,
@@ -191,6 +191,7 @@ function EditSongView({ id }: { id: string }) {
   const [activeSlot, setActiveSlot] = useState<ActiveSlot>({ kind: "main" });
   const [gpMenuOpen, setGpMenuOpen] = useState(false);
   const [lyricsOffset, setLyricsOffset] = useState(() => (id ? loadGlobalOffset(id) : 0));
+  const [bandOffset, setBandOffset] = useState(() => (id ? loadBandOffset(id) : 0));
   const [lyricAnchorDiagram, setLyricAnchorDiagram] = useState<number | null>(null);
   const [chartsConverting, setChartsConverting] = useState(false);
   const instUrlRef = useRef<string | null>(null);
@@ -2439,6 +2440,11 @@ function EditSongView({ id }: { id: string }) {
           onLyricOffsetChange={(offset) => {
             setLyricsOffset(offset);
             if (id) saveGlobalOffset(id, offset);
+          }}
+          bandOffset={bandOffset}
+          onBandOffsetChange={(offset) => {
+            setBandOffset(offset);
+            if (id) saveBandOffset(id, offset);
           }}
           onClose={() => setConductorOpen(false)}
         />
