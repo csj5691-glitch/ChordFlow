@@ -563,6 +563,10 @@ export function playGmEvent(
   program?: number | null,
   opts: GmPlayOptions = { strum: "off" }
 ): void {
+  // Filet de sécurité : l'API Web Audio refuse un instant négatif ou non fini
+  // (RangeError) — possible quand on programme une note à cheval sur une
+  // reprise en cours de morceau. On rabat sur le début du contexte.
+  const at = Number.isFinite(when) ? Math.max(0, when) : 0;
   const dur = Math.max(0.35, ev.duration);
   const gain = opts.gain ?? 1;
 
@@ -570,10 +574,10 @@ export function playGmEvent(
   // percussion (diagramme) déclenche le motif générique de coups.
   if (opts.percussion) {
     if (opts.drumPitch !== undefined) {
-      playDrumHit(ctx, master, when, drumKindForPitch(opts.drumPitch), gain);
+      playDrumHit(ctx, master, at, drumKindForPitch(opts.drumPitch), gain);
       return;
     }
-    playDrums(ctx, master, when, dur, ev.drumHits ?? 1, gain);
+    playDrums(ctx, master, at, dur, ev.drumHits ?? 1, gain);
     return;
   }
 
@@ -592,14 +596,14 @@ export function playGmEvent(
         ? [...chordNotes].sort((a, b) => b - a)
         : [...chordNotes].sort((a, b) => a - b);
     sortedNotes.forEach((freq, i) => {
-      pluckNote(ctx, voice, freq, when + i * strumDelay, dur, gain, master);
+      pluckNote(ctx, voice, freq, at + i * strumDelay, dur, gain, master);
     });
   }
 
   if (ev.mutedNotes && ev.mutedNotes.length > 0) {
     const mutedVoice = { ...voice, attack: 0.004, peak: 0.4 };
     for (const f of ev.mutedNotes) {
-      pluckNote(ctx, mutedVoice, f, when, 0.18, gain, master);
+      pluckNote(ctx, mutedVoice, f, at, 0.18, gain, master);
     }
   }
 }

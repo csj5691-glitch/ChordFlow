@@ -668,19 +668,28 @@ export default function Conductor({
       };
       pump = () => {
         const horizon = horizonSec();
+        // Reprise en cours de morceau : `t0` est calé pour que la position
+        // `seek` sonne maintenant, donc un événement déjà entamé donnerait un
+        // instant de programmation négatif (RangeError). On saute ce qui a
+        // commencé avant la reprise et on ne programme jamais dans le passé.
+        const now = ctx.currentTime;
         while (playChords && chordPtr < events.length && events[chordPtr].start <= horizon) {
-          playEvent(ctx, events[chordPtr], master, t0 + events[chordPtr].start + chordShift);
+          const ev = events[chordPtr];
           chordPtr++;
+          if (ev.start < seek - 0.01) continue;
+          playEvent(ctx, ev, master, Math.max(now, t0 + ev.start + chordShift));
         }
         while (hasMidi && midiPtr < midiEvs.length && midiEvs[midiPtr].start <= horizon) {
           const ev = midiEvs[midiPtr];
-          playGmEvent(ctx, midiSynthEvent(ev, midiPtr), busFor(ev.track), t0 + ev.start, ev.program, {
+          const n = midiPtr;
+          midiPtr++;
+          if (ev.start < seek - 0.01) continue;
+          playGmEvent(ctx, midiSynthEvent(ev, n), busFor(ev.track), Math.max(now, t0 + ev.start), ev.program, {
             strum: "off",
             percussion: ev.percussion,
             ...(ev.percussion ? { drumPitch: freqToMidi(ev.freq) } : {}),
             gain: 1,
           });
-          midiPtr++;
         }
       };
       const first = midiEvs[0];
