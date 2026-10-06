@@ -177,27 +177,35 @@ const [extracting, setExtracting] = useState(false);
     [router, setlist, shuffle]
   );
 
-  const advance = useCallback(() => {
-    if (!setlist) return;
-    const n = setlist.playlist.entries.length;
-    let next: number;
-    if (shuffle && n > 1) {
-      do {
-        next = Math.floor(Math.random() * n);
-      } while (next === setlist.index);
-    } else {
-      next = setlist.index + 1;
-      if (next >= n) {
-        clearSession();
-        setSetlist(null);
-        return;
+  const advance = useCallback(
+    (skipBroken = false) => {
+      if (!setlist) return;
+      const n = setlist.playlist.entries.length;
+      let next: number;
+      // En mode « skip » (chanson introuvable ou illisible) on avance en
+      // séquentiel quel que soit le mode : chaque enchaînement fait +1 et se
+      // termine forcément en fin de playlist, sans boucle de re-tirage.
+      if (!skipBroken && shuffle && n > 1) {
+        do {
+          next = Math.floor(Math.random() * n);
+        } while (next === setlist.index);
+      } else {
+        next = setlist.index + 1;
+        if (next >= n) {
+          clearSession();
+          setSetlist(null);
+          return;
+        }
       }
-    }
-    saveSession({ playlistId: setlist.playlist.id, index: next, shuffle });
-    router.push(`/song/${setlist.playlist.entries[next].id}`);
-  }, [router, setlist, shuffle]);
+      saveSession({ playlistId: setlist.playlist.id, index: next, shuffle });
+      router.push(`/song/${setlist.playlist.entries[next].id}`);
+    },
+    [router, setlist, shuffle]
+  );
 
-  const handlePlaylistEnded = advance;
+  const handlePlaylistEnded = useCallback(() => advance(false), [advance]);
+
+  const [skipNotice, setSkipNotice] = useState<string | null>(null);
 
   const setlistQueue = useMemo(() => {
     if (!setlist) return null;
@@ -786,6 +794,43 @@ const [extracting, setExtracting] = useState(false);
     setShowEdit(false);
   }, [id, song, editedSong, upsert]);
 
+  // Enchaînement automatique d'une entrée de playlist introuvable (chanson
+  // supprimée/modifiée) : on laisse 1,5 s pour voir le message puis on avance
+  // en séquentiel, qui se termine forcément en fin de playlist.
+  const songMissing =
+    !song && !(hydrated && sharedLoading && !editedSong && !baseSong);
+  useEffect(() => {
+    if (!setlist || !songMissing) return;
+    const noticeTimer = window.setTimeout(() => {
+      setSkipNotice("Chanson introuvable — enchaînement vers la suivante…");
+    }, 40);
+    const advanceTimer = window.setTimeout(() => {
+      setSkipNotice(null);
+      advance(true);
+    }, 1500);
+    return () => {
+      window.clearTimeout(noticeTimer);
+      window.clearTimeout(advanceTimer);
+    };
+  }, [setlist, songMissing, advance]);
+
+  // Vidéo illisible (embarquement bloqué) pendant une playlist : court délai
+  // pour lire le message puis on enchaîne aussi en séquentiel.
+  useEffect(() => {
+    if (!setlist || !youtubeError) return;
+    const noticeTimer = window.setTimeout(() => {
+      setSkipNotice("Vidéo illisible — enchaînement vers la suivante…");
+    }, 40);
+    const advanceTimer = window.setTimeout(() => {
+      setSkipNotice(null);
+      advance(true);
+    }, 2500);
+    return () => {
+      window.clearTimeout(noticeTimer);
+      window.clearTimeout(advanceTimer);
+    };
+  }, [setlist, youtubeError, advance]);
+
   if (!song) {
     if (hydrated && sharedLoading && !editedSong && !baseSong) {
       return (
@@ -797,6 +842,12 @@ const [extracting, setExtracting] = useState(false);
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
         <p className="text-zinc-500 text-lg">Chanson introuvable</p>
+        {skipNotice && (
+          <p className="text-sm text-amber-300/90 flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            {skipNotice}
+          </p>
+        )}
         <button
           onClick={() => router.push("/")}
           className="text-amber-400 hover:text-amber-300 flex items-center gap-2"
@@ -1003,7 +1054,7 @@ const [extracting, setExtracting] = useState(false);
                 <ChevronLeft className="w-4 h-4 text-zinc-300" />
               </button>
               <button
-                onClick={advance}
+                onClick={() => advance()}
                 disabled={setlist.playlist.entries.length === 1}
                 title="Suivant"
                 className="w-8 h-8 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 flex items-center justify-center transition-colors"
@@ -1198,6 +1249,12 @@ const [extracting, setExtracting] = useState(false);
               L&apos;embarquement est bloqué par le propriétaire ou la vidéo est indisponible.
               Écoutez le morceau sur Spotify (paroles affichées en statique).
             </p>
+            {skipNotice && (
+              <p className="text-sm text-amber-300/90 flex items-center gap-2 mb-3">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                {skipNotice}
+              </p>
+            )}
             <button
               onClick={() => {
                 setShowSpotifySearch(true);
