@@ -215,7 +215,7 @@ export default function Conductor({
   // L'offset est une valeur contrôlée : dès que l'éditeur fournit la prop, c'est
   // lui qui fait foi. Avant, un effet synchronisait l'état local avec la prop et
   // l'éditeur réutilisait la valeur renvoyée → boucle « maximum update depth ».
-  const lyricOffset = Math.min(0.5, externalLyricOffset ?? localLyricOffset);
+  const lyricOffset = externalLyricOffset ?? localLyricOffset;
   const lyricOffsetRef = useRef(0);
   useEffect(() => {
     lyricOffsetRef.current = lyricOffset;
@@ -234,9 +234,7 @@ export default function Conductor({
     lyricAnchorRef.current = idx;
   };
   const changeLyricOffset = (delta: number) => {
-    // Les paroles ne doivent jamais partir plus de 0,5 s en avance sur la
-    // musique (stems + MIDI) : l'avance positive est bornée à +0,5 s.
-    const next = Math.round(Math.max(-30, Math.min(0.5, lyricOffset + delta)) * 10) / 10;
+    const next = Math.round(Math.max(-30, Math.min(30, lyricOffset + delta)) * 10) / 10;
     // Le parent mémorise l'offset (par chanson) : sans ce rappel, le réglage
     // était perdu au rechargement. Appelé depuis un handler, donc autorisé.
     setLocalLyricOffset(next);
