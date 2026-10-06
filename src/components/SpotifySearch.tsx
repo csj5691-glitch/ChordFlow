@@ -62,7 +62,13 @@ export default function SpotifySearch({
   }, []);
 
   const runSearch = useCallback(async (q: string) => {
-    const token = await getValidToken();
+    let token: string | null;
+    try {
+      token = await getValidToken();
+    } catch {
+      setSearchError("Impossible de rafraîchir votre session Spotify. Réessayez.");
+      return;
+    }
     if (!token) {
       setLoggedIn(false);
       setSearchError("Connectez votre compte Spotify pour rechercher.");

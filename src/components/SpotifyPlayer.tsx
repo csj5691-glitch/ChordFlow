@@ -388,7 +388,13 @@ export default function SpotifyPlayer({
   const startPlayback = useCallback(
     async (uri: string, url: string, queue?: string[]): Promise<boolean> => {
       console.log("[ChordFlow] startPlayback appelé uri =", uri);
-      const token = await getValidToken();
+      let token: string | null;
+      try {
+        token = await getValidToken();
+      } catch (err) {
+        console.error("[ChordFlow] rafraîchissement du jeton Spotify impossible :", err);
+        return false;
+      }
       if (!token) {
         setLoggedIn(false);
         return false;
