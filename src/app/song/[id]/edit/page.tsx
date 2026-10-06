@@ -869,9 +869,12 @@ body: JSON.stringify({ videoId, stem }),
   };
 
   const extractSongsterrId = (input: string): number | null => {
-    const m = input.match(/\/song\/(\d+)|song(?:Id|id)=(\d+)/);
+    // Formats Songsterr : /a/wa/song/<id>, songid=<id>, ou …/a/wsa/…-s<id>.
+    const m = input.match(
+      /\/song\/(\d+)|song(?:id)=(\d+)|[-/]s(\d+)(?=[?#]|$)/i
+    );
     if (!m) return null;
-    const raw = m[1] ?? m[2];
+    const raw = m[1] ?? m[2] ?? m[3];
     const id = Number(raw);
     return Number.isInteger(id) && id > 0 ? id : null;
   };
@@ -1793,7 +1796,7 @@ body: JSON.stringify({ videoId, stem }),
                           void handleStImportLink();
                         }
                       }}
-                      placeholder="ou collez le lien de la version web (…/a/wa/song/…)"
+                      placeholder="ou collez le lien de la version web (…/a/wa/song/… ou …-s12345)"
                       className="flex-1 min-w-0 bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-500/60"
                     />
                     <button
