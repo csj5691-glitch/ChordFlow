@@ -30,6 +30,7 @@ import { extractSpotifyUri } from "@/lib/spotify-auth";
 import { useSharedSong } from "@/lib/use-shared-song";
 import { SongTab } from "@/lib/types";
 import { loadPlaylists, loadSession, saveSession, clearSession } from "@/lib/playlists";
+import { savePlaylistsUiState } from "@/lib/playlists-ui-state";
 import { buildChordLineTimestamps } from "@/lib/lyric-timing";
 import type { Playlist } from "@/lib/playlists";
 import { ArrowLeft, Music, Key, FileText, Music2, Upload, ExternalLink, Wand2, Check, Pencil, X, ChevronLeft, ChevronRight, ListMusic, Square, Shuffle, RefreshCw, Mic2, Loader2 } from "lucide-react";
@@ -259,6 +260,24 @@ const [extracting, setExtracting] = useState(false);
     setSetlist(null);
     setIsPlaying(false);
   }, []);
+
+  // Ouverture de l'éditeur : on sème l'état de /playlists pour qu'il ouvre la
+  // playlist en cours dépliée (le panneau restaure cet état au montage).
+  const handleEditPlaylist = useCallback(() => {
+    if (!setlist) return;
+    savePlaylistsUiState({
+      expanded: setlist.playlist.id,
+      createOpen: false,
+      newName: "",
+      renameId: null,
+      renameValue: "",
+      query: "",
+      selectedId: null,
+      scrollY: 0,
+      resultsScrollTop: 0,
+    });
+    router.push("/playlists");
+  }, [setlist, router]);
 
   useEffect(() => {
     try {
@@ -1009,6 +1028,13 @@ const [extracting, setExtracting] = useState(false);
               </p>
             </div>
             <div className="flex items-center gap-1 flex-shrink-0">
+              <button
+                onClick={handleEditPlaylist}
+                title="Modifier la playlist (renommer, réordonner, ajouter/retirer des chansons)"
+                className="w-8 h-8 rounded-lg bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center transition-colors"
+              >
+                <Pencil className="w-3.5 h-3.5 text-zinc-300" />
+              </button>
               <button
                 onClick={() => setPlayToggle((t) => t + 1)}
                 title={isPlaying ? "Pause" : "Lecture"}
