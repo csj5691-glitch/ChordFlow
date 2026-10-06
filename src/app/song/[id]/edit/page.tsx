@@ -170,6 +170,12 @@ function EditSongView({ id }: { id: string }) {
   const [extractElapsed, setExtractElapsed] = useState(0);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [ytVideoId] = useState<string | null>(() => loadYouTubeId(id));
+  const [stemStatus, setStemStatus] = useState<{
+    status: "checking" | "up" | "down";
+    model?: string;
+    device?: string;
+    cudaAvailable?: boolean;
+  }>({ status: "checking" });
   const extractStartRef = useRef(0);
   const [gpImporting, setGpImporting] = useState(false);
   const [gpError, setGpError] = useState<string | null>(null);
@@ -665,6 +671,37 @@ function EditSongView({ id }: { id: string }) {
     }, 1000);
     return () => window.clearInterval(t);
   }, [extracting]);
+
+  // État du service stems (port 8765) : rafraîchi toutes les 8 s, pour savoir
+  // immédiatement si le port est joignable et si le GPU (CUDA) est utilisé.
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await fetch("/api/stems-health", { cache: "no-store" });
+        const data = (await res.json().catch(() => null)) ?? null;
+        if (cancelled) return;
+        if (res.ok && data?.ok) {
+          setStemStatus({
+            status: "up",
+            model: data.model,
+            device: data.device,
+            cudaAvailable: data.cudaAvailable,
+          });
+        } else {
+          setStemStatus({ status: "down" });
+        }
+      } catch {
+        if (!cancelled) setStemStatus({ status: "down" });
+      }
+    };
+    void check();
+    const t = window.setInterval(check, 8000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, [id]);
 
   const extractErrorText = (msg: string) =>
     msg.includes("injoignable")
@@ -1409,6 +1446,44 @@ body: JSON.stringify({ videoId, stem }),
               </div>
               <SynthPlayer diagrams={diagrams} bpm={bpm} program={activeProgram} percussion={activePercussion} onCurrentIndexChange={setPlayingEventIndex} />
               <div className="flex items-center gap-2 flex-wrap">
+                {stemStatus.status === "checking" ? (
+                  <span className="flex items-center gap-1.5 text-[11px] text-zinc-500 bg-zinc-800/60 border border-zinc-700/60 rounded-full px-2.5 py-1 w-fit">
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-pulse" />
+                    Service stems : vérification…
+                  </span>
+                ) : stemStatus.status === "up" ? (
+                  <span className="flex items-center gap-1.5 text-[11px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-2.5 py-1 w-fit">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    Service stems : actif (port 8765)
+                    <span
+                      className={`font-semibold ${
+                        stemStatus.device === "cuda"
+                          ? "text-emerald-300"
+                          : "text-amber-400"
+                      }`}
+                      title={
+                        stemStatus.device === "cuda"
+                          ? "Découplage accéléré par le GPU — rapide"
+                          : "Découplage sur CPU : ~3,7× la durée du morceau (installer onnxruntime-gpu pour accélérer)"
+                      }
+                    >
+                      {stemStatus.device === "cuda"
+                        ? "GPU (CUDA)"
+                        : "CPU (lent : ~3,7× la durée)"}
+                    </span>
+                    {stemStatus.model && (
+                      <span className="text-zinc-400">{stemStatus.model}</span>
+                    )}
+                  </span>
+                ) : (
+                  <span
+                    className="flex items-center gap-1.5 text-[11px] text-red-400 bg-red-500/10 border border-red-500/30 rounded-full px-2.5 py-1 w-fit"
+                    title="Le service local (Demucs, port 8765) n'est pas joignable. Vercel n'a pas ce service : utilise localhost:3000."
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                    Service stems : absent — lance <b>start-stems.bat</b> puis reste sur localhost:3000
+                  </span>
+                )}
                 <button
                   onClick={() => setConductorOpen(true)}
                   className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-500 text-black hover:bg-amber-400 transition-colors w-fit"

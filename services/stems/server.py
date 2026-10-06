@@ -112,13 +112,33 @@ def _write_no_vocals(stems_dir: Path) -> Path:
     return target
 
 
+def _device_info():
+    """Peripherique reellement utilise (CUDA puis CPU) + capacites onnxruntime."""
+    import onnxruntime
+
+    try:
+        providers = list(onnxruntime.get_available_providers())
+    except Exception:
+        providers = []
+    cuda_available = "CUDAExecutionProvider" in providers
+    device = "cuda" if (_use_cuda and cuda_available) else "cpu"
+    return {
+        "device": device,  # ce qui est utilise pour la separation
+        "cudaAvailable": cuda_available,  # cuDNN peut manquer malgre le provider
+        "providers": providers,
+        "ortVersion": getattr(onnxruntime, "__version__", ""),
+    }
+
+
 @app.get("/health")
 def health():
+    info = _device_info()
     return {
         "ok": True,
         "stems": ALL_STEMS,
         "model": MODEL,
         "available": MODEL_STEM_NAMES + ["noVocals"],
+        **info,
     }
 
 
@@ -209,4 +229,12 @@ if __name__ == "__main__":
             flush=True,
         )
         raise SystemExit(0)
+    info = _device_info()
+    print(
+        f"[stems] demarrage sur le port {port} — modele {MODEL} — "
+        f"device {info['device']} — providers {', '.join(info['providers'])} "
+        f"(onnxruntime {info['ortVersion'] or '?'}); "
+        "si CUDA est annonce mais absent (cuDNN), le service bascule seul sur le CPU.",
+        flush=True,
+    )
     uvicorn.run(app, host="127.0.0.1", port=port)
