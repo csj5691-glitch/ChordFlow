@@ -50,6 +50,8 @@ export default function AddSong({ initial, onAdd, onClose }: AddSongProps) {
   const [songsterrTip, setSongsterrTip] = useState<string | null>(null);
   const [ugLoading, setUgLoading] = useState(false);
   const [ugError, setUgError] = useState<string | null>(null);
+  const [ugUrl, setUgUrl] = useState("");
+  const [ugUrlLoading, setUgUrlLoading] = useState(false);
 
   const fetchSongsterrTuning = useCallback(async () => {
     if (!artist.trim() || !title.trim()) return;
@@ -79,6 +81,21 @@ export default function AddSong({ initial, onAdd, onClose }: AddSongProps) {
     setContent((prev) => prev + (prev && !prev.endsWith("\n") ? "\n" : "") + chordName + "  ");
   }, []);
 
+  const applyUgTab = useCallback((data: { artist?: string; title?: string; content?: string; tuning?: string; capo?: number }) => {
+    if (!data.content) return false;
+    if (data.artist) setArtist(data.artist);
+    if (data.title) setTitle(data.title);
+    setContent(data.content);
+    if (data.tuning) {
+      setTuning(data.tuning);
+    }
+    if (typeof data.capo === "number") {
+      setCapo(data.capo);
+    }
+    setStep("chords");
+    return true;
+  }, []);
+
   const fetchUgChords = useCallback(async () => {
     if (!artist.trim() && !title.trim()) return;
     setUgLoading(true);
@@ -88,18 +105,7 @@ export default function AddSong({ initial, onAdd, onClose }: AddSongProps) {
         `/api/ug?query=${encodeURIComponent(`${artist.trim()} ${title.trim()}`)}`
       );
       const data = await res.json();
-      if (res.ok && data.content) {
-        setArtist(data.artist || artist);
-        setTitle(data.title || title);
-        setContent(data.content);
-        if (data.tuning) {
-          setTuning(data.tuning);
-        }
-        if (typeof data.capo === "number") {
-          setCapo(data.capo);
-        }
-        setStep("chords");
-      } else {
+      if (!(res.ok && applyUgTab(data))) {
         setUgError(data.error || "Aucun accord trouvé sur Ultimate Guitar.");
       }
     } catch {
@@ -107,7 +113,27 @@ export default function AddSong({ initial, onAdd, onClose }: AddSongProps) {
     } finally {
       setUgLoading(false);
     }
-  }, [artist, title]);
+  }, [artist, title, applyUgTab]);
+
+  const importUgFromUrl = useCallback(async () => {
+    const url = ugUrl.trim();
+    if (!url) return;
+    setUgUrlLoading(true);
+    setUgError(null);
+    try {
+      const res = await fetch(`/api/ug?url=${encodeURIComponent(url)}`);
+      const data = await res.json();
+      if (res.ok && applyUgTab(data)) {
+        setUgUrl("");
+      } else {
+        setUgError(data.error || "Impossible d'importer ce lien Ultimate Guitar.");
+      }
+    } catch {
+      setUgError("Impossible de contacter Ultimate Guitar.");
+    } finally {
+      setUgUrlLoading(false);
+    }
+  }, [ugUrl, applyUgTab]);
 
   const searchLyrics = useCallback(async () => {
     if (!artist.trim() || !title.trim()) return;
@@ -274,6 +300,29 @@ export default function AddSong({ initial, onAdd, onClose }: AddSongProps) {
               {ugError && (
                 <p className="text-red-400 text-xs text-center">{ugError}</p>
               )}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={ugUrl}
+                  onChange={(e) => setUgUrl(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      importUgFromUrl();
+                    }
+                  }}
+                  placeholder="ou collez un lien Ultimate Guitar (…/tab/…)"
+                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-xs placeholder-zinc-500 focus:outline-none focus:border-amber-500/50"
+                />
+                <button
+                  onClick={importUgFromUrl}
+                  disabled={!ugUrl.trim() || ugUrlLoading}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:bg-zinc-800 text-white disabled:text-zinc-500 rounded-lg text-xs font-medium transition-colors flex-shrink-0"
+                >
+                  {ugUrlLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                  Importer
+                </button>
+              </div>
             </div>
           )}
 

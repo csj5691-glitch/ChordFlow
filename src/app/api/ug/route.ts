@@ -4,7 +4,45 @@ import { NextRequest } from "next/server";
 import { searchUg, fetchUgTab, isDefaultTuning } from "@/lib/ug-scraper";
 
 export async function GET(req: NextRequest) {
+  const url = req.nextUrl.searchParams.get("url")?.trim();
   const query = req.nextUrl.searchParams.get("query")?.trim();
+
+  if (url) {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return Response.json({ error: "URL Ultimate Guitar invalide" }, { status: 400 });
+    }
+    const host = parsed.hostname.replace(/^www\./, "");
+    if (
+      host !== "ultimate-guitar.com" &&
+      !host.endsWith(".ultimate-guitar.com")
+    ) {
+      return Response.json({ error: "URL Ultimate Guitar invalide" }, { status: 400 });
+    }
+    if (!parsed.pathname.includes("/tab/")) {
+      return Response.json({ error: "URL non prise en charge (attendu un onglet /tab/)" }, { status: 400 });
+    }
+
+    try {
+      const tab = await fetchUgTab(parsed.toString());
+      return Response.json({
+        artist: tab.artist,
+        title: tab.title,
+        content: tab.content,
+        key: tab.tonality,
+        tuning: tab.tuningLabel && !isDefaultTuning(tab.tuningLabel) ? tab.tuningLabel : undefined,
+        capo: tab.capo,
+        type: tab.type,
+        url: tab.url,
+        source: "ultimate-guitar",
+      });
+    } catch {
+      return Response.json({ error: "Impossible de lire cet onglet Ultimate Guitar" }, { status: 502 });
+    }
+  }
+
   if (!query) {
     return Response.json({ error: "query is required" }, { status: 400 });
   }
