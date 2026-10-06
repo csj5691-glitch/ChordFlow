@@ -1035,8 +1035,9 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
             className="flex gap-2 px-4 overflow-x-auto pb-4 pt-3"
             style={{ scrollbarWidth: "none" }}
           >
-            {events.map((ev, i) => {
+            {bandEvents.map((ev, i) => {
               const active = i === index;
+              if (!ev || !ev.shape) return null;
               const isSilence =
                 ev.silence ||
                 ((ev.notes.length === 0 || ev.notes[0] === 0) &&
@@ -1155,7 +1156,8 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
                 </span>
               )}
               {measureIdxs.map((evIdx) => {
-                const mEv = events[evIdx];
+                const mEv = bandEvents[evIdx];
+                if (!mEv || !mEv.shape) return null;
                 const mBeats = beatsForShape(mEv.shape);
                 const mSilence =
                   mEv.silence ||
