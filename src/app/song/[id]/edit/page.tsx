@@ -196,7 +196,7 @@ function EditSongView({ id }: { id: string }) {
   const [stMode, setStMode] = useState<"gp" | "midi">("gp");
   const [activeSlot, setActiveSlot] = useState<ActiveSlot>({ kind: "main" });
   const [gpMenuOpen, setGpMenuOpen] = useState(false);
-  const [lyricsOffset, setLyricsOffset] = useState(() => (id ? loadGlobalOffset(id) : 0));
+  const [lyricsOffset, setLyricsOffset] = useState(() => (id ? Math.min(0.5, loadGlobalOffset(id)) : 0));
   const [bandOffset, setBandOffset] = useState(() => (id ? loadBandOffset(id) : 0));
   const [lyricAnchorDiagram, setLyricAnchorDiagram] = useState<number | null>(null);
   const [chartsConverting, setChartsConverting] = useState(false);
@@ -2515,8 +2515,9 @@ body: JSON.stringify({ videoId, stem }),
           lyricOffset={lyricsOffset}
           lyricAnchorDiagram={lyricAnchorDiagram ?? song?.lyricAnchorDiagram ?? undefined}
           onLyricOffsetChange={(offset) => {
-            setLyricsOffset(offset);
-            if (id) saveGlobalOffset(id, offset);
+            const capped = Math.min(0.5, offset);
+            setLyricsOffset(capped);
+            if (id) saveGlobalOffset(id, capped);
           }}
           bandOffset={bandOffset}
           onBandOffsetChange={(offset) => {
