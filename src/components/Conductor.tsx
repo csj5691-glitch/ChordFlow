@@ -379,12 +379,14 @@ export default function Conductor({
     setInstVolume(v);
     instVolRef.current = v;
     if (instRef.current) instRef.current.volume = v;
+    if (stemGainRefs.current.inst) stemGainRefs.current.inst.gain.value = v;
   };
   const vocalsVolRef = useRef(vocalsVolume);
   const changeVocalsVolume = (v: number) => {
     setVocalsVolume(v);
     vocalsVolRef.current = v;
     if (vocalsRef.current) vocalsRef.current.volume = v;
+    if (stemGainRefs.current.vocals) stemGainRefs.current.vocals.gain.value = v;
   };
   const ctxRef = useRef<AudioContext | null>(null);
   const instRef = useRef<HTMLAudioElement | null>(null);
@@ -396,6 +398,36 @@ export default function Conductor({
   const [stemDuration, setStemDuration] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const stemStartRef = useRef<number | null>(null);
+  // Stems joués SUR l'horloge du contexte (échantillon-verrouillés avec le
+  // MIDI) : plus de dérive possible entre la piste <audio> et les sons MIDI,
+  // et plus de latence de démarrage du lecteur média.
+  const stemSourcesRef = useRef<{ inst?: AudioBufferSourceNode; vocals?: AudioBufferSourceNode }>({});
+  const stemGainRefs = useRef<{ inst?: GainNode; vocals?: GainNode }>({});
+  const stemCacheRef = useRef<Map<string, AudioBuffer>>(new Map());
+  const stemLoadRef = useRef<Record<string, Promise<AudioBuffer | null>>>({});
+  const decodeStemBuffer = useCallback(
+    async (ctx: AudioContext, url: string): Promise<AudioBuffer | null> => {
+      const cached = stemCacheRef.current.get(url);
+      if (cached) return cached;
+      const existing = stemLoadRef.current[url];
+      if (existing) return existing;
+      const p = (async () => {
+        try {
+          const res = await fetch(url);
+          const arr = await res.arrayBuffer();
+          const buf = await ctx.decodeAudioData(arr);
+          stemCacheRef.current.set(url, buf);
+          return buf;
+        } catch (err) {
+          console.error("[Chef] décodage du stem échoué", err);
+          return null;
+        }
+      })();
+      stemLoadRef.current[url] = p;
+      return p;
+    },
+    []
+  );
   const onStemMeta = (e: SyntheticEvent<HTMLAudioElement>, volume: number) => {
     const d = e.currentTarget.duration;
     if (Number.isFinite(d) && d > 0) setStemDuration((prev) => prev ?? d);
@@ -434,6 +466,23 @@ export default function Conductor({
     }
     ctxRef.current = null;
     chordMasterRef.current = null;
+    const srcs = stemSourcesRef.current;
+    if (srcs.inst) {
+      try {
+        srcs.inst.stop();
+      } catch {
+        /* déjà arrêté */
+      }
+    }
+    if (srcs.vocals) {
+      try {
+        srcs.vocals.stop();
+      } catch {
+        /* déjà arrêté */
+      }
+    }
+    stemSourcesRef.current = {};
+    stemGainRefs.current = {};
     if (instRef.current) instRef.current.pause();
     if (vocalsRef.current) vocalsRef.current.pause();
     setPlaying(false);
@@ -631,26 +680,22 @@ export default function Conductor({
     // Stems et source jouée se superposent : le stem audio (enregistrement) et
     // la source choisie (MIDI importé ou accords synthétisés) jouent ensemble,
     // chacun avec son curseur de volume. Le pré-roll détecté (stemShift) est
-    // sauté au démarrage pour caler la musique des stems sur la timeline MIDI
-    // sans aucun réglage manuel.
+    // sauté pour caler la musique des stems sur la timeline MIDI. Depuis la
+    // lecture unifiée, les stems sont joués SUR le même contexte audio que le
+    // MIDI (échantillon-verrouillés) ; la piste <audio> ne sert plus que de
+    // repli si le décodage échoue.
     const hasMidi = midiEvs.length > 0 && sourceMode === "midi";
     const playChords = !hasMidi && events.length > 0;
-    if (primary) {
-      primary.currentTime = Math.max(0, seek + stemShiftRef.current);
-      void primary.play().catch(() => {});
-      if (firstVocals !== null && firstVocals !== primary) {
-        firstVocals.currentTime = Math.max(0, seek + stemShiftRef.current);
-        void firstVocals.play().catch(() => {});
-      }
-    }
-
+    const needCtx = usesAudio || playChords || hasMidi;
+    let ctx: AudioContext | null = null;
+    let t0 = 0;
     let pump: (() => void) | null = null;
-    if (playChords || hasMidi) {
+    if (needCtx) {
       const Ctor =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!Ctor) return;
-      const ctx = new Ctor();
+      ctx = new Ctor();
       try {
         await ctx.resume();
         if (ctx.state !== "running") await ctx.resume();
@@ -661,23 +706,67 @@ export default function Conductor({
         console.warn(`[Chef] contexte audio "${ctx.state}" — son possiblement muet`);
       }
       ctxRef.current = ctx;
-      const master = ctx.createGain();
+      // Alias non-null : les fermetures (pompe, bus) gardent un typage sûr.
+      const ctxSafe = ctx;
+      // t0 est calé pour que la position `seek` du morceau sonne maintenant :
+      // la reprise après pause et les sauts vers un diagramme restent exacts.
+      t0 = ctx.currentTime + 0.15 - seek;
+      t0Ref.current = t0;
+      // Stems sur la même horloge que le MIDI : décode + planifie les buffers
+      // sur la timeline du contexte (t0 + position). zero dérive, zéro latence
+      // de démarrage de lecteur média et zéro curseur à régler.
+      if (usesAudio) {
+        let stemsOnCtx = false;
+        const shift = stemShiftRef.current;
+        const scheduleStem = async (kind: "inst" | "vocals", url: string | null | undefined) => {
+          if (!url) return;
+          const buf = await decodeStemBuffer(ctxSafe, url);
+          if (!buf || buf.duration <= 0) return;
+          const gainNode = ctxSafe.createGain();
+          gainNode.gain.value = kind === "inst" ? instVolRef.current : vocalsVolRef.current;
+          gainNode.connect(ctxSafe.destination);
+          const src = ctxSafe.createBufferSource();
+          src.buffer = buf;
+          src.connect(gainNode);
+          const off = Math.min(Math.max(0, seek + shift), Math.max(0, buf.duration - 0.05));
+          src.start(t0 + seek, off);
+          stemSourcesRef.current[kind] = src;
+          stemGainRefs.current[kind] = gainNode;
+          stemsOnCtx = true;
+          if (Number.isFinite(buf.duration) && buf.duration > 0) {
+            setStemDuration((prev) => prev ?? buf.duration);
+          }
+        };
+        const instDone = scheduleStem("inst", instrumentalUrl);
+        const vocDone = scheduleStem("vocals", vocalsUrl);
+        await Promise.all([instDone, vocDone]);
+        // Repli <audio> (décodage impossible) : même saut de pré-roll.
+        if (!stemsOnCtx && primary) {
+          primary.currentTime = Math.max(0, seek + shift);
+          void primary.play().catch(() => {});
+          if (firstVocals !== null && firstVocals !== primary) {
+            firstVocals.currentTime = Math.max(0, seek + shift);
+            void firstVocals.play().catch(() => {});
+          }
+        }
+      }
+
+      const master = ctxSafe.createGain();
       master.gain.value = chordVolRef.current;
-      master.connect(ctx.destination);
+      master.connect(ctxSafe.destination);
       chordMasterRef.current = master;
       // Planification progressive : on ne crée dans le moteur audio que la
       // fenêtre des prochaines secondes, puis on répète à chaque tick. Les
       // 3 700+ événements MIDI d'un coup saturaient le graphe (des dizaines de
       // milliers de nœuds) et rien ne sortait ; en plus, chaque note planifiée
       // ainsi reçoit le volume en cours au moment où elle est créée.
-      // t0 est calé pour que la position `seek` du morceau sonne maintenant : la
-      // reprise après pause et les sauts vers un diagramme deviennent possibles.
-      const t0 = ctx.currentTime + 0.15 - seek;
+      // `t0` est déjà calé au-dessus : pas de redéclaration (variable `let`
+      // partagée avec le bloc des stems).
       t0Ref.current = t0;
       // Fenêtre courte : 0,3 s suffit (le tick revient toutes les 40 ms) et ne laisse
       // que quelques notes vivantes à la fois — c'est ce qui plafonne la RAM.
       const LOOKAHEAD = 0.3;
-      const horizonSec = () => ctx.currentTime - t0 + LOOKAHEAD;
+      const horizonSec = () => ctxSafe.currentTime - t0 + LOOKAHEAD;
       let chordPtr = 0;
       let midiPtr = 0;
       // Reprise : on saute les événements déjà terminés avant la position.
@@ -703,16 +792,16 @@ export default function Conductor({
         const cached = trackNodesRef.current.get(index);
         if (cached) return cached.input;
         const mix = trackMixRef.current[index] ?? DEFAULT_MIX;
-        const input = ctx.createGain();
+        const input = ctxSafe.createGain();
         input.gain.value = mix.muted ? 0 : mix.volume;
-        const low = ctx.createBiquadFilter();
+        const low = ctxSafe.createBiquadFilter();
         low.type = "lowshelf";
         low.frequency.value = EQ_FREQS.low;
-        const mid = ctx.createBiquadFilter();
+        const mid = ctxSafe.createBiquadFilter();
         mid.type = "peaking";
         mid.frequency.value = EQ_FREQS.mid;
         mid.Q.value = 0.9;
-        const high = ctx.createBiquadFilter();
+        const high = ctxSafe.createBiquadFilter();
         high.type = "highshelf";
         high.frequency.value = EQ_FREQS.high;
         low.gain.value = mix.eq.low;
@@ -731,7 +820,7 @@ export default function Conductor({
         // `seek` sonne maintenant, donc un événement déjà entamé donnerait un
         // instant de programmation négatif (RangeError). On saute ce qui a
         // commencé avant la reprise et on ne programme jamais dans le passé.
-        const now = ctx.currentTime;
+        const now = ctxSafe.currentTime;
         // Décalage relu à chaque passe : le réglage « Synchro » s'applique en
         // direct pendant la lecture, pas seulement au lancement.
         const shift = bandOffsetRef.current;
@@ -739,7 +828,7 @@ export default function Conductor({
           const ev = events[chordPtr];
           chordPtr++;
           if (ev.start + chordShift < seek - 0.01) continue;
-          playEvent(ctx, ev, master, Math.max(now, t0 + ev.start + shift));
+          playEvent(ctxSafe, ev, master, Math.max(now, t0 + ev.start + shift));
         }
         while (hasMidi && midiPtr < midiEvs.length && midiEvs[midiPtr].start <= horizon) {
           const ev = midiEvs[midiPtr];
@@ -747,7 +836,7 @@ export default function Conductor({
           midiPtr++;
           if (ev.start + chordShift < seek - 0.01) continue;
           playGmEvent(
-            ctx,
+            ctxSafe,
             midiSynthEvent(ev, n),
             busFor(ev.track),
             Math.max(now, t0 + ev.start + shift),
@@ -766,7 +855,7 @@ export default function Conductor({
       };
       const first = midiEvs[0];
       console.info(
-        `[Chef] lecture : source=${playChords ? "Accords" : "MIDI"}(${midiEvs.length}/${events.length}) pistes=${midiTracks.length} ctx=${ctx.state} premier=${first ? first.start.toFixed(2) : "-"}s fenêtre=0.6s`
+        `[Chef] lecture : source=${playChords ? "Accords" : "MIDI"}(${midiEvs.length}/${events.length}) pistes=${midiTracks.length} ctx=${ctxSafe.state} premier=${first ? first.start.toFixed(2) : "-"}s fenêtre=0.6s`
       );
       try {
         pump();
@@ -776,7 +865,7 @@ export default function Conductor({
       // Sonde de niveau : mesure la sortie réelle du bus MIDI (peak 0 = aucun
       // signal bien que planifié). Elle alimente le vumètre affiché à côté du
       // curseur « MIDI » — visible sans ouvrir la console.
-      const analyser = ctx.createAnalyser();
+      const analyser = ctxSafe.createAnalyser();
       analyser.fftSize = 1024;
       master.connect(analyser);
       const samples = new Uint8Array(analyser.fftSize);
@@ -870,7 +959,20 @@ export default function Conductor({
     };
     timerRef.current = window.setTimeout(tick, 40);
     setPlaying(true);
-  }, [events, stop, totalMs, flatLyrics, sourceMode, midiTracks, bandEvents]);
+  }, [
+    events,
+    stop,
+    totalMs,
+    flatLyrics,
+    sourceMode,
+    midiTracks,
+    bandEvents,
+    usesAudio,
+    instrumentalUrl,
+    vocalsUrl,
+    decodeStemBuffer,
+    playEvent,
+  ]);
 
   const playedRef = useRef(false);
   // Position courante dans le morceau (s), que la lecture soit active ou en pause.
