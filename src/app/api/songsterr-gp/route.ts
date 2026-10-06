@@ -15,6 +15,15 @@ interface RevisionMeta {
   revisionId: number;
 }
 
+interface RevisionListEntry {
+  revisionId?: number;
+  artist?: string;
+  title?: string;
+  tracksCount?: number;
+  createdAt?: string;
+  isDeleted?: boolean;
+}
+
 interface RevisionDetail {
   artist?: string;
   title?: string;
@@ -45,6 +54,108 @@ async function search(pattern: string) {
       tracksCount: Array.isArray(s.tracks) ? s.tracks.length : 0,
     }));
     return Response.json({ results });
+  } catch {
+    return Response.json({ error: "Songsterr inaccessible" }, { status: 502 });
+  }
+}
+
+async function listRevisions(songId: number) {
+  try {
+    const revRes = await fetch(
+      `https://www.songsterr.com/api/meta/${songId}/revisions`,
+      { headers: UA_HEADERS, cache: "no-store" }
+    );
+    if (!revRes.ok) {
+      return Response.json({ error: "Songsterr inaccessible" }, { status: 502 });
+    }
+    const revisions: RevisionListEntry[] = await revRes.json();
+    if (!Array.isArray(revisions)) {
+      return Response.json({ error: "Réponse Songsterr invalide" }, { status: 502 });
+    }
+
+    // Chaque entrée contient déjà tracksCount + createdAt ; on sonde ensuite la
+    // source GP (une requête par révision) pour distinguer exportable / web.
+    const list = revisions
+      .filter((r) => !r.isDeleted)
+      .slice(0, 8)
+      .map((r) => ({ revisionId: r.revisionId ?? 0, createdAt: r.createdAt ?? "" }));
+
+    const out: {
+      revisionId: number;
+      artist: string;
+      title: string;
+      tracksCount: number;
+      createdAt: string;
+      exportable: boolean;
+    }[] = [];
+
+    for (const item of list) {
+      let exportable = false;
+      try {
+        const rRes = await fetch(
+          `https://www.songsterr.com/api/revision/${item.revisionId}`,
+          { headers: UA_HEADERS, cache: "no-store" }
+        );
+        if (rRes.ok) {
+          const d = (await rRes.json()) as RevisionDetail;
+          exportable = Boolean(d.source);
+        }
+      } catch {
+        exportable = false;
+      }
+      const meta = revisions.find((r) => r.revisionId === item.revisionId);
+      out.push({
+        revisionId: item.revisionId,
+        artist: meta?.artist ?? "",
+        title: meta?.title ?? "",
+        tracksCount: meta?.tracksCount ?? 0,
+        createdAt: item.createdAt,
+        exportable,
+      });
+      await sleep(PROBE_DELAY_MS);
+    }
+
+    return Response.json({ revisions: out });
+  } catch {
+    return Response.json({ error: "Songsterr inaccessible" }, { status: 502 });
+  }
+}
+
+async function downloadRevision(revisionId: number) {
+  try {
+    const rRes = await fetch(
+      `https://www.songsterr.com/api/revision/${revisionId}`,
+      { headers: UA_HEADERS, cache: "no-store" }
+    );
+    if (!rRes.ok) {
+      return Response.json({ error: "Révision introuvable sur Songsterr" }, { status: 404 });
+    }
+    const detail = (await rRes.json()) as RevisionDetail;
+    const source = detail.source ?? "";
+    const artist = typeof detail.artist === "string" ? detail.artist : "";
+    const title = typeof detail.title === "string" ? detail.title : "";
+    if (!source) {
+      return Response.json(
+        {
+          error:
+            "Cette révision n'est pas exportable en Guitar Pro (version web uniquement). Choisissez-en une marquée GP dans la liste.",
+        },
+        { status: 404 }
+      );
+    }
+    const fileRes = await fetch(source, { headers: UA_HEADERS, redirect: "follow" });
+    if (!fileRes.ok) {
+      return Response.json({ error: `Téléchargement impossible (${fileRes.status})` }, { status: 502 });
+    }
+    const buf = await fileRes.arrayBuffer();
+    const base = `${artist || "songsterr"} - ${title || String(revisionId)}`.replace(/[\\/:*?"<>|]/g, "-");
+    return new Response(buf, {
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Disposition": `attachment; filename="${base}.gp"`,
+        "Content-Length": String(buf.byteLength),
+      },
+    });
   } catch {
     return Response.json({ error: "Songsterr inaccessible" }, { status: 502 });
   }
@@ -132,10 +243,23 @@ async function downloadGp(songId: number) {
 
 export async function GET(req: NextRequest) {
   const songIdRaw = req.nextUrl.searchParams.get("songId");
+  const revisionIdRaw = req.nextUrl.searchParams.get("revisionId");
+
+  if (revisionIdRaw !== null) {
+    const revisionId = Number(revisionIdRaw);
+    if (!Number.isInteger(revisionId) || revisionId <= 0) {
+      return Response.json({ error: "revisionId invalide" }, { status: 400 });
+    }
+    return downloadRevision(revisionId);
+  }
+
   if (songIdRaw !== null) {
     const songId = Number(songIdRaw);
     if (!Number.isInteger(songId) || songId <= 0) {
       return Response.json({ error: "songId invalide" }, { status: 400 });
+    }
+    if (req.nextUrl.searchParams.get("revisions") === "1") {
+      return listRevisions(songId);
     }
     return downloadGp(songId);
   }

@@ -54,6 +54,7 @@ import {
   Loader2,
   Download,
   Search,
+  Lock,
 } from "lucide-react";
 
 function getStaticSong(id: string): SongTab | null {
@@ -191,6 +192,18 @@ function EditSongView({ id }: { id: string }) {
   const [stResults, setStResults] = useState<
     { songId: number; artist: string; title: string; tracksCount: number }[]
   >([]);
+  const [stRevisions, setStRevisions] = useState<
+    {
+      revisionId: number;
+      artist: string;
+      title: string;
+      tracksCount: number;
+      createdAt: string;
+      exportable: boolean;
+    }[]
+  >([]);
+  const [stRevisionsSong, setStRevisionsSong] = useState<number | null>(null);
+  const [stRevisionsLoading, setStRevisionsLoading] = useState(false);
   const [stLoading, setStLoading] = useState(false);
   const [stDownloading, setStDownloading] = useState<number | null>(null);
   const [stError, setStError] = useState<string | null>(null);
@@ -841,6 +854,17 @@ body: JSON.stringify({ videoId, stem }),
     }
   };
 
+  const handleStImportBlob = async (blob: Blob) => {
+    const file = new File([blob], "songsterr.gp", { type: "application/octet-stream" });
+    if (stMode === "midi") {
+      const bytes = await guitarProToMidi(file);
+      const midiFile = new File([bytes], "songsterr.mid", { type: "audio/midi" });
+      await handleMidiPickFile(midiFile);
+    } else {
+      await handleGpPickFile(file);
+    }
+  };
+
   const handleStImport = async (songId: number) => {
     setStDownloading(songId);
     setStError(null);
@@ -852,19 +876,56 @@ body: JSON.stringify({ videoId, stem }),
         const data = await res.json().catch(() => null);
         throw new Error(data?.error ?? `erreur ${res.status}`);
       }
-      const blob = await res.blob();
-      const file = new File([blob], "songsterr.gp", { type: "application/octet-stream" });
-      if (stMode === "midi") {
-        const bytes = await guitarProToMidi(file);
-        const midiFile = new File([bytes], "songsterr.mid", { type: "audio/midi" });
-        await handleMidiPickFile(midiFile);
-      } else {
-        await handleGpPickFile(file);
-      }
+      await handleStImportBlob(await res.blob());
     } catch (err) {
       setStError(err instanceof Error ? err.message.slice(0, 160) : String(err));
     } finally {
       setStDownloading(null);
+    }
+  };
+
+  const handleStImportRevision = async (revisionId: number) => {
+    setStDownloading(revisionId);
+    setStError(null);
+    try {
+      const res = await fetch(`/api/songsterr-gp?revisionId=${revisionId}`, {
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? `erreur ${res.status}`);
+      }
+      await handleStImportBlob(await res.blob());
+    } catch (err) {
+      setStError(err instanceof Error ? err.message.slice(0, 160) : String(err));
+    } finally {
+      setStDownloading(null);
+    }
+  };
+
+  const handleStShowRevisions = async (songId: number) => {
+    if (stRevisionsSong === songId) {
+      setStRevisionsSong(null);
+      return;
+    }
+    setStRevisionsSong(songId);
+    setStRevisionsLoading(true);
+    setStRevisions([]);
+    setStError(null);
+    try {
+      const res = await fetch(`/api/songsterr-gp?songId=${songId}&revisions=1`, {
+        signal: AbortSignal.timeout(30_000),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? `erreur ${res.status}`);
+      setStRevisions(Array.isArray(data?.revisions) ? data.revisions : []);
+      if (!Array.isArray(data?.revisions) || data.revisions.length === 0) {
+        setStError("Aucune révision listée.");
+      }
+    } catch (err) {
+      setStError(err instanceof Error ? err.message.slice(0, 160) : String(err));
+    } finally {
+      setStRevisionsLoading(false);
     }
   };
 
@@ -1815,31 +1876,96 @@ body: JSON.stringify({ videoId, stem }),
                   </div>
                   {stError && <p className="text-[11px] text-red-400">{stError}</p>}
                   {stResults.length > 0 && (
-                    <div className="flex flex-col gap-1 max-h-56 overflow-y-auto">
+                    <div className="flex flex-col gap-1 max-h-72 overflow-y-auto">
                       {stResults.map((r) => (
-                        <button
-                          key={r.songId}
-                          type="button"
-                          onClick={() => void handleStImport(r.songId)}
-                          disabled={stDownloading !== null}
-                          className="flex items-center justify-between gap-2 text-left text-xs px-3 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-wait"
-                        >
-                          <span className="truncate">
-                            {r.artist || "?"} — {r.title || "?"}
-                          </span>
-                          <span className="flex items-center gap-2 shrink-0 text-[10px] text-zinc-500">
-                            {r.tracksCount > 0 && (
-                              <span>
-                                {r.tracksCount} piste{r.tracksCount > 1 ? "s" : ""}
+                        <div key={r.songId} className="flex flex-col gap-1">
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => void handleStShowRevisions(r.songId)}
+                              disabled={stDownloading !== null || stRevisionsLoading}
+                              className="flex flex-1 min-w-0 items-center justify-between gap-2 text-left text-xs px-3 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-wait"
+                              title="Afficher les révisions (le nombre de pistes peut varier d'une version à l'autre)"
+                            >
+                              <span className="truncate">
+                                {r.artist || "?"} — {r.title || "?"}
                               </span>
-                            )}
-                            {stDownloading === r.songId ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
-                            ) : (
-                              <Download className="w-3.5 h-3.5" />
-                            )}
-                          </span>
-                        </button>
+                              <span className="flex items-center gap-2 shrink-0 text-[10px] text-zinc-500">
+                                {r.tracksCount > 0 && (
+                                  <span>
+                                    {r.tracksCount} piste{r.tracksCount > 1 ? "s" : ""}
+                                  </span>
+                                )}
+                                {stRevisionsLoading && stRevisionsSong === r.songId ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                                ) : (
+                                  <ChevronDown
+                                    className={`w-3.5 h-3.5 transition-transform ${
+                                      stRevisionsSong === r.songId ? "rotate-180" : ""
+                                    }`}
+                                  />
+                                )}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleStImport(r.songId)}
+                              disabled={stDownloading !== null}
+                              className="flex items-center gap-1.5 shrink-0 px-2.5 h-8 rounded-lg bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 text-[10px] font-semibold transition-colors disabled:cursor-wait disabled:opacity-50"
+                              title="Importer la révision la plus récente exportable en Guitar Pro"
+                            >
+                              {stDownloading === r.songId ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Download className="w-3 h-3" />
+                              )}
+                              Importer
+                            </button>
+                          </div>
+                          {stRevisionsSong === r.songId && (
+                            <div className="flex flex-col gap-1 pl-2">
+                              {stRevisions.map((rev) => (
+                                <div
+                                  key={rev.revisionId}
+                                  className="flex items-center gap-1.5 text-[11px]"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleStImportRevision(rev.revisionId)}
+                                    disabled={!rev.exportable || stDownloading !== null}
+                                    className={`flex flex-1 min-w-0 items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border text-left transition-colors disabled:cursor-not-allowed ${
+                                      rev.exportable
+                                        ? "bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800"
+                                        : "bg-zinc-900/40 border-zinc-800 text-zinc-500 hover:bg-zinc-900/40"
+                                    }`}
+                                    title={
+                                      rev.exportable
+                                        ? "Importer cette révision (Guitar Pro)"
+                                        : "Version web : plus exportable en Guitar Pro"
+                                    }
+                                  >
+                                    <span className="truncate">
+                                      {rev.createdAt
+                                        ? `${rev.createdAt.slice(0, 7)} · `
+                                        : ""}
+                                      {rev.tracksCount} piste{rev.tracksCount > 1 ? "s" : ""}
+                                      {rev.exportable ? "" : " · web uniquement"}
+                                    </span>
+                                    <span className="flex items-center gap-1.5 shrink-0 text-[10px]">
+                                      {stDownloading === rev.revisionId ? (
+                                        <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
+                                      ) : rev.exportable ? (
+                                        <Download className="w-3 h-3" />
+                                      ) : (
+                                        <Lock className="w-3 h-3 text-zinc-600" />
+                                      )}
+                                    </span>
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       ))}
                     </div>
                   )}
