@@ -187,6 +187,7 @@ function EditSongView({ id }: { id: string }) {
   const [stOpen, setStOpen] = useState(false);
   const [stArtist, setStArtist] = useState("");
   const [stTitle, setStTitle] = useState("");
+  const [stLink, setStLink] = useState("");
   const [stResults, setStResults] = useState<
     { songId: number; artist: string; title: string; tracksCount: number }[]
   >([]);
@@ -865,6 +866,26 @@ body: JSON.stringify({ videoId, stem }),
     } finally {
       setStDownloading(null);
     }
+  };
+
+  const extractSongsterrId = (input: string): number | null => {
+    const m = input.match(/\/song\/(\d+)|song(?:Id|id)=(\d+)/);
+    if (!m) return null;
+    const raw = m[1] ?? m[2];
+    const id = Number(raw);
+    return Number.isInteger(id) && id > 0 ? id : null;
+  };
+
+  const handleStImportLink = async () => {
+    const link = stLink.trim();
+    if (!link) return;
+    const songId = extractSongsterrId(link);
+    if (!songId) {
+      setStError("Lien Songsterr non reconnu. Utilisez le lien d'une page « …/a/wa/song/… ».");
+      return;
+    }
+    setStError(null);
+    await handleStImport(songId);
   };
 
   const handleMidiPickFile = async (file: File) => {
@@ -1760,6 +1781,34 @@ body: JSON.stringify({ videoId, stem }),
                         />
                       </label>
                     </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={stLink}
+                      onChange={(e) => setStLink(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void handleStImportLink();
+                        }
+                      }}
+                      placeholder="ou collez le lien de la version web (…/a/wa/song/…)"
+                      className="flex-1 min-w-0 bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-500/60"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleStImportLink()}
+                      disabled={!stLink.trim() || stDownloading !== null}
+                      className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600/15 text-blue-300 hover:bg-blue-600/25 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 flex-shrink-0"
+                    >
+                      {stDownloading !== null ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5" />
+                      )}
+                      Importer le lien
+                    </button>
                   </div>
                   {stError && <p className="text-[11px] text-red-400">{stError}</p>}
                   {stResults.length > 0 && (
