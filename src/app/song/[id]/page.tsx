@@ -22,7 +22,7 @@ import { getSongTab } from "@/lib/mock-data";
 import { parseChordContent, sectionsToContent } from "@/lib/chord-parser";
 import { detectKeyFromContent } from "@/lib/key-detection";
 import { loadLineOffsets, saveLineOffset, loadGlobalOffset, saveGlobalOffset } from "@/lib/line-offsets";
-import { saveAudioStem } from "@/lib/audio-store";
+import { saveAudioStem, loadAudioStems } from "@/lib/audio-store";
 import { loadYouTubeId, saveYouTubeId, removeYouTubeId } from "@/lib/youtube-store";
 import { detectBpmFromFile } from "@/lib/bpm-detect";
   import { loadSpotifyId, saveSpotifyId, removeSpotifyId } from "@/lib/spotify-store";
@@ -117,6 +117,7 @@ function SongView({ id }: SongViewProps) {
   const [extractElapsed, setExtractElapsed] = useState(0);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [extractDone, setExtractDone] = useState(false);
+  const [stemsReady, setStemsReady] = useState(false);
   const extractStartRef = useRef(0);
   const [spotifyError, setSpotifyError] = useState<string | null>(null);
   const [showEdit, setShowEdit] = useState(false);
@@ -546,6 +547,23 @@ function SongView({ id }: SongViewProps) {
     return () => window.clearInterval(t);
   }, [extracting]);
 
+  // Voix + instrumental déjà stockés (IndexedDB) : le bouton d'extraction est
+  // remplacé par le statut. Recontrôlé après chaque extraction réussie.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const stems = await loadAudioStems(id);
+        if (!cancelled) setStemsReady(!!stems?.vocals && !!stems?.noVocals);
+      } catch {
+        if (!cancelled) setStemsReady(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, extractDone]);
+
   const handleExtractStemsYouTube = async () => {
     if (!youtubeVideoId) return;
     setExtracting(true);
@@ -559,7 +577,9 @@ function SongView({ id }: SongViewProps) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ videoId: youtubeVideoId, stem }),
-          signal: AbortSignal.timeout(600_000),
+          // ~9 min de calcul CPU (ou quelques minutes sur GPU CUDA) : au-delà
+          // de 10 min l'extraction était abandonnée avant la fin du morceau.
+          signal: AbortSignal.timeout(1_800_000),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => null);
@@ -1080,24 +1100,34 @@ function SongView({ id }: SongViewProps) {
               </label>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void handleExtractStemsYouTube()}
-                disabled={extracting || !youtubeVideoId}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors disabled:cursor-wait ${
-                  extracting
-                    ? "bg-amber-500/20 text-amber-300"
-                    : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
-                }`}
-                title="Télécharge l'audio de cette vidéo (yt-dlp) et extrait la voix + l'instrumental via Demucs en local — dispo dans le Chef d'orchestre (éditeur)"
-              >
-                {extracting ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
+              {stemsReady && !extracting ? (
+                <span className="flex items-center gap-2 text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-3 py-1.5 w-fit">
                   <Mic2 className="w-4 h-4" />
-                )}
-                {extracting ? `Extraction voix + instrumental… ${extractElapsed}s` : "Extraire voix + instrumental (YouTube)"}
-              </button>
+                  Voix et instruments chargés
+                  <span className="text-emerald-400/80" title="Ouvre l'éditeur pour les réécouter via le Chef d'orchestre">
+                    — dispo dans le Chef d&apos;orchestre (éditeur)
+                  </span>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleExtractStemsYouTube()}
+                  disabled={extracting || !youtubeVideoId}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors disabled:cursor-wait ${
+                    extracting
+                      ? "bg-amber-500/20 text-amber-300"
+                      : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
+                  }`}
+                  title="Télécharge l'audio de cette vidéo (yt-dlp) et extrait la voix + l'instrumental via Demucs en local — dispo dans le Chef d'orchestre (éditeur)"
+                >
+                  {extracting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Mic2 className="w-4 h-4" />
+                  )}
+                  {extracting ? `Extraction voix + instrumental… ${extractElapsed}s` : "Extraire voix + instrumental (YouTube)"}
+                </button>
+              )}
               {extractDone && !extracting && (
                 <span className="text-xs text-purple-300 bg-purple-500/10 border border-purple-500/30 rounded-full px-2.5 py-1">
                   Voix + instrumental extraits ✓ — disponibles dans le Chef d&apos;orchestre (éditeur)
