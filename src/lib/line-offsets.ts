@@ -81,3 +81,31 @@ export function saveGlobalOffset(songId: string, offset: number): void {
   }
   localStorage.setItem(GLOBAL_OFFSET_KEY, JSON.stringify(all));
 }
+
+// Alignement automatique (secondes) : le pré-roll/silence de tête détecté dans
+// les stems est compensé à la lecture pour que MIDI + paroles + stems partent
+// ensemble, sans que l'utilisateur ait à toucher aux curseurs.
+const STEM_SHIFT_KEY = "chordflow-stem-shift";
+
+function getAllStemShift(): Record<string, number> {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(localStorage.getItem(STEM_SHIFT_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+export function loadStemShift(songId: string): number {
+  return getAllStemShift()[songId] || 0;
+}
+
+export function saveStemShift(songId: string, offset: number): void {
+  const all = getAllStemShift();
+  if (offset <= 0) {
+    delete all[songId];
+  } else {
+    all[songId] = offset;
+  }
+  localStorage.setItem(STEM_SHIFT_KEY, JSON.stringify(all));
+}

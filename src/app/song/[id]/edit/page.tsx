@@ -2523,6 +2523,7 @@ body: JSON.stringify({ videoId, stem }),
             setBandOffset(offset);
             if (id) saveBandOffset(id, offset);
           }}
+          songId={id ?? undefined}
           onClose={() => setConductorOpen(false)}
         />
       )}

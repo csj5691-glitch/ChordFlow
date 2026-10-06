@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, Pause, Square, Play, RotateCcw, X } from "lu
 import { renderSequence, beatsForShape, legatoStringName, measureInfoFromSignature, measureForBeat, beatInMeasure, type SynthEvent } from "@/lib/chord-synth";
 import { parseChordContent } from "@/lib/chord-parser";
 import { decodeHtmlEntities } from "@/lib/ug-scraper";
+import { loadStemShift, saveStemShift } from "@/lib/line-offsets";
 import type { SavedChordShape, SongTab } from "@/lib/types";
 import ChordShapeView from "@/components/ChordShapeView";
 import { BarGlyph } from "@/components/BarGlyph";
@@ -27,6 +28,8 @@ interface ConductorProps {
   percussion?: boolean;
   lyricOffset?: number;
   lyricAnchorDiagram?: number;
+  /**.identifiant de la chanson (persistance de l'alignement automatique). */
+  songId?: string;
   /**.appelé à chaque réglage d'offset des paroles (pour le sauvegarder). */
   onLyricOffsetChange?: (offset: number) => void;
   /**.décalage de la bande de diagrammes sur la musique, en secondes. */
@@ -180,6 +183,7 @@ export default function Conductor({
   onLyricOffsetChange,
   bandOffset: externalBandOffset,
   onBandOffsetChange,
+  songId,
   onClose,
 }: ConductorProps) {
   const events = useMemo(() => renderSequence(diagrams, bpm), [diagrams, bpm]);
@@ -251,6 +255,13 @@ export default function Conductor({
     bandOffsetRef.current = next;
     onBandOffsetChange?.(next);
   };
+  // Alignement automatique (sans curseurs) : le pré-roll détecté dans les
+  // stems (silence de tête avant la musique) est compensé au démarrage, pour
+  // que les sons MIDI, les paroles et les stems partent ensemble. La valeur
+  // calculée est déduite au rendu (voir plus bas) et servie à la lecture via
+  // le ref — pas le curseur, et aucune action de l'utilisateur requise.
+  const stemShiftRef = useRef(songId ? loadStemShift(songId) : 0);
+  const [savedStemShift] = useState(() => (songId ? loadStemShift(songId) : 0));
   const chordVolRef = useRef(chordVolume);
   const chordMasterRef = useRef<GainNode | null>(null);
   const [midiDurationMs, setMidiDurationMs] = useState(0);
@@ -493,6 +504,27 @@ export default function Conductor({
     };
   }, [instrumentalUrl, vocalsUrl]);
 
+  // Calcul automatique de l'alignement : onset stems (pré-roll détecté
+  // ci-dessus) − onset MIDI (premier accord de la bande). On ne fait aucun
+  // setState depuis l'effet : la valeur affichée est déduite au rendu, le ref
+  // n'est mis à jour que pour la lecture.
+  const stemShift = useMemo(() => {
+    const preRoll = stemStart;
+    if (preRoll === null || preRoll === undefined) return savedStemShift;
+    const onset =
+      sourceMode === "midi" && midiChords.length > 0 ? (midiChords[0]?.start ?? 0) : 0;
+    return Math.round(Math.max(0, Math.min(10, preRoll - onset)) * 10) / 10;
+  }, [savedStemShift, stemStart, sourceMode, midiChords]);
+
+  useEffect(() => {
+    const preRoll = stemStartRef.current;
+    if (preRoll === null) return;
+    const onset =
+      sourceMode === "midi" && midiChords.length > 0 ? (midiChords[0]?.start ?? 0) : 0;
+    stemShiftRef.current = Math.round(Math.max(0, Math.min(10, preRoll - onset)) * 10) / 10;
+    if (songId && stemShiftRef.current > 0) saveStemShift(songId, stemShiftRef.current);
+  }, [songId, sourceMode, midiChords, instrumentalUrl, vocalsUrl, stemStart]);
+
   // MIDI Songsterr : fetch + parse une seule fois par fichier. L'octet brut
   // est mémoisé (midiLoadRef) et les événements parsés vivent dans
   // midiEventsRef — la même source que l'étiquette du header et play().
@@ -598,14 +630,16 @@ export default function Conductor({
 
     // Stems et source jouée se superposent : le stem audio (enregistrement) et
     // la source choisie (MIDI importé ou accords synthétisés) jouent ensemble,
-    // chacun avec son curseur de volume.
+    // chacun avec son curseur de volume. Le pré-roll détecté (stemShift) est
+    // sauté au démarrage pour caler la musique des stems sur la timeline MIDI
+    // sans aucun réglage manuel.
     const hasMidi = midiEvs.length > 0 && sourceMode === "midi";
     const playChords = !hasMidi && events.length > 0;
     if (primary) {
-      primary.currentTime = seek;
+      primary.currentTime = Math.max(0, seek + stemShiftRef.current);
       void primary.play().catch(() => {});
       if (firstVocals !== null && firstVocals !== primary) {
-        firstVocals.currentTime = seek;
+        firstVocals.currentTime = Math.max(0, seek + stemShiftRef.current);
         void firstVocals.play().catch(() => {});
       }
     }
@@ -800,8 +834,6 @@ export default function Conductor({
             if (tm !== null && tm * 1000 <= t) li = k;
           }
         } else {
-          const lyricClockMs = vocalsRef.current ? vocalsRef.current.currentTime * 1000 : t;
-          const vs = stemStartRef.current ?? 0;
           const anchor = lyricAnchorRef.current;
           if (anchor !== null && bandEvents.length > 1) {
             const perc = (i - anchor) / (bandEvents.length - 1 - anchor);
@@ -810,8 +842,15 @@ export default function Conductor({
               Math.max(0, Math.floor(perc * flatLyrics.length))
             );
           } else {
-            const start = vs * 1000;
-            const clock = lyricClockMs + lyricOffsetRef.current * 1000;
+            // Paroles non synchronisées : portées par la timeline du Chef (t) —
+            // les stems partent déjà au bon endroit (~stemShift), donc le début
+            // de la musique devient le repère 0. Plus de dépendance à l'horloge
+            // interne de la piste <audio> (dérive/sauts).
+            const start = Math.max(
+              0,
+              (stemStartRef.current ?? 0) * 1000 - stemShiftRef.current * 1000
+            );
+            const clock = t + lyricOffsetRef.current * 1000;
             if (clock >= start) {
               const span = Math.max(1, limit - start);
               li = Math.min(
@@ -1370,6 +1409,14 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
               <span className="text-[10px] text-zinc-600">
                 sons MIDI + diagrammes par rapport à l&apos;audio (sauvegardé par chanson)
               </span>
+              {stemShift > 0 && (
+                <span
+                  className="text-[10px] text-emerald-400/90"
+                  title="Le silence de tête des stems est sauté automatiquement au démarrage : MIDI, paroles et stems partent ensemble, sans réglage"
+                >
+                  aligné auto +{stemShift.toFixed(1)}s
+                </span>
+              )}
             </div>
           )}
           {midiTracks.length > 0 && (
