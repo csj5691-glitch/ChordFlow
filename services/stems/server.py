@@ -1,8 +1,12 @@
 import hashlib
 import os
+import re
 import shutil
+import sys
 import tempfile
+import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -48,6 +52,118 @@ CACHE_MAX = 4
 # réellement présent : on tente le GPU et _separate_with_fallback bascule sur
 # le CPU au premier échec.
 _use_cuda = True
+
+# ---- Progression de la séparation -----------------------------------------
+# Démucs (demucs_onnx) écrit sa barre tqdm « separating: 12%|…| 7/61 [..] »
+# sur stderr. On capture stderr pendant la séparation d'un jeton pour exposer
+# la progression au client (page Afficheur). La séparation est sérialisée par
+# un verrou : le rediriger globalement reste alors sûr.
+_separate_lock = threading.Lock()
+_PROGRESS_MAX = 12
+PROGRESS: dict[str, dict] = {}
+
+_PROGRESS_RE = re.compile(r"separating.*?(\d{1,3})\s*%.*?(\d+)\s*/\s*(\d+)")
+
+
+def _new_progress(token: str) -> dict:
+    while len(PROGRESS) >= _PROGRESS_MAX:
+        oldest = min(PROGRESS, key=lambda k: PROGRESS[k].get("updated", 0) or 0)
+        PROGRESS.pop(oldest, None)
+    entry = {
+        "state": "running",
+        "percent": 0,
+        "current": 0,
+        "total": 0,
+        "line": "chargement du modèle…",
+        "started": time.time(),
+        "updated": time.time(),
+    }
+    PROGRESS[token] = entry
+    return entry
+
+
+def _mark_progress(token: str | None, **updates) -> None:
+    if not token:
+        return
+    entry = PROGRESS.get(token)
+    if entry is None:
+        entry = _new_progress(token)
+    entry.update(updates)
+    entry["updated"] = time.time()
+
+
+class _ProgressWriter:
+    """Flux qui relaie les écritures de stderr et parse la barre tqdm."""
+
+    def __init__(self, sink, token: str):
+        self.sink = sink
+        self.token = token
+        self._buf = ""
+
+    def write(self, s: str) -> int:
+        try:
+            self.sink.write(s)
+        except Exception:
+            pass
+        self._buf += s
+        while "\n" in self._buf or "\r" in self._buf:
+            i = self._buf.find("\n")
+            if i == -1:
+                i = self._buf.find("\r")
+            line, self._buf = self._buf[:i], self._buf[i + 1 :]
+            self._handle(line)
+        return len(s)
+
+    def flush(self) -> None:
+        try:
+            self.sink.flush()
+        except Exception:
+            pass
+
+    def isatty(self) -> bool:
+        return False
+
+    def close(self) -> None:
+        self.flush()
+
+    def _handle(self, line: str) -> None:
+        line = line.strip()
+        if not line:
+            return
+        entry = PROGRESS.get(self.token)
+        if entry is None or entry.get("state") != "running":
+            return
+        m = _PROGRESS_RE.search(line)
+        if m:
+            entry.update(
+                {
+                    "percent": int(m.group(1)),
+                    "current": int(m.group(2)),
+                    "total": int(m.group(3)),
+                    "line": line,
+                    "updated": time.time(),
+                }
+            )
+        elif line.startswith("[stems]") or line.startswith("Traceback"):
+            entry["line"] = line
+
+
+def _captured_separate(src: str, out_dir: str, token: str | None) -> None:
+    """Séparation sérialisée, avec capture stderr quand un jeton est fourni."""
+    with _separate_lock:
+        if token:
+            entry = PROGRESS.get(token)
+            if entry is None or entry.get("state") in ("done", "error"):
+                entry = _new_progress(token)
+            entry.update(state="running", updated=time.time())
+            orig = sys.stderr
+            try:
+                sys.stderr = _ProgressWriter(orig, token)
+                _separate_with_fallback(src, out_dir)
+                return
+            finally:
+                sys.stderr = orig
+        _separate_with_fallback(src, out_dir)
 
 
 def _purge_cache() -> None:
@@ -143,7 +259,11 @@ def health():
 
 
 @app.post("/separate")
-async def separate_audio(file: UploadFile = File(...), stem: str = Query("vocals")):
+async def separate_audio(
+    file: UploadFile = File(...),
+    stem: str = Query("vocals"),
+    progress_token: str = Query(None),
+):
     if stem not in ALL_STEMS:
         raise HTTPException(402, f"stem must be one of {ALL_STEMS}")
     if stem not in MODEL_STEM_NAMES and stem != "noVocals":
@@ -177,10 +297,11 @@ async def separate_audio(file: UploadFile = File(...), stem: str = Query("vocals
             # thread pour que la boucle d'événements reste libre — sinon
             # /health ne répond plus pendant plusieurs minutes et les requêtes
             # suivantes s'empilent.
-            await run_in_threadpool(_separate_with_fallback, str(src), str(stems_dir))
+            await run_in_threadpool(_captured_separate, str(src), str(stems_dir), progress_token)
             print(f"[stems] séparation {key[:12]} en {time.time() - t0:.1f}s", flush=True)
         except Exception as e:
             shutil.rmtree(entry, ignore_errors=True)
+            _mark_progress(progress_token, state="error", line=f"échec: {e}")
             raise HTTPException(500, f"separation failed: {e}") from e
         finally:
             src.unlink(missing_ok=True)
@@ -188,6 +309,8 @@ async def separate_audio(file: UploadFile = File(...), stem: str = Query("vocals
     else:
         entry.touch()
         print(f"[stems] cache hit {key[:12]}", flush=True)
+        if progress_token and progress_token not in PROGRESS:
+            _mark_progress(progress_token, state="done", percent=100, line="déjà en cache")
 
     if stem == "noVocals":
         try:
@@ -205,12 +328,24 @@ async def separate_audio(file: UploadFile = File(...), stem: str = Query("vocals
             stem_path = candidates[0]
 
     audio = stem_path.read_bytes()
+    _mark_progress(progress_token, state="done", percent=100, line="séparation terminée")
 
     return Response(
         content=audio,
         media_type="audio/wav",
         headers={"X-Stem": stem},
     )
+
+
+@app.get("/progress")
+def progress(token: str = Query(...)):
+    entry = PROGRESS.get(token)
+    if entry is None:
+        raise HTTPException(404, "token inconnu")
+    return {
+        **entry,
+        "elapsed": round(max(0, time.time() - entry.get("started", time.time())), 1),
+    }
 
 
 if __name__ == "__main__":

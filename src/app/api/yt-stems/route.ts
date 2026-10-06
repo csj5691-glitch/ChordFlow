@@ -24,10 +24,12 @@ const WAV_CACHE_MAX = 2;
 export async function POST(req: NextRequest) {
   let videoId = "";
   let stem = "vocals";
+  let progressToken = "";
   try {
     const body = await req.json();
     if (typeof body?.videoId === "string") videoId = body.videoId.trim();
     if (typeof body?.stem === "string") stem = body.stem.trim();
+    if (typeof body?.progressToken === "string") progressToken = body.progressToken.trim();
   } catch {
     return NextResponse.json({ error: "corps invalide" }, { status: 400 });
   }
@@ -124,11 +126,15 @@ export async function POST(req: NextRequest) {
   let used = stem;
   let lastBody = "";
   let lastStatus = 502;
+  const tokenQuery =
+    progressToken && /^[A-Za-z0-9_-]{8,64}$/.test(progressToken)
+      ? `&progress_token=${encodeURIComponent(progressToken)}`
+      : "";
   for (const candidate of candidates) {
     const upstream = new FormData();
     upstream.set("file", new File([new Uint8Array(wav)], "youtube.wav", { type: "audio/wav" }));
     try {
-      res = await fetch(`${STEMS_SERVICE}/separate?stem=${encodeURIComponent(candidate)}`, {
+      res = await fetch(`${STEMS_SERVICE}/separate?stem=${encodeURIComponent(candidate)}${tokenQuery}`, {
         method: "POST",
         body: upstream,
         // Séparation Demucs CPU : mesurée à ~3,7x le temps réel (45 s d'audio
