@@ -33,7 +33,7 @@ import { loadPlaylists, loadSession, saveSession, clearSession } from "@/lib/pla
 import { savePlaylistsUiState } from "@/lib/playlists-ui-state";
 import { buildChordLineTimestamps } from "@/lib/lyric-timing";
 import type { Playlist } from "@/lib/playlists";
-import { ArrowLeft, Music, Key, FileText, Music2, Upload, ExternalLink, Wand2, Check, Pencil, X, ChevronLeft, ChevronRight, ListMusic, Square, Shuffle, RefreshCw, Mic2, Loader2 } from "lucide-react";
+import { ArrowLeft, Music, Key, FileText, Music2, Upload, ExternalLink, Wand2, Check, Pencil, X, ChevronLeft, ChevronRight, ListMusic, Square, Shuffle, RefreshCw, Mic2, Loader2, Gauge } from "lucide-react";
 
 const GUITAR_KEYS = [
   "C", "G", "D", "A", "E", "F", "B", "Bb", "Eb", "Ab", "Db", "Gb",
@@ -92,6 +92,61 @@ function useHydrated(): boolean {
   );
 }
 
+const PLAYBACK_SPEEDS = [
+  { pct: 15, value: 0.15 },
+  { pct: 25, value: 0.25 },
+  { pct: 50, value: 0.5 },
+  { pct: 75, value: 0.75 },
+  { pct: 100, value: 1 },
+  { pct: 125, value: 1.25 },
+];
+
+function PlaybackSpeedControl({
+  speed,
+  onSpeed,
+  disabled,
+  disabledNote,
+}: {
+  speed: number;
+  onSpeed: (value: number) => void;
+  disabled?: boolean;
+  disabledNote?: string;
+}) {
+  return (
+    <div
+      className={`flex flex-wrap items-center gap-2 rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-3 py-2 ${
+        disabled ? "opacity-60" : ""
+      }`}
+      title={disabled ? disabledNote : undefined}
+    >
+      <span className="flex items-center gap-1.5 text-xs text-zinc-400">
+        <Gauge className="w-3.5 h-3.5 text-amber-300" />
+        Vitesse du rythme
+      </span>
+      <div className="flex items-center gap-1">
+        {PLAYBACK_SPEEDS.map((s) => (
+          <button
+            key={s.pct}
+            type="button"
+            disabled={disabled}
+            onClick={() => onSpeed(s.value)}
+            className={`h-7 min-w-9 rounded-md px-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed ${
+              Math.abs(speed - s.value) < 1e-9
+                ? "bg-amber-500 text-black"
+                : "bg-zinc-700/70 text-zinc-300 hover:bg-zinc-600"
+            }`}
+          >
+            {s.pct}%
+          </button>
+        ))}
+      </div>
+      {disabled && disabledNote && (
+        <span className="text-[10px] text-zinc-500">{disabledNote}</span>
+      )}
+    </div>
+  );
+}
+
 type SongViewProps = { id: string };
 
 function SongView({ id }: SongViewProps) {
@@ -106,6 +161,7 @@ function SongView({ id }: SongViewProps) {
   const [detectedBpm, setDetectedBpm] = useState<number | null>(null);
   const [standardBpm, setStandardBpm] = useState("");
   const [tempoScale, setTempoScale] = useState(1);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [bpmBusy, setBpmBusy] = useState(false);
   const [bpmError, setBpmError] = useState<string | null>(null);
   const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(() =>
@@ -372,6 +428,7 @@ const [extracting, setExtracting] = useState(false);
     setDetectedBpm(null);
     setStandardBpm("");
     setTempoScale(1);
+    setPlaybackSpeed(1);
     setBpmError(null);
   }, []);
 
@@ -422,6 +479,13 @@ const [extracting, setExtracting] = useState(false);
     }
     return 1;
   }, [originalDuration, rawDuration]);
+
+  // Échelle combinant l'alignement BPM (tempoScale) et le réglage manuel de
+  // vitesse du rythme (playbackSpeed) : les lecteurs font rate = 1/scale.
+  const effectiveTempoScale = useMemo(
+    () => tempoScale / playbackSpeed,
+    [tempoScale, playbackSpeed]
+  );
 
   const handleDetectBpm = useCallback(async () => {
     if (!uploadFile) return;
@@ -496,6 +560,7 @@ const [extracting, setExtracting] = useState(false);
       setShowYoutubeSearch(false);
       setYoutubeError(false);
       setTempoScale(1);
+      setPlaybackSpeed(1);
       setRawDuration(0);
       setDetectedBpm(null);
       setStandardBpm("");
@@ -564,6 +629,7 @@ const [extracting, setExtracting] = useState(false);
     setAudioUrl(null);
     setAudioSource(null);
     setTempoScale(1);
+    setPlaybackSpeed(1);
     setUploadFile(null);
     setRawDuration(0);
     setDetectedBpm(null);
@@ -1167,13 +1233,17 @@ const [extracting, setExtracting] = useState(false);
                   onEnded={setlist ? handlePlaylistEnded : undefined}
                   seekTo={seekTo}
                   playToggle={playToggle}
-                  tempoScale={tempoScale}
+                  tempoScale={effectiveTempoScale}
                   fillHeight={miniYT}
                   autoPlay={setlist !== null}
                   volume={voiceVolume}
                 />
               </div>
             </div>
+            <PlaybackSpeedControl
+              speed={playbackSpeed}
+              onSpeed={setPlaybackSpeed}
+            />
             <div className="flex flex-wrap items-center justify-between gap-2">
               <button
                 onClick={() => setShowSpotifySearch(true)}
@@ -1308,6 +1378,12 @@ const [extracting, setExtracting] = useState(false);
               onDeviceTrack={handleDeviceTrack}
               volume={voiceVolume}
             />
+            <PlaybackSpeedControl
+              speed={playbackSpeed}
+              onSpeed={setPlaybackSpeed}
+              disabled
+              disabledNote="Le lecteur Spotify (SDK) ne permet pas de ralentir. Utilisez YouTube ou un fichier pour travailler sur la vitesse."
+            />
             <button
               onClick={() => setShowSpotifySearch(true)}
               className="w-full flex items-center justify-center gap-2 p-2.5 bg-green-600/10 border border-green-600/30 rounded-xl hover:bg-green-600/20 text-sm text-green-400 font-medium transition-colors"
@@ -1349,16 +1425,22 @@ const [extracting, setExtracting] = useState(false);
         )}
 
         {audioSource === "upload" && (
-          <AudioPlayer
-            audioUrl={audioUrl}
-            onDurationChange={handleDurationChange}
-            onRawDurationChange={handleRawDurationChange}
-            onEnded={setlist ? handlePlaylistEnded : undefined}
-            seekTo={seekTo}
-            tempoScale={tempoScale}
-            autoPlay={setlist !== null}
-            volume={voiceVolume}
-          />
+          <>
+            <AudioPlayer
+              audioUrl={audioUrl}
+              onDurationChange={handleDurationChange}
+              onRawDurationChange={handleRawDurationChange}
+              onEnded={setlist ? handlePlaylistEnded : undefined}
+              seekTo={seekTo}
+              tempoScale={effectiveTempoScale}
+              autoPlay={setlist !== null}
+              volume={voiceVolume}
+            />
+            <PlaybackSpeedControl
+              speed={playbackSpeed}
+              onSpeed={setPlaybackSpeed}
+            />
+          </>
         )}
 
         {audioSource === "youtube" && (
