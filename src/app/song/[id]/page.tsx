@@ -112,33 +112,76 @@ function PlaybackSpeedControl({
   disabled?: boolean;
   disabledNote?: string;
 }) {
+  const [draft, setDraft] = useState(() => String(Math.round(speed * 100)));
+
+  const applyDraft = () => {
+    const n = parseFloat(draft.replace(",", "."));
+    if (Number.isNaN(n) || n <= 0) {
+      setDraft(String(Math.round(speed * 100)));
+      return;
+    }
+    const clamped = Math.min(200, Math.max(2, n));
+    onSpeed(clamped / 100);
+    setDraft(String(Math.round(clamped)));
+  };
+
   return (
     <div
       className={`flex flex-wrap items-center gap-2 rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-3 py-2 ${
         disabled ? "opacity-60" : ""
       }`}
-      title={disabled ? disabledNote : undefined}
+      title={
+        disabled
+          ? disabledNote
+          : "Ajuste la vitesse du rythme sans changer la tonalité"
+      }
     >
       <span className="flex items-center gap-1.5 text-xs text-zinc-400">
         <Gauge className="w-3.5 h-3.5 text-amber-300" />
         Vitesse du rythme
       </span>
-      <div className="flex items-center gap-1">
-        {PLAYBACK_SPEEDS.map((s) => (
-          <button
-            key={s.pct}
-            type="button"
+      <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
+          <input
+            type="number"
+            inputMode="numeric"
+            min={2}
+            max={200}
+            step={5}
+            value={draft}
             disabled={disabled}
-            onClick={() => onSpeed(s.value)}
-            className={`h-7 min-w-9 rounded-md px-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed ${
-              Math.abs(speed - s.value) < 1e-9
-                ? "bg-amber-500 text-black"
-                : "bg-zinc-700/70 text-zinc-300 hover:bg-zinc-600"
-            }`}
-          >
-            {s.pct}%
-          </button>
-        ))}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={applyDraft}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                applyDraft();
+              }
+            }}
+            className="w-16 h-7 rounded-md border border-zinc-700 bg-zinc-900 px-1.5 text-center text-xs font-semibold text-white focus:outline-none focus:border-amber-500/60 disabled:cursor-not-allowed"
+          />
+          <span className="text-xs text-zinc-400">%</span>
+        </div>
+        <div className="flex items-center gap-1">
+          {PLAYBACK_SPEEDS.map((s) => (
+            <button
+              key={s.pct}
+              type="button"
+              disabled={disabled}
+              onClick={() => {
+                setDraft(String(s.pct));
+                onSpeed(s.value);
+              }}
+              className={`h-7 min-w-9 rounded-md px-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed ${
+                Math.abs(speed - s.value) < 1e-9
+                  ? "bg-amber-500 text-black"
+                  : "bg-zinc-700/70 text-zinc-300 hover:bg-zinc-600"
+              }`}
+            >
+              {s.pct}%
+            </button>
+          ))}
+        </div>
       </div>
       {disabled && disabledNote && (
         <span className="text-[10px] text-zinc-500">{disabledNote}</span>
