@@ -3,6 +3,8 @@
 import type { SavedChordShape, SongTab } from "./types";
 import { importer, midi, model } from "@coderline/alphatab";
 import { getChordShape, parseChordName } from "./chord-data";
+import type { TabNoteEvent } from "./notes-to-tab";
+import { notesToTab } from "./notes-to-tab";
 
 const STRING_COUNT = 6;
 // How many cases the chord diagram grid shows per shape (ChordShapeView).
@@ -44,10 +46,24 @@ export interface GpTrackInfo {
   isPercussion: boolean;
   isGuitar: boolean;
   isVocal: boolean;
+  hasTab: boolean;
   noteCount: number;
   chordCount: number;
   firstNoteTime: number | null;
   program: number | null;
+}
+
+export interface GpNotationTabResult {
+  tab: string;
+  title: string;
+  artist: string;
+  bpm: number;
+  measures: number;
+  noteCount: number;
+  chordCount: number;
+  dropped: number;
+  outOfRange: number[];
+  warnings: string[];
 }
 
 export interface GpImportResult {
@@ -264,6 +280,27 @@ function extractGpLyrics(score: model.Score, trackIndex: number): GpLyrics | nul
   return { plain, synced };
 }
 
+// Premier dépôt jouable de la piste : si sa note porte un manche (string/fret),
+// la piste est déjà une tablature ; sinon (notation seule, claviers...) on peut
+// en générer une via notesToTab.
+function trackHasTabData(score: model.Score, trackIndex: number): boolean {
+  const track = score.tracks[trackIndex];
+  const staff = track?.staves[0];
+  if (!staff || staff.isPercussion) return false;
+  for (const bar of staff.bars ?? []) {
+    for (const voice of bar.voices) {
+      for (const beat of voice.beats) {
+        if (beat.isRest || beat.isEmpty || beat.notes.length === 0) continue;
+        for (const note of beat.notes) {
+          if (note.isTieDestination) continue;
+          return note.isStringed && note.fret !== undefined && note.fret !== null && note.fret >= 0;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 function listTracks(score: model.Score): GpTrackInfo[] {
   return score.tracks.map((t, index) => {
     const staff = t.staves[0];
@@ -284,6 +321,7 @@ function listTracks(score: model.Score): GpTrackInfo[] {
       isPercussion: staff?.isPercussion ?? false,
       isGuitar: isGuitarTrack(t, staff),
       isVocal: isVocalTrack(t, staff),
+      hasTab: trackHasTabData(score, index),
       noteCount,
       chordCount,
       firstNoteTime: getFirstNoteTime(score, index),
@@ -521,6 +559,118 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
     diagrams: merged,
     warnings,
     program: track.playbackInfo?.program ?? null,
+  };
+}
+
+// Convertit une piste en tablature : part des hauteurs absolues des notes
+// (piste en notation seule — piano, vents, cordes, voix...) et génère une
+// tablature 6 cordes accordage standard via notesToTab (positions de manche
+// optimisées, liaisons de durées réelles). Réutilisable pour toute piste non
+// percussive (si elle a déjà une tab, la conversion re-frettarde par hauteur).
+export async function importGuitarProNotationAsTab(
+  file: File,
+  trackIndex: number
+): Promise<GpNotationTabResult> {
+  const score = await loadScore(file);
+  const track = score.tracks[trackIndex];
+  if (!track) {
+    throw new Error("Piste introuvable dans la partition.");
+  }
+  const staff = track.staves[0];
+  if (!staff) {
+    throw new Error(`La piste « ${track.name || "?"} » n'a pas de portée.`);
+  }
+
+  const bpm = Math.max(20, Math.min(400, score.tempo ?? 120));
+  const title = score.title || file.name.replace(/\.(gp\d?|gpx|gtp)$/i, "");
+
+  function pickVoice(bar: model.Bar): model.Voice | null {
+    let best: model.Voice | null = null;
+    let bestScore = -1;
+    for (const voice of bar.voices) {
+      if (voice.beats.length === 0) continue;
+      let content = 0;
+      for (const b of voice.beats) {
+        if (!b.isRest && !b.isEmpty && b.notes.length > 0) content += 1;
+      }
+      const s = content * 1000 + voice.beats.length;
+      if (s > bestScore) {
+        bestScore = s;
+        best = voice;
+      }
+    }
+    return best;
+  }
+
+  // Ticks = 480 par temps (même étalon que le parseur de tablatures ASCII).
+  const events: TabNoteEvent[] = [];
+  let currentBeats = 0;
+  for (let mbIdx = 0; mbIdx < score.masterBars.length; mbIdx++) {
+    const bar = staff.bars[mbIdx];
+    const masterBar = score.masterBars[mbIdx];
+    if (!bar) continue;
+    const voice = pickVoice(bar);
+    if (voice) {
+      let barPos = 0;
+      for (const beat of voice.beats) {
+        if (beat.isRest || beat.isEmpty || beat.notes.length === 0) {
+          barPos += durationToBeats(
+            beat.duration,
+            beat.dots,
+            beat.tupletNumerator,
+            beat.tupletDenominator
+          );
+          continue;
+        }
+        const startTick = Math.round((currentBeats + barPos) * 480);
+        const durationTicks = Math.round(
+          durationToBeats(beat.duration, beat.dots, beat.tupletNumerator, beat.tupletDenominator) * 480
+        );
+        for (const note of beat.notes) {
+          if (note.isTieDestination) continue;
+          const pitch = note.realValue;
+          if (typeof pitch !== "number" || !Number.isFinite(pitch)) continue;
+          events.push({ pitch, startTick, durationTicks });
+        }
+        barPos += durationToBeats(
+          beat.duration,
+          beat.dots,
+          beat.tupletNumerator,
+          beat.tupletDenominator
+        );
+      }
+    }
+    const numerator = masterBar?.timeSignatureNumerator ?? 4;
+    const denominator = masterBar?.timeSignatureDenominator ?? 4;
+    currentBeats += (4 * numerator) / denominator;
+  }
+
+  if (events.length === 0) {
+    throw new Error("Aucune note dans cette piste.");
+  }
+
+  const warnings: string[] = [];
+  const converted = notesToTab(events, { title, bpm });
+  if (converted.measures === 0) {
+    throw new Error("Aucune note convertible (gamme guitare) dans cette piste.");
+  }
+  if (converted.dropped > 0) {
+    warnings.push(
+      `${converted.dropped} note(s) hors de l'accordage standard (positions replacées).`
+    );
+  }
+
+  return {
+    tab: converted.tab,
+    title,
+    artist: score.artist || "",
+    bpm,
+    measures: converted.measures,
+    noteCount: converted.noteCount,
+    chordCount: converted.chordCount,
+    dropped: converted.dropped,
+    outOfRange: converted.outOfRange,
+    warnings,
   };
 }
 

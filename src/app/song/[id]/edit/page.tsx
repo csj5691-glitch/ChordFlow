@@ -13,7 +13,9 @@ import { loadAudioStems, loadMidiBlob, saveAudioStem, getAudioStemUrl } from "@/
 import {
   analyzeGuitarProFile,
   guitarProToMidi,
+  importGuitarProNotationAsTab,
   importGuitarProTrack,
+  type GpNotationTabResult,
   type GpTrackInfo,
 } from "@/lib/gp-import";
 import { chordsToDiagrams } from "@/lib/chords-to-diagrams";
@@ -187,6 +189,9 @@ function EditSongView({ id }: { id: string }) {
   const [gpPendingFile, setGpPendingFile] = useState<File | null>(null);
   const [gpImportingTrack, setGpImportingTrack] = useState<number | null>(null);
   const [gpSelected, setGpSelected] = useState<Set<number>>(new Set());
+  const [ntLoading, setNtLoading] = useState(false);
+  const [ntError, setNtError] = useState<string | null>(null);
+  const [ntResult, setNtResult] = useState<{ trackName: string; result: GpNotationTabResult } | null>(null);
   const [stOpen, setStOpen] = useState(false);
   const [stArtist, setStArtist] = useState("");
   const [stTitle, setStTitle] = useState("");
@@ -1198,6 +1203,30 @@ body: JSON.stringify({ videoId, stem }),
   const handleGpSelectAll = () => {
     if (gpImportingTrack !== null) return;
     setGpSelected(new Set(gpTracks.map((t) => t.index)));
+  };
+
+  // Conversion « partition → tablature » : la piste cochée n'est pas une tab
+  // (notation seule, claviers, vents, voix...) ; on génère une tablature de
+  // guitare à partir de ses hauteurs, puis on l'importe en MIDI (Chef d'orchestre).
+  const handleGpNotationToTab = async (t: GpTrackInfo) => {
+    if (!gpPendingFile || ntLoading || gpImportingTrack !== null) return;
+    setNtLoading(true);
+    setNtError(null);
+    setNtResult(null);
+    try {
+      const result = await importGuitarProNotationAsTab(gpPendingFile, t.index);
+      setNtResult({ trackName: t.name, result });
+    } catch (err) {
+      console.error("[ChordFlow] Éditeur : échec conversion partition -> tab", err);
+      setNtError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setNtLoading(false);
+    }
+  };
+
+  const handleNtImportMidi = async (tab: string) => {
+    const midiFile = new File([asciiTabToMidi(tab)], "partition.mid", { type: "audio/midi" });
+    await handleMidiPickFile(midiFile);
   };
 
   const handleGpRemoveAll = async () => {
@@ -2264,11 +2293,87 @@ body: JSON.stringify({ videoId, stem }),
                             {t.stringCount} cordes
                             {t.chordCount > 0 && <span className="text-amber-300">{t.chordCount} accords</span>}
                             <span>{t.noteCount} notes</span>
+                            {!t.isPercussion && t.noteCount > 0 && (
+                              <button
+                                type="button"
+                                disabled={ntLoading || gpImportingTrack !== null}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  void handleGpNotationToTab(t);
+                                }}
+                                className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
+                                  t.hasTab
+                                    ? "border-zinc-700 text-zinc-400 hover:border-emerald-500/50 hover:text-emerald-300"
+                                    : "border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/15"
+                                }`}
+                                title={
+                                  t.hasTab
+                                    ? "Déjà une tablature : régénérer le manche depuis les notes absolues"
+                                    : "Piste en notation seule (partition) : générer la tablature 6 cordes puis l'importer en MIDI"
+                                }
+                              >
+                                {ntLoading ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <FileText className="w-3 h-3" />
+                                )}
+                                Part→Tab
+                              </button>
+                            )}
                           </span>
                         </label>
                       );
                     })}
                   </div>
+                  {ntError && (
+                    <p className="text-[11px] text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-1.5">
+                      {ntError}
+                    </p>
+                  )}
+                  {ntResult && (
+                    <div className="flex flex-col gap-2 rounded-lg bg-zinc-950/60 border border-emerald-500/25 p-3">
+                      <p className="text-[11px] text-emerald-300 font-semibold">
+                        Tablature générée pour « {ntResult.trackName} »
+                      </p>
+                      <p className="text-[10px] text-zinc-500">
+                        {ntResult.result.measures} mesure(s) · {ntResult.result.noteCount} notes ·{" "}
+                        {ntResult.result.chordCount} accord(s)
+                        {ntResult.result.outOfRange.length > 0 &&
+                          ` · ${ntResult.result.outOfRange.length} note(s) hors accordage standard (${ntResult.result.outOfRange.join(", ")})`}
+                      </p>
+                      {ntResult.result.warnings.length > 0 && (
+                        <ul className="mt-1">
+                          {ntResult.result.warnings.map((w) => (
+                            <li key={w} className="text-[10px] text-amber-300">
+                              {w}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <pre className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-2 text-[11px] text-zinc-300 font-mono overflow-x-auto whitespace-pre max-h-64">
+                        {ntResult.result.tab}
+                      </pre>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => void handleNtImportMidi(ntResult.result.tab)}
+                          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-colors cursor-pointer"
+                          title="Convertir cette tablature en MIDI puis l'importer (Chef d'orchestre)"
+                        >
+                          <LayoutGrid className="w-3.5 h-3.5" />
+                          Importer en MIDI (Chef d&apos;orchestre)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNtResult(null)}
+                          className="text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
+                        >
+                          Fermer
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-zinc-500">
                       {gpImportingTrack !== null
