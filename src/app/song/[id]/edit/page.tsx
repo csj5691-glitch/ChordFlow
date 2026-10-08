@@ -9,6 +9,7 @@ import { BarGlyph } from "@/components/BarGlyph";
 import { NavGlyph } from "@/components/NavGlyph";
 import SynthPlayer from "@/components/SynthPlayer";
 import Conductor from "@/components/Conductor";
+import TabStaffView from "@/components/TabStaffView";
 import { loadAudioStems, loadMidiBlob, saveAudioStem, getAudioStemUrl } from "@/lib/audio-store";
 import {
   analyzeGuitarProFile,
@@ -141,6 +142,80 @@ type UndoEntry =
   | { kind: "one"; diagram: SavedChordShape; index: number }
   | { kind: "all"; diagrams: SavedChordShape[]; copied: SavedChordShape[]; selected: Set<number> };
 
+// Aperçu d'une tablature ASCII : bascule « Texte ↔ Tablature HTML », portée
+// interactive (flèches, M, T, Suppr…) et import MIDI de l'édition éventuelle.
+function TabPreview({
+  ascii,
+  title,
+  bpm,
+  onImportMidi,
+}: {
+  ascii: string;
+  title?: string;
+  bpm?: number;
+  onImportMidi: (ascii: string) => void;
+}) {
+  const [mode, setMode] = useState<"text" | "tab">("tab");
+  const [adapted, setAdapted] = useState<string | null>(null);
+  // Remonter l'état quand la source change : le parent remonte ce composant avec
+  // un `key` issu du texte ASCII (les éditions ne survivent pas à une nouvelle source).
+  const currentAscii = adapted ?? ascii;
+  const isAdapted = adapted !== null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-1.5">
+        {(["text", "tab"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setMode(m)}
+            className={`text-[10px] font-semibold px-2 py-0.5 rounded-md transition-colors cursor-pointer ${
+              mode === m
+                ? "bg-amber-400 text-black"
+                : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+            }`}
+          >
+            {m === "text" ? "Texte" : "Tablature"}
+          </button>
+        ))}
+        {isAdapted && (
+          <span className="text-[10px] text-emerald-300">
+            Édition adaptée
+          </span>
+        )}
+      </div>
+      {mode === "text" ? (
+        <pre className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-2 text-[11px] text-zinc-300 font-mono overflow-x-auto whitespace-pre max-h-64">
+          {currentAscii}
+        </pre>
+      ) : (
+        <TabStaffView title={title} bpm={bpm} tab={currentAscii} editable onChange={setAdapted} />
+      )}
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          type="button"
+          onClick={() => onImportMidi(currentAscii)}
+          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-colors cursor-pointer"
+          title="Convertir cette tablature en MIDI puis l'importer (Chef d'orchestre)"
+        >
+          <LayoutGrid className="w-3.5 h-3.5" />
+          Importer en MIDI (Chef d&apos;orchestre)
+        </button>
+        {isAdapted && (
+          <button
+            type="button"
+            onClick={() => setAdapted(null)}
+            className="text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
+          >
+            Réinitialiser l&apos;édition
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function EditSongPage({
   params,
 }: {
@@ -216,6 +291,7 @@ function EditSongView({ id }: { id: string }) {
   const [stError, setStError] = useState<string | null>(null);
   const [stMode, setStMode] = useState<"gp" | "midi">("gp");
   const [tabOpen, setTabOpen] = useState(false);
+  const [tabPreviewOpen, setTabPreviewOpen] = useState(false);
   const [tabText, setTabText] = useState("");
   const [tabConverting, setTabConverting] = useState(false);
   const [genOpen, setGenOpen] = useState(false);
@@ -2128,6 +2204,24 @@ body: JSON.stringify({ videoId, stem }),
                       Format : 6 rangées par portée (E B G D A E), barres `|`, tempo &quot;Tempo =&nbsp;XX&quot;, liaisons `L`, étouffées `x`.
                     </span>
                   </div>
+                  {tabText.trim().length > 0 && (
+                    <div className="flex flex-col gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setTabPreviewOpen((o) => !o)}
+                        className="self-start text-[11px] font-semibold px-2.5 py-1 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors cursor-pointer"
+                      >
+                        {tabPreviewOpen ? "Masquer" : "Afficher"} l&apos;aperçu en tablature HTML
+                      </button>
+                      {tabPreviewOpen && (
+                        <TabPreview
+                          key={tabText}
+                          ascii={tabText}
+                          onImportMidi={(t) => void handleNtImportMidi(t)}
+                        />
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
               {genOpen && (
@@ -2179,9 +2273,11 @@ body: JSON.stringify({ videoId, stem }),
                   {genError && <p className="text-[11px] text-red-400">{genError}</p>}
                   {genInfo && <p className="text-[11px] text-violet-300">{genInfo}</p>}
                   {genPreview && (
-                    <pre className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-2 text-[11px] text-zinc-300 font-mono overflow-x-auto whitespace-pre">
-                      {genPreview}
-                    </pre>
+                    <TabPreview
+                      key={genPreview}
+                      ascii={genPreview}
+                      onImportMidi={(t) => void handleNtImportMidi(t)}
+                    />
                   )}
                 </div>
               )}
@@ -2351,19 +2447,14 @@ body: JSON.stringify({ videoId, stem }),
                           ))}
                         </ul>
                       )}
-                      <pre className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-2 text-[11px] text-zinc-300 font-mono overflow-x-auto whitespace-pre max-h-64">
-                        {ntResult.result.tab}
-                      </pre>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <button
-                          type="button"
-                          onClick={() => void handleNtImportMidi(ntResult.result.tab)}
-                          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-colors cursor-pointer"
-                          title="Convertir cette tablature en MIDI puis l'importer (Chef d'orchestre)"
-                        >
-                          <LayoutGrid className="w-3.5 h-3.5" />
-                          Importer en MIDI (Chef d&apos;orchestre)
-                        </button>
+                      <TabPreview
+                        key={ntResult.result.tab}
+                        ascii={ntResult.result.tab}
+                        title={ntResult.result.title || ntResult.trackName}
+                        bpm={ntResult.result.bpm}
+                        onImportMidi={(t) => void handleNtImportMidi(t)}
+                      />
+                      <div className="flex items-center justify-end gap-2 flex-wrap">
                         <button
                           type="button"
                           onClick={() => setNtResult(null)}

@@ -18,10 +18,11 @@ export interface AsciiTabParseResult {
 }
 
 const OPEN_NOTES = [64, 59, 55, 50, 45, 40]; // position : corde 1 (aiguë) → 6 (grave)
+export { OPEN_NOTES };
 const DEFAULT_BPM = 120;
 export const DEFAULT_PROGRAM = 27; // Clean Electric Guitar
 
-interface Token {
+export interface TabToken {
   fret: number | null; // null => note étouffée (x)
   tie: boolean;
   accent: boolean;
@@ -33,8 +34,8 @@ const TARGET_FLAGS = new Set(["h", "b", "s", "t", "p"]);
 const SOFT_FLAGS = new Set(["g", "m"]);
 const ACCENT_FLAGS = new Set([">", "^"]);
 
-function tokenizeCell(cell: string): Token[] {
-  const out: Token[] = [];
+function tokenizeCell(cell: string): TabToken[] {
+  const out: TabToken[] = [];
   let i = 0;
   while (i < cell.length) {
     const ch = cell[i];
@@ -46,7 +47,7 @@ function tokenizeCell(cell: string): Token[] {
         j++;
       }
       const fret = fretRaw === "" ? null : parseInt(fretRaw, 10);
-      const tok: Token = { fret, tie: false, accent: false, soft: false, staccato: false };
+      const tok: TabToken = { fret, tie: false, accent: false, soft: false, staccato: false };
       let k = j;
       while (k < cell.length) {
         const c = cell[k].toLowerCase();
@@ -113,7 +114,7 @@ function nearestClusterIdx(clusters: number[], col: number): number {
 // Découpe une portée de 6 rangées en mesures, alignées sur les colonnes des barreaux
 // `|` (les indicateurs `o` des reprises créent des cellules de tailles différentes
 // selon les cordes : alignement par colonne et non par simple split).
-function parseStaff(rows: string[]): Token[][][] {
+function parseStaff(rows: string[]): TabToken[][][] {
   const cleanedRows = rows.map((line) =>
     line.replace(/^[EBGDAebgda]\s*\|\|?/, "").replace(/\s+/g, "")
   );
@@ -137,8 +138,8 @@ function parseStaff(rows: string[]): Token[][][] {
   }
   clusters.sort((a, b) => a - b);
   const measures = clusters.length + 1;
-  const out: Token[][][] = Array.from({ length: measures }, () =>
-    Array.from({ length: 6 }, () => [] as Token[])
+  const out: TabToken[][][] = Array.from({ length: measures }, () =>
+    Array.from({ length: 6 }, () => [] as TabToken[])
   );
 
   cleanedRows.forEach((s, ri) => {
@@ -171,7 +172,18 @@ function parseStaff(rows: string[]): Token[][][] {
   return out;
 }
 
-export function parseAsciiTab(data: string): AsciiTabParseResult {
+// Modèle de tablature (mesures × 6 cordes × tokens ordonnés, l'index d'un token
+// = sa colonne de temps dans la mesure). Les cellules vides (repos) sont absentes
+// du tableau : les 6 rangées sautent le même index, ce qui conserve l'alignement
+// temporel entre cordes, exactement comme le fait le convertisseur MIDI.
+export interface AsciiTabModel {
+  title: string;
+  bpm: number;
+  staffs: TabToken[][][][];
+  measures: TabToken[][][];
+}
+
+export function parseAsciiTabModel(data: string): AsciiTabModel {
   const lines = data.split(/\r?\n/);
   let bpm = DEFAULT_BPM;
   let title = "MIDI";
@@ -184,7 +196,7 @@ export function parseAsciiTab(data: string): AsciiTabParseResult {
     if (mTitle && mTitle[1].trim().length > 0) title = mTitle[1].trim();
   }
 
-  const staffs: Token[][][][] = [];
+  const staffs: TabToken[][][][] = [];
   let current: string[] = [];
   for (const line of lines) {
     if (isTabRow(line)) {
@@ -196,6 +208,14 @@ export function parseAsciiTab(data: string): AsciiTabParseResult {
     }
   }
 
+  const measures: TabToken[][][] = [];
+  for (const staff of staffs) measures.push(...staff);
+
+  return { title, bpm, staffs, measures };
+}
+
+export function parseAsciiTab(data: string): AsciiTabParseResult {
+  const { title, bpm, staffs } = parseAsciiTabModel(data);
   const ppq = 480;
   const events: AsciiTabEvent[] = [];
   // Dernier dépôt par corde : permet les liaisons inter-mesures (croche tenue).
@@ -215,7 +235,7 @@ export function parseAsciiTab(data: string): AsciiTabParseResult {
 
       for (let sIdx = 0; sIdx < 6; sIdx++) {
         const toks = strings[sIdx];
-        let prevTok: Token | null = null;
+        let prevTok: TabToken | null = null;
         let prevEvent: AsciiTabEvent | null = null;
         for (let s = 0; s < toks.length; s++) {
           const tok = toks[s];
