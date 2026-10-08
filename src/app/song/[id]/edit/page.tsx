@@ -19,6 +19,7 @@ import {
 import { chordsToDiagrams } from "@/lib/chords-to-diagrams";
 import { importMidi } from "@/lib/midi-import";
 import { asciiTabToMidi } from "@/lib/ascii-tab-midi";
+import { textToTab } from "@/lib/text-to-tab";
 import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure, renderSequence } from "@/lib/chord-synth";
 import { gmProgramName } from "@/lib/gm-voice";
 import { getSongTab } from "@/lib/mock-data";
@@ -212,6 +213,12 @@ function EditSongView({ id }: { id: string }) {
   const [tabOpen, setTabOpen] = useState(false);
   const [tabText, setTabText] = useState("");
   const [tabConverting, setTabConverting] = useState(false);
+  const [genOpen, setGenOpen] = useState(false);
+  const [genText, setGenText] = useState("");
+  const [genPreview, setGenPreview] = useState<string | null>(null);
+  const [genInfo, setGenInfo] = useState<string | null>(null);
+  const [genError, setGenError] = useState<string | null>(null);
+  const [genLoading, setGenLoading] = useState(false);
   const [activeSlot, setActiveSlot] = useState<ActiveSlot>({ kind: "main" });
   const [gpMenuOpen, setGpMenuOpen] = useState(false);
   const [lyricsOffset, setLyricsOffset] = useState(() => (id ? loadGlobalOffset(id) : 0));
@@ -1020,6 +1027,46 @@ body: JSON.stringify({ videoId, stem }),
     }
   };
 
+  const TAB_TO_TAB_SAMPLE =
+    "C G Am F\nAm F C G\nDm G7 C C";
+
+  const handleTextToTab = async () => {
+    if (!genText.trim() || genLoading) return;
+    setGenLoading(true);
+    setGenError(null);
+    setGenInfo(null);
+    try {
+      const result = textToTab(genText);
+      if (result.measures === 0) {
+        setGenError(
+          "Aucun accord reconnu dans ce texte. Utilisez des noms d'accords (C, Am, D7, Fmaj7…) séparés par des espaces, une ligne = une mesure."
+        );
+        return;
+      }
+      setGenPreview(result.tab);
+      const infoParts = [`${result.measures} mesure${result.measures > 1 ? "s" : ""}`];
+      if (result.chordsDetected.length > 0) {
+        infoParts.push(`${result.chordsDetected.join(" ")}`);
+      }
+      if (result.unknown.length > 0) {
+        infoParts.push(`ignoré : ${[...new Set(result.unknown)].join(" ")}`);
+      }
+      setGenInfo(infoParts.join(" · "));
+      const bytes = asciiTabToMidi(result.tab);
+      const file = new File([bytes], "tablature.mid", { type: "audio/midi" });
+      await handleMidiPickFile(file);
+    } catch (err) {
+      console.error("[ChordFlow] Éditeur : échec de génération de tablature", err);
+      setGenError(
+        err instanceof Error
+          ? `Impossible de générer la tablature : ${err.message}`
+          : "Impossible de générer la tablature."
+      );
+    } finally {
+      setGenLoading(false);
+    }
+  };
+
   const setGpSelection = (track: GpTrackInfo, checked: boolean) => {
     if (!song || gpImportingTrack !== null) return;
     const alreadyImported = (song.gpTracks ?? []).some((t) => t.index === track.index);
@@ -1806,6 +1853,19 @@ body: JSON.stringify({ videoId, stem }),
                   Tab texte → MIDI
                 </button>
                 <button
+                  type="button"
+                  onClick={() => setGenOpen((o) => !o)}
+                  className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit cursor-pointer select-none ${
+                    genOpen
+                      ? "bg-violet-500/25 text-violet-200"
+                      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                  }`}
+                  title="Générer une tablature de guitare (6 cordes) à partir d'un texte d'accords (grille ou paroles avec accords)"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  Texte → Tablature
+                </button>
+                <button
                   onClick={() => void handleChordsToDiagrams()}
                   disabled={chartsConverting}
                   className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-lime-300 hover:bg-lime-500/10 transition-colors w-fit cursor-pointer disabled:opacity-50"
@@ -2039,6 +2099,61 @@ body: JSON.stringify({ videoId, stem }),
                       Format : 6 rangées par portée (E B G D A E), barres `|`, tempo &quot;Tempo =&nbsp;XX&quot;, liaisons `L`, étouffées `x`.
                     </span>
                   </div>
+                </div>
+              )}
+              {genOpen && (
+                <div className="flex flex-col gap-2.5 rounded-lg bg-zinc-800/70 border border-zinc-700 p-3">
+                  <p className="text-[11px] font-semibold text-zinc-300">
+                    Générer une tablature de guitare depuis un texte
+                  </p>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] text-zinc-500">
+                      Grille d&apos;accords ou paroles avec accords (une ligne = une mesure)
+                    </label>
+                    <textarea
+                      value={genText}
+                      onChange={(e) => setGenText(e.target.value)}
+                      rows={4}
+                      spellCheck={false}
+                      placeholder={"C G Am F\nAm F C G\nDm G7 C C\n\n(1re ligne sans accord = titre)"}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 font-mono focus:outline-none focus:border-violet-500/60 resize-y"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => void handleTextToTab()}
+                      disabled={!genText.trim() || genLoading}
+                      className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-violet-500/15 text-violet-300 hover:bg-violet-500/25 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Générer la tablature à partir du texte et la convertir en MIDI (Chef d'orchestre)"
+                    >
+                      {genLoading ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <LayoutGrid className="w-3.5 h-3.5" />
+                      )}
+                      {genLoading ? "Génération…" : "Générer et importer (MIDI)"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGenText(TAB_TO_TAB_SAMPLE)}
+                      className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors cursor-pointer"
+                      title="Remplacer par un petit exemple"
+                    >
+                      <Clipboard className="w-3.5 h-3.5" />
+                      Exemple
+                    </button>
+                    <span className="text-[10px] text-zinc-600">
+                      Accords reconnus (sus, 7, maj7, 6…), `/` = reprise de l&apos;accord précédent.
+                    </span>
+                  </div>
+                  {genError && <p className="text-[11px] text-red-400">{genError}</p>}
+                  {genInfo && <p className="text-[11px] text-violet-300">{genInfo}</p>}
+                  {genPreview && (
+                    <pre className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-2 text-[11px] text-zinc-300 font-mono overflow-x-auto whitespace-pre">
+                      {genPreview}
+                    </pre>
+                  )}
                 </div>
               )}
               {gpError && (
