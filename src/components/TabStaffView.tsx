@@ -11,6 +11,7 @@ import {
   measureSlots,
   padRows,
   serializeTabModel,
+  detectRiffRuns,
   TAB_STRING_NAMES,
   MAX_FRET,
 } from "@/lib/tab-view";
@@ -288,12 +289,22 @@ export default function TabStaffView({
 
   const measureIndices = currentMeasures.map((_, i) => i);
 
+  const riffCount = useMemo(
+    () =>
+      currentMeasures.reduce(
+        (acc, mm) => acc + detectRiffRuns(mm.rows, mm.slots).length,
+        0
+      ),
+    [currentMeasures]
+  );
+
   return (
     <div className="select-none">
       <div className="text-[10px] text-zinc-500 mb-1.5 px-1">
         {title ?? (model.title === "MIDI" ? "" : model.title)}
         {((bpm ?? model.bpm) > 0) && ` · ${bpm ?? model.bpm} BPM`}
         {currentMeasures.length > 0 && ` · ${currentMeasures.length} mesure${currentMeasures.length > 1 ? "s" : ""}`}
+        {riffCount > 0 && ` · ${riffCount} riff${riffCount > 1 ? "s" : ""}`}
       </div>
       <div
         ref={gridRef}
@@ -371,6 +382,9 @@ function MeasureBox({
   const width = slots * COL_W;
   const height = PAD_TOP + 6 * LINE_H;
 
+  // Riffs : passages de notes seules → bande teintée + étiquette « RIFF ».
+  const riffRuns = detectRiffRuns(rows, slots);
+
   // Liaisons : suite de slots liés de même case sur une corde → arc de tenue.
   const ties: { x1: number; x2: number; y: number; key: string }[] = [];
   for (let s = 0; s < 6; s++) {
@@ -412,7 +426,7 @@ function MeasureBox({
         (firstInStaff ? "border-l-2 border-white/25 " : "border-l border-zinc-700/60 ") +
         "border-r border-zinc-700/60"
       }
-      style={{ width: width + 2, height }}
+      style={{ width: width + 2, height: height + (riffRuns.length > 0 ? 14 : 0) }}
     >
       {/* lignes de la portée (6 cordes, l'aiguë en haut) */}
       {Array.from({ length: 6 }, (_, s) => (
@@ -423,10 +437,36 @@ function MeasureBox({
         />
       ))}
 
+      {/* Riffs : bande teintée derrière les cordes + étiquette sous la portée */}
+      {riffRuns.map((r) => (
+        <div
+          key={`riff-${r.start}`}
+          className="absolute pointer-events-none"
+          style={{
+            left: r.start * COL_W,
+            top: PAD_TOP,
+            width: (r.end - r.start + 1) * COL_W,
+            height: 6 * LINE_H,
+          }}
+        >
+          <div className="absolute inset-0 bg-cyan-400/[0.06] rounded-sm" />
+          <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-cyan-400/40" />
+        </div>
+      ))}
       {/* numéro de mesure */}
       <span className="absolute left-1/2 -translate-x-1/2 top-0.5 text-[9px] text-zinc-500 leading-none">
         {index + 1}
       </span>
+      {/* étiquette de riff, sous la portée */}
+      {riffRuns.map((r) => (
+        <span
+          key={`riff-label-${r.start}`}
+          className="absolute text-[8px] font-bold tracking-widest text-cyan-300/90 leading-none"
+          style={{ left: r.start * COL_W + 3, top: PAD_TOP + 6 * LINE_H + 3 }}
+        >
+          RIFF
+        </span>
+      ))}
 
       {/* noms d'accords & diagrammes */}
       {chords.map((c) => (

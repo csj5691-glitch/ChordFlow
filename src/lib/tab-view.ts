@@ -122,6 +122,58 @@ export function slotFrets(
   });
 }
 
+// Détecte les passages de riff (ligne mélodique « notes seules ») : suites de
+// colonnes (attaque, tenue liée, repos, étouffée) contenant ≥ 2 attaques
+// réelles. Une colonne « accord » (≥ 2 notes simultanées) coupe la suite.
+export function detectRiffRuns(
+  rows: (TabToken | undefined)[][],
+  slots: number
+): { start: number; end: number }[] {
+  type Label = "attack" | "tie" | "chord" | "mute" | "rest";
+  const labels: Label[] = new Array(slots).fill("rest");
+  for (let t = 0; t < slots; t++) {
+    let notes = 0;
+    let ties = 0;
+    let mutes = 0;
+    for (const row of rows) {
+      const tok = row[t];
+      if (!tok) continue;
+      if (tok.fret !== null) {
+        notes += 1;
+        if (tok.tie) ties += 1;
+      } else {
+        mutes += 1;
+      }
+    }
+    labels[t] =
+      notes >= 2
+        ? "chord"
+        : notes === 1
+          ? ties > 0
+            ? "tie"
+            : "attack"
+          : mutes > 0
+            ? "mute"
+            : "rest";
+  }
+  const runs: { start: number; end: number }[] = [];
+  let start = -1;
+  let attacks = 0;
+  for (let t = 0; t <= slots; t++) {
+    const chord = t < slots && labels[t] === "chord";
+    if (!chord && start === -1) start = t;
+    if (!chord && t < slots && labels[t] === "attack") attacks += 1;
+    if (chord || t === slots) {
+      if (start !== -1 && t - start >= 2 && attacks >= 2) {
+        runs.push({ start, end: t - 1 });
+      }
+      start = -1;
+      attacks = 0;
+    }
+  }
+  return runs;
+}
+
 // --- Sérialisation → ASCII (format identique aux générateurs) ---
 
 const REST = "-  "; // repos : aucune hauteur, cellules vides identiques sur les 6 cordes
