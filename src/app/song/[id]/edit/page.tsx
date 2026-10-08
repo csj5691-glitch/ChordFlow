@@ -18,6 +18,7 @@ import {
 } from "@/lib/gp-import";
 import { chordsToDiagrams } from "@/lib/chords-to-diagrams";
 import { importMidi } from "@/lib/midi-import";
+import { asciiTabToMidi } from "@/lib/ascii-tab-midi";
 import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure, renderSequence } from "@/lib/chord-synth";
 import { gmProgramName } from "@/lib/gm-voice";
 import { getSongTab } from "@/lib/mock-data";
@@ -208,6 +209,9 @@ function EditSongView({ id }: { id: string }) {
   const [stDownloading, setStDownloading] = useState<number | null>(null);
   const [stError, setStError] = useState<string | null>(null);
   const [stMode, setStMode] = useState<"gp" | "midi">("gp");
+  const [tabOpen, setTabOpen] = useState(false);
+  const [tabText, setTabText] = useState("");
+  const [tabConverting, setTabConverting] = useState(false);
   const [activeSlot, setActiveSlot] = useState<ActiveSlot>({ kind: "main" });
   const [gpMenuOpen, setGpMenuOpen] = useState(false);
   const [lyricsOffset, setLyricsOffset] = useState(() => (id ? loadGlobalOffset(id) : 0));
@@ -997,6 +1001,25 @@ body: JSON.stringify({ videoId, stem }),
     }
   };
 
+  const handleTabToMidi = async () => {
+    if (!tabText.trim() || tabConverting) return;
+    setTabConverting(true);
+    try {
+      const bytes = asciiTabToMidi(tabText);
+      const file = new File([bytes], "tablature.mid", { type: "audio/midi" });
+      await handleMidiPickFile(file);
+    } catch (err) {
+      console.error("[ChordFlow] Éditeur : échec de conversion de la tablature texte", err);
+      setGpError(
+        err instanceof Error
+          ? `Impossible de convertir la tablature : ${err.message}`
+          : "Impossible de convertir la tablature."
+      );
+    } finally {
+      setTabConverting(false);
+    }
+  };
+
   const setGpSelection = (track: GpTrackInfo, checked: boolean) => {
     if (!song || gpImportingTrack !== null) return;
     const alreadyImported = (song.gpTracks ?? []).some((t) => t.index === track.index);
@@ -1770,6 +1793,19 @@ body: JSON.stringify({ videoId, stem }),
                       : "Import MIDI (Songsterr)"}
                 </button>
                 <button
+                  type="button"
+                  onClick={() => setTabOpen((o) => !o)}
+                  className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit cursor-pointer select-none ${
+                    tabOpen
+                      ? "bg-sky-500/25 text-sky-200"
+                      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                  }`}
+                  title="Coller une tablature en texte (export Guitar Pro / Songsterr) et la convertir en MIDI"
+                >
+                  <Clipboard className="w-3.5 h-3.5" />
+                  Tab texte → MIDI
+                </button>
+                <button
                   onClick={() => void handleChordsToDiagrams()}
                   disabled={chartsConverting}
                   className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-lime-300 hover:bg-lime-500/10 transition-colors w-fit cursor-pointer disabled:opacity-50"
@@ -1969,6 +2005,40 @@ body: JSON.stringify({ videoId, stem }),
                       ))}
                     </div>
                   )}
+                </div>
+              )}
+              {tabOpen && (
+                <div className="flex flex-col gap-2.5 rounded-lg bg-zinc-800/70 border border-zinc-700 p-3">
+                  <p className="text-[11px] font-semibold text-zinc-300">
+                    Coller une tablature en texte (export « ASCII » Guitar Pro / Songsterr)
+                  </p>
+                  <textarea
+                    value={tabText}
+                    onChange={(e) => setTabText(e.target.value)}
+                    rows={8}
+                    spellCheck={false}
+                    placeholder={"Title:…\nTempo = 120\n\nE |------------------|--0--1L---|…\nB |------------------|---------|…\n…"}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 font-mono focus:outline-none focus:border-sky-500/60 resize-y"
+                  />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => void handleTabToMidi()}
+                      disabled={!tabText.trim() || tabConverting}
+                      className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-sky-500/15 text-sky-300 hover:bg-sky-500/25 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Convertir la tablature en fichier MIDI puis l'importer (Chef d'orchestre, diagrammes si accords détectés)"
+                    >
+                      {tabConverting ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Clipboard className="w-3.5 h-3.5" />
+                      )}
+                      {tabConverting ? "Conversion…" : "Convertir en MIDI et importer"}
+                    </button>
+                    <span className="text-[10px] text-zinc-600">
+                      Format : 6 rangées par portée (E B G D A E), barres `|`, tempo &quot;Tempo =&nbsp;XX&quot;, liaisons `L`, étouffées `x`.
+                    </span>
+                  </div>
                 </div>
               )}
               {gpError && (
