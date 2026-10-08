@@ -1,0 +1,21 @@
+{
+  "title": "Frere Jacques (notes MIDI, 480 ticks = temps, mesure = 1920 ticks)",
+  "bpm": 100,
+  "notes": [
+    { "pitch": 60, "startTick": 0, "durationTicks": 480 },
+    { "pitch": 62, "startTick": 480, "durationTicks": 480 },
+    { "pitch": 64, "startTick": 960, "durationTicks": 480 },
+    { "pitch": 60, "startTick": 1440, "durationTicks": 480 },
+    { "pitch": 60, "startTick": 1920, "durationTicks": 480 },
+    { "pitch": 62, "startTick": 2400, "durationTicks": 480 },
+    { "pitch": 64, "startTick": 2880, "durationTicks": 480 },
+    { "pitch": 60, "startTick": 3360, "durationTicks": 480 },
+    { "pitch": 64, "startTick": 3840, "durationTicks": 480 },
+    { "pitch": 65, "startTick": 4320, "durationTicks": 480 },
+    { "pitch": 67, "startTick": 4800, "durationTicks": 960 },
+    { "pitch": 67, "startTick": 6720, "durationTicks": 1920 },
+    { "pitch": 64, "startTick": 6720, "durationTicks": 1920 },
+    { "pitch": 60, "startTick": 6720, "durationTicks": 1920 },
+    { "pitch": 33, "startTick": 6758, "durationTicks": 480 }
+  ]
+}
