@@ -7,7 +7,6 @@ import ChordBuilder from "@/components/ChordBuilder";
 import ChordShapeView from "@/components/ChordShapeView";
 import { BarGlyph } from "@/components/BarGlyph";
 import { NavGlyph } from "@/components/NavGlyph";
-import SynthPlayer from "@/components/SynthPlayer";
 import Conductor from "@/components/Conductor";
 import TabStaffView from "@/components/TabStaffView";
 import { loadAudioStems, loadMidiBlob, saveAudioStem, getAudioStemUrl } from "@/lib/audio-store";
@@ -238,7 +237,6 @@ function EditSongView({ id }: { id: string }) {
   const undoRef = useRef<UndoEntry[]>([]);
   const [undoToast, setUndoToast] = useState<{ id: number; message: string } | null>(null);
   const [conductorOpen, setConductorOpen] = useState(false);
-  const [playingEventIndex, setPlayingEventIndex] = useState<number | null>(null);
   const [toolbarMenu, setToolbarMenu] = useState<"bar" | "nav" | null>(null);
   const [expandedBar, setExpandedBar] = useState<string | null>(null);
   const [instUrl, setInstUrl] = useState<string | null>(null);
@@ -334,28 +332,6 @@ function EditSongView({ id }: { id: string }) {
         ?.isPercussion ?? false
     );
   }, [song, activeSlot]);
-
-  const eventToDiagramIdx = useMemo(() => {
-    const out: number[] = [];
-    let section: SavedChordShape[] = [];
-    for (const d of diagrams) {
-      if (d.navKind) continue;
-      if (d.bar) {
-        const repeats = Math.max(1, d.repeats ?? 1);
-        for (let r = 0; r < repeats; r++) {
-          for (const chord of section) out.push(diagrams.indexOf(chord));
-        }
-        section = [];
-      } else {
-        section.push(d);
-      }
-    }
-    const repeats = 1;
-    for (let r = 0; r < repeats; r++) {
-      for (const chord of section) out.push(diagrams.indexOf(chord));
-    }
-    return out;
-  }, [diagrams]);
 
   useEffect(() => {
     if (song?.content !== undefined && !hydratedContent.current) {
@@ -1681,13 +1657,6 @@ body: JSON.stringify({ videoId, stem }),
                 </div>
                 <div className="flex items-center gap-1.5">
                   <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setBpm(bpm - 1)}
-                      className="w-9 h-9 sm:w-7 sm:h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors text-sm font-bold"
-                      title="Moins"
-                    >
-                      −
-                    </button>
                     <input
                       type="number"
                       min={20}
@@ -1699,20 +1668,12 @@ body: JSON.stringify({ videoId, stem }),
                       }}
                       className="w-16 h-7 rounded-md bg-zinc-950 border border-zinc-700 text-center text-sm text-amber-400 font-semibold focus:outline-none focus:border-amber-500/60"
                     />
-                    <button
-                      onClick={() => setBpm(bpm + 1)}
-                      className="w-9 h-9 sm:w-7 sm:h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors text-sm font-bold"
-                      title="Plus"
-                    >
-                      +
-                    </button>
                   </div>
                   <span className="text-[11px] text-zinc-500">
                     Temps total ≈ {secondsFor(totalBeats).toFixed(1)} s
                   </span>
                 </div>
               </div>
-              <SynthPlayer diagrams={diagrams} bpm={bpm} program={activeProgram} percussion={activePercussion} onCurrentIndexChange={setPlayingEventIndex} />
               <div className="flex items-center gap-2 flex-wrap">
                 {stemStatus.status === "checking" ? (
                   <span className="flex items-center gap-1.5 text-[11px] text-zinc-500 bg-zinc-800/60 border border-zinc-700/60 rounded-full px-2.5 py-1 w-fit">
@@ -2694,7 +2655,7 @@ body: JSON.stringify({ videoId, stem }),
                   {diagrams.map((d, i) => (
                   <div
                     key={d.id}
-                    className={`bg-zinc-900 border rounded-xl p-3 flex flex-col sm:flex-row items-center gap-4 ${playingEventIndex !== null && eventToDiagramIdx[playingEventIndex] === i ? "border-emerald-400 ring-1 ring-emerald-400/50 shadow-lg shadow-emerald-400/10" : "border-zinc-700"}`}
+                    className="bg-zinc-900 border border-zinc-700 rounded-xl p-3 flex flex-col sm:flex-row items-center gap-4"
                   >
                     {!(d.bar) && measureState.hasSignature && (
                       <div className="w-40 flex-shrink-0 h-6 flex items-center justify-center">
