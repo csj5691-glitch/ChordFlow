@@ -197,10 +197,10 @@ function TabPreview({
           type="button"
           onClick={() => onImportMidi(currentAscii)}
           className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-colors cursor-pointer"
-          title="Convertir cette tablature en MIDI puis l'importer (Chef d'orchestre)"
+          title="Convertir cette tablature en MIDI puis l'importer (Studio)"
         >
           <LayoutGrid className="w-3.5 h-3.5" />
-          Importer en MIDI (Chef d&apos;orchestre)
+          Importer en MIDI (Studio)
         </button>
         {isAdapted && (
           <button
@@ -1067,7 +1067,7 @@ body: JSON.stringify({ videoId, stem }),
       if (result.diagrams.length === 0) {
         setGpWarnings((w) => [
           ...w,
-          "Aucun accord détecté dans ce MIDI : la lecture MIDI est conservée pour le Chef d'orchestre, aucun diagramme ajouté.",
+          "Aucun accord détecté dans ce MIDI : la lecture MIDI est conservée pour le Studio, aucun diagramme ajouté.",
         ]);
         return;
       }
@@ -1592,6 +1592,14 @@ body: JSON.stringify({ videoId, stem }),
               Diagrammes
             </button>
             <button
+              onClick={() => setConductorOpen(true)}
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full bg-amber-500 text-black hover:bg-amber-400 transition-colors"
+              title="Lancer la lecture plein écran avec les diagrammes qui défilent"
+            >
+              <Mic2 className="w-3.5 h-3.5" />
+              Studio
+            </button>
+            <button
               onClick={() => {
                 window.open(
                   `https://www.songsterr.com/a/wa/search?pattern=${encodeURIComponent(`${song.artist} ${song.title}`)}`,
@@ -1744,20 +1752,12 @@ body: JSON.stringify({ videoId, stem }),
                     Service stems : absent — lance <b>start-stems.bat</b> puis reste sur localhost:3000
                   </span>
                 )}
-                <button
-                  onClick={() => setConductorOpen(true)}
-                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-500 text-black hover:bg-amber-400 transition-colors w-fit"
-                  title="Lancer la lecture plein écran avec les diagrammes qui défilent"
-                >
-                  <Mic2 className="w-3.5 h-3.5" />
-                  Chef d&apos;orchestre
-                </button>
                 <label
                   className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
                   title={
                     instUrl
                       ? "Changer le stem instrumental (sans voix)"
-                      : "Importer un stem instrumental (sans voix) : le Chef d'orchestre le jouera avec les accords pour vérifier le rythme"
+                      : "Importer un stem instrumental (sans voix) : le Studio le jouera avec les accords pour vérifier le rythme"
                   }
                 >
                   <Upload className="w-3.5 h-3.5" />
@@ -1820,7 +1820,7 @@ body: JSON.stringify({ videoId, stem }),
                   title={
                     vocalsUrl
                       ? "Changer le stem vocal (voix seule)"
-                      : "Importer un stem vocal (voix seule) : le Chef d'orchestre le jouera avec les accords"
+                      : "Importer un stem vocal (voix seule) : le Studio le jouera avec les accords"
                   }
                 >
                   <Upload className="w-3.5 h-3.5" />
@@ -1905,7 +1905,7 @@ body: JSON.stringify({ videoId, stem }),
                 )}
                 {(instUrl || vocalsUrl) && (
                   <span className="text-[11px] text-zinc-600">
-                    Volume de chaque piste réglable dans le Chef d&apos;orchestre
+                    Volume de chaque piste réglable dans le Studio
                   </span>
                 )}
                 <button
@@ -2191,7 +2191,7 @@ body: JSON.stringify({ videoId, stem }),
                       onClick={() => void handleTabToMidi()}
                       disabled={!tabText.trim() || tabConverting}
                       className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-sky-500/15 text-sky-300 hover:bg-sky-500/25 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                      title="Convertir la tablature en fichier MIDI puis l'importer (Chef d'orchestre, diagrammes si accords détectés)"
+                      title="Convertir la tablature en fichier MIDI puis l'importer (Studio, diagrammes si accords détectés)"
                     >
                       {tabConverting ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -2248,7 +2248,7 @@ body: JSON.stringify({ videoId, stem }),
                       onClick={() => void handleTextToTab()}
                       disabled={!genText.trim() || genLoading}
                       className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-violet-500/15 text-violet-300 hover:bg-violet-500/25 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                      title="Générer la tablature à partir du texte et la convertir en MIDI (Chef d'orchestre)"
+                      title="Générer la tablature à partir du texte et la convertir en MIDI (Studio)"
                     >
                       {genLoading ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />

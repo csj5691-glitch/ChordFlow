@@ -1317,8 +1317,8 @@ const [extracting, setExtracting] = useState(false);
                 <span className="flex items-center gap-2 text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-3 py-1.5 w-fit">
                   <Mic2 className="w-4 h-4" />
                   Voix et instruments chargés
-                  <span className="text-emerald-400/80" title="Ouvre l'éditeur pour les réécouter via le Chef d'orchestre">
-                    — dispo dans le Chef d&apos;orchestre (éditeur)
+                  <span className="text-emerald-400/80" title="Ouvre l'éditeur pour les réécouter via le Studio">
+                    — dispo dans le Studio (éditeur)
                   </span>
                 </span>
               ) : (
@@ -1331,7 +1331,7 @@ const [extracting, setExtracting] = useState(false);
                       ? "bg-amber-500/20 text-amber-300"
                       : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
                   }`}
-                  title="Télécharge l'audio de cette vidéo (yt-dlp) et extrait la voix + l'instrumental via Demucs en local — dispo dans le Chef d'orchestre (éditeur)"
+                  title="Télécharge l'audio de cette vidéo (yt-dlp) et extrait la voix + l'instrumental via Demucs en local — dispo dans le Studio (éditeur)"
                 >
                   {extracting ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -1343,7 +1343,7 @@ const [extracting, setExtracting] = useState(false);
               )}
               {extractDone && !extracting && (
                 <span className="text-xs text-purple-300 bg-purple-500/10 border border-purple-500/30 rounded-full px-2.5 py-1">
-                  Voix + instrumental extraits ✓ — disponibles dans le Chef d&apos;orchestre (éditeur)
+                  Voix + instrumental extraits ✓ — disponibles dans le Studio (éditeur)
                 </span>
               )}
               {extracting && extractProgress && (

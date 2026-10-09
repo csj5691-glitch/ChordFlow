@@ -1079,7 +1079,7 @@ export default function Conductor({
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 border-b border-zinc-800/60">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
           <h2 className="text-sm font-bold text-white uppercase tracking-widest text-zinc-300">
-            Chef d&apos;orchestre
+            Studio
           </h2>
           <span className="text-[11px] text-zinc-500 font-mono">
             {usesAudio ? `${bpm} BPM · stems` : `${bpm} BPM`} · {totalBeat.toFixed(2)} temps ·{" "}
@@ -1161,7 +1161,7 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
               onClose();
             }}
             className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
-            title="Fermer le chef d'orchestre"
+            title="Fermer le Studio"
           >
             <X className="w-3.5 h-3.5" />
             Fermer
