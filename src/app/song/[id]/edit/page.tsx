@@ -1869,6 +1869,33 @@ body: JSON.stringify({ videoId, stem }),
                   </span>
                 )}
               </div>
+              <div className="flex items-center gap-2 flex-wrap rounded-xl border border-zinc-700/50 bg-zinc-800/20 p-3">
+                <span className="basis-full flex items-center gap-2">
+                  <ListMusic className="w-3.5 h-3.5 text-amber-300" />
+                  <span className="text-xs font-bold text-zinc-300">MIDI</span>
+                  <span className="hidden sm:inline text-[10px] text-zinc-600">
+                    Importer un fichier MIDI (Songsterr)
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => toggleSt("midi")}
+                  disabled={gpImporting || stDownloading !== null}
+                  className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit cursor-pointer select-none disabled:cursor-wait ${
+                    stOpen && stMode === "midi"
+                      ? "bg-amber-500/25 text-amber-200"
+                      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                  }`}
+                  title="Télécharger un fichier MIDI depuis Songsterr (généré depuis le Guitar Pro de la tab)"
+                >
+                  <Music className="w-3.5 h-3.5" />
+                  {gpImporting
+                    ? "Lecture…"
+                    : stDownloading !== null
+                      ? "Téléchargement…"
+                      : "Import MIDI (Songsterr)"}
+                </button>
+              </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
@@ -1887,24 +1914,6 @@ body: JSON.stringify({ videoId, stem }),
                     : stDownloading !== null
                       ? "Téléchargement…"
                       : "Import GP (Songsterr)"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => toggleSt("midi")}
-                  disabled={gpImporting || stDownloading !== null}
-                  className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit cursor-pointer select-none disabled:cursor-wait ${
-                    stOpen && stMode === "midi"
-                      ? "bg-amber-500/25 text-amber-200"
-                      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-                  }`}
-                  title="Télécharger un fichier MIDI depuis Songsterr (généré depuis le Guitar Pro de la tab)"
-                >
-                  <Music className="w-3.5 h-3.5" />
-                  {gpImporting
-                    ? "Lecture…"
-                    : stDownloading !== null
-                      ? "Téléchargement…"
-                      : "Import MIDI (Songsterr)"}
                 </button>
                 <button
                   type="button"
