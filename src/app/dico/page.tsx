@@ -20,7 +20,7 @@ export default function ChordDictionaryPage() {
   );
 
   const chordName = formatChordName(selectedNote, selectedQuality);
-  const caged = selectedQuality === "Maj" ? cagedVoicings(selectedNote) : null;
+  const caged = cagedVoicings(selectedNote, selectedQuality);
 
   return (
     <div className="flex flex-col items-center min-h-screen">
@@ -81,11 +81,11 @@ export default function ChordDictionaryPage() {
               5 formes · capo
             </span>
           </div>
-          {caged ? (
+          {caged.length > 0 ? (
             <>
               <p className="text-zinc-500 text-xs mb-4">
-                {chordName} majeur : place un capo sur la case indiquée, puis joue
-                la forme ouverte correspondante.
+                {chordName} : place un capo sur la case indiquée, puis joue la
+                forme ouverte correspondante.
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                 {caged.map((v) => (
@@ -95,7 +95,7 @@ export default function ChordDictionaryPage() {
                   >
                     <ChordDiagram
                       note={selectedNote}
-                      quality="Maj"
+                      quality={selectedQuality}
                       label={chordName}
                       shape={v.shape}
                       capo={v.capo}
@@ -114,9 +114,9 @@ export default function ChordDictionaryPage() {
             </>
           ) : (
             <p className="text-zinc-500 text-xs">
-              Le système CAGED s&apos;illustre sur les accords majeurs : choisis
-              la qualité « Maj » pour afficher les 5 positions (C‑A‑G‑E‑D) avec
-              capo.
+              Le système CAGED s&apos;illustre sur les accords majeurs, mineurs et
+              de septième : choisis Maj, Min, 7, min7 ou maj7 pour afficher les 5
+              positions (C‑A‑G‑E‑D) avec capo.
             </p>
           )}
         </div>

@@ -215,7 +215,8 @@ export default function ChordDiagram({
           !isMuted &&
           !isOpen &&
           fretIdx >= 0 &&
-          fretIdx < FRET_COUNT
+          fretIdx < FRET_COUNT &&
+          shape.fingers[sIdx] > 0
         ) {
           const cy = NUT_Y + fretIdx * FRET_SPACING + FRET_SPACING / 2;
           return (
