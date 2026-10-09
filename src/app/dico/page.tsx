@@ -11,6 +11,7 @@ import {
 } from "@/lib/chord-data";
 import ChordDiagram from "@/components/ChordDiagram";
 import { cagedVoicings } from "@/lib/caged";
+import { MODES, modeRoots, modeTonicChord } from "@/lib/modes";
 import { BookOpen } from "lucide-react";
 
 export default function ChordDictionaryPage() {
@@ -21,6 +22,8 @@ export default function ChordDictionaryPage() {
 
   const chordName = formatChordName(selectedNote, selectedQuality);
   const caged = cagedVoicings(selectedNote, selectedQuality);
+  const roots = modeRoots(selectedNote);
+  const parentName = selectedNote.split("/")[0];
 
   return (
     <div className="flex flex-col items-center min-h-screen">
@@ -119,6 +122,80 @@ export default function ChordDictionaryPage() {
               positions (C‑A‑G‑E‑D) avec capo.
             </p>
           )}
+        </div>
+
+        <div className="w-full max-w-5xl mt-6 bg-zinc-900 border border-zinc-700 rounded-xl p-4">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <h2 className="text-lg font-bold text-white">
+              Les modes de la gamme majeure
+            </h2>
+            <span className="text-[10px] uppercase tracking-wide text-zinc-500">
+              7 modes · relatifs
+            </span>
+          </div>
+          <p className="text-zinc-500 text-xs mb-4">
+            Un mode, c&apos;est la gamme majeure vue depuis un autre degré. Les 7
+            modes ci-dessous partagent les mêmes notes que {parentName} majeur :
+            seule la tonique se déplace, ce qui déplace les tons et demi‑tons et
+            change la couleur. L&apos;accord tonique indique le type d&apos;accord
+            sur lequel le mode sonne le mieux.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="text-zinc-500 uppercase text-[10px] tracking-wide">
+                  <th className="py-1.5 pr-3 font-semibold">Degré</th>
+                  <th className="py-1.5 pr-3 font-semibold">Fond.</th>
+                  <th className="py-1.5 pr-3 font-semibold">Formule</th>
+                  <th className="py-1.5 pr-3 font-semibold">Note carac.</th>
+                  <th className="py-1.5 pr-3 font-semibold">Accord tonique</th>
+                  <th className="py-1.5 pr-3 font-semibold">Couleur</th>
+                  <th className="py-1.5 font-semibold">Exemple</th>
+                </tr>
+              </thead>
+              <tbody>
+                {MODES.map((mode, i) => {
+                  const root = roots[i];
+                  return (
+                    <tr
+                      key={mode.name}
+                      className="border-t border-zinc-800 align-top"
+                    >
+                      <td className="py-1.5 pr-3 whitespace-nowrap">
+                        <span className="text-amber-400 font-bold">
+                          {mode.roman}
+                        </span>{" "}
+                        <span className="text-zinc-200">{mode.name}</span>
+                      </td>
+                      <td className="py-1.5 pr-3 text-zinc-300 whitespace-nowrap">
+                        {root.split("/")[0]}
+                      </td>
+                      <td className="py-1.5 pr-3 text-zinc-400 font-mono whitespace-nowrap">
+                        {mode.intervals}
+                      </td>
+                      <td
+                        className="py-1.5 pr-3 text-zinc-400 whitespace-nowrap cursor-help"
+                        title={mode.charHelp}
+                      >
+                        {mode.charNote}
+                      </td>
+                      <td className="py-1.5 pr-3 text-amber-300 whitespace-nowrap">
+                        {modeTonicChord(mode, root)}
+                      </td>
+                      <td className="py-1.5 pr-3 text-zinc-400">{mode.mood}</td>
+                      <td className="py-1.5 text-zinc-500">{mode.example}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-zinc-600 text-[11px] mt-3">
+            Astuce : survole la{" "}
+            <span className="text-zinc-400">note caractéristique</span> pour
+            comprendre ce qui donne à chaque mode sa couleur — c&apos;est elle
+            qu&apos;on vise en solo.
+          </p>
         </div>
       </main>
     </div>
