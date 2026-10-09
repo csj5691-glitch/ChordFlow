@@ -1721,43 +1721,87 @@ body: JSON.stringify({ videoId, stem }),
                     Service stems : absent — lance <b>start-stems.bat</b> puis reste sur localhost:3000
                   </span>
                 )}
-                <label
-                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
-                  title={
-                    instUrl
-                      ? "Changer le stem instrumental (sans voix)"
-                      : "Importer un stem instrumental (sans voix) : le Studio le jouera avec les accords pour vérifier le rythme"
-                  }
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  {instUrl ? "Changer : instrumental" : "Stem instrumental"}
-                  <input
-                    type="file"
-                    accept="audio/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) void handleStemUpload("noVocals", file);
-                      e.target.value = "";
-                    }}
-                  />
-                </label>
-                {instUrl && (
-                  <>
-                    <button
-                      onClick={() => void handleStemClear("noVocals")}
-                      className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-red-400 hover:bg-red-500/10 transition-colors w-fit cursor-pointer"
-                      title="Retirer le stem instrumental"
+                <div className="basis-full flex flex-col gap-2 rounded-lg border border-zinc-700/50 bg-zinc-900/40 p-2.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                    stem
+                  </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <label
+                      className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
+                      title={
+                        instUrl
+                          ? "Changer le stem instrumental (sans voix)"
+                          : "Importer un stem instrumental (sans voix) : le Studio le jouera avec les accords pour vérifier le rythme"
+                      }
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Retirer
-                    </button>
-                    <span className="flex items-center gap-1.5 text-[11px] text-purple-400 bg-purple-500/10 border border-purple-500/30 rounded-full px-2.5 py-1">
-                      <Music4 className="w-3 h-3" />
-                      {instName || "Instrumental"} chargé
-                    </span>
-                  </>
-                )}
+                      <Upload className="w-3.5 h-3.5" />
+                      {instUrl ? "Changer : instrumental" : "Stem instrumental"}
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) void handleStemUpload("noVocals", file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    {instUrl && (
+                      <>
+                        <button
+                          onClick={() => void handleStemClear("noVocals")}
+                          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-red-400 hover:bg-red-500/10 transition-colors w-fit cursor-pointer"
+                          title="Retirer le stem instrumental"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Retirer
+                        </button>
+                        <span className="flex items-center gap-1.5 text-[11px] text-purple-400 bg-purple-500/10 border border-purple-500/30 rounded-full px-2.5 py-1">
+                          <Music4 className="w-3 h-3" />
+                          {instName || "Instrumental"} chargé
+                        </span>
+                      </>
+                    )}
+                    <label
+                      className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
+                      title={
+                        vocalsUrl
+                          ? "Changer le stem vocal (voix seule)"
+                          : "Importer un stem vocal (voix seule) : le Studio le jouera avec les accords"
+                      }
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      {vocalsUrl ? "Changer : voix" : "Stem voix"}
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) void handleStemUpload("vocals", file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    {vocalsUrl && (
+                      <>
+                        <button
+                          onClick={() => void handleStemClear("vocals")}
+                          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-red-400 hover:bg-red-500/10 transition-colors w-fit cursor-pointer"
+                          title="Retirer le stem vocal"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Retirer
+                        </button>
+                        <span className="flex items-center gap-1.5 text-[11px] text-purple-400 bg-purple-500/10 border border-purple-500/30 rounded-full px-2.5 py-1">
+                          <Music4 className="w-3 h-3" />
+                          {vocalsName || "Voix"} chargé
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
                 <label
                   className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit cursor-pointer select-none disabled:cursor-wait ${
                     extracting
@@ -1783,27 +1827,6 @@ body: JSON.stringify({ videoId, stem }),
                       e.target.value = "";
                     }}
                   />
-                </label>
-                <label
-                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
-                  title={
-                    vocalsUrl
-                      ? "Changer le stem vocal (voix seule)"
-                      : "Importer un stem vocal (voix seule) : le Studio le jouera avec les accords"
-                  }
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  {vocalsUrl ? "Changer : voix" : "Stem voix"}
-                  <input
-                    type="file"
-                    accept="audio/*"
-                    className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) void handleStemUpload("vocals", file);
-                    e.target.value = "";
-                  }}
-                />
                 </label>
                 <label
                   className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit cursor-pointer select-none ${
@@ -1855,22 +1878,6 @@ body: JSON.stringify({ videoId, stem }),
                   <span className="text-[11px] text-red-400" title={extractError}>
                     {extractError}
                   </span>
-                )}
-                {vocalsUrl && (
-                  <>
-                    <button
-                      onClick={() => void handleStemClear("vocals")}
-                      className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-red-400 hover:bg-red-500/10 transition-colors w-fit cursor-pointer"
-                      title="Retirer le stem vocal"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Retirer
-                    </button>
-                    <span className="flex items-center gap-1.5 text-[11px] text-purple-400 bg-purple-500/10 border border-purple-500/30 rounded-full px-2.5 py-1">
-                      <Music4 className="w-3 h-3" />
-                    {vocalsName || "Voix"} chargé
-                  </span>
-                </>
                 )}
                 {(instUrl || vocalsUrl) && (
                   <span className="text-[11px] text-zinc-600">
