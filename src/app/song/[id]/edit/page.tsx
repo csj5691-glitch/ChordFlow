@@ -791,24 +791,28 @@ function EditSongView({ id }: { id: string }) {
       ? "Service Demucs absent — lance start-stems.bat puis utilise l'app en local (localhost:3000)"
       : msg.slice(0, 160);
 
-  const runExtraction = async (
-    doFetch: () => Promise<Response>,
-    onDone: (wav: File) => Promise<void>,
-    filename: string,
-  ) => {
+  const handleExtractBothFromFile = async (file: File) => {
     setExtracting(true);
     setExtractError(null);
     setExtractElapsed(0);
     extractStartRef.current = Date.now();
     try {
-      const res = await doFetch();
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error ?? `erreur ${res.status}`);
+      for (const stem of ["noVocals", "vocals"] as const) {
+        const form = new FormData();
+        form.set("file", file, file.name || "audio.mp3");
+        const res = await fetch(`/api/stems?stem=${stem}`, {
+          method: "POST",
+          body: form,
+          signal: AbortSignal.timeout(600_000),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          throw new Error(data?.error ?? `erreur ${res.status}`);
+        }
+        const blob = await res.blob();
+        const wav = new File([blob], `${stem}.wav`, { type: "audio/wav" });
+        await handleStemUpload(stem, wav);
       }
-      const blob = await res.blob();
-      const wav = new File([blob], filename, { type: "audio/wav" });
-      await onDone(wav);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setExtractError(extractErrorText(msg));
@@ -816,21 +820,6 @@ function EditSongView({ id }: { id: string }) {
       setExtracting(false);
     }
   };
-
-  const handleExtractFromFile = (file: File, stem: "vocals" | "noVocals") =>
-    runExtraction(
-      () => {
-        const form = new FormData();
-        form.set("file", file, file.name || "audio.mp3");
-        return fetch(`/api/stems?stem=${stem}`, {
-          method: "POST",
-          body: form,
-          signal: AbortSignal.timeout(600_000),
-        });
-      },
-      (wav) => handleStemUpload(stem, wav),
-      `${stem}.wav`,
-    );
 
   const handleExtractBothFromYouTube = async () => {
     const videoId = ytVideoId ?? loadYouTubeId(id);
@@ -1814,14 +1803,14 @@ body: JSON.stringify({ videoId, stem }),
                       ? "bg-amber-500/20 text-amber-300"
                       : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
                   }`}
-                  title="Extraire l'instrumental (sans voix) du fichier audio choisi, via Demucs en local (start-stems.bat requis)"
+                  title="Extraire la voix + l'instrumental du fichier audio choisi, via Demucs en local (start-stems.bat requis)"
                 >
                   {extracting ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   ) : (
                     <Music4 className="w-3.5 h-3.5" />
                   )}
-                  {extracting ? `Extraction… ${extractElapsed}s` : "Extraire l'instrumental"}
+                  {extracting ? `Extraction voix + instrumental… ${extractElapsed}s` : "Extraire le stem"}
                   <input
                     type="file"
                     accept="audio/*"
@@ -1829,33 +1818,7 @@ body: JSON.stringify({ videoId, stem }),
                     disabled={extracting}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
-                      if (file) void handleExtractFromFile(file, "noVocals");
-                      e.target.value = "";
-                    }}
-                  />
-                </label>
-                <label
-                  className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit cursor-pointer select-none ${
-                    extracting
-                      ? "bg-amber-500/20 text-amber-300"
-                      : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
-                  }`}
-                  title="Extraire la piste vocale (voix seule) du fichier audio choisi, via Demucs en local (start-stems.bat requis)"
-                >
-                  {extracting ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Mic2 className="w-3.5 h-3.5" />
-                  )}
-                  {extracting ? `Extraction… ${extractElapsed}s` : "Extraire la voix"}
-                  <input
-                    type="file"
-                    accept="audio/*"
-                    className="hidden"
-                    disabled={extracting}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) void handleExtractFromFile(file, "vocals");
+                      if (file) void handleExtractBothFromFile(file);
                       e.target.value = "";
                     }}
                   />
