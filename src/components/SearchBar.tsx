@@ -23,6 +23,18 @@ export default function SearchBar() {
     [query, router]
   );
 
+  // Après une recherche (URL porteuse de `?q=`), le bouton × réinitialise la
+  // page comme « Accueil » : retour à l'accueil sans terme de recherche.
+  const handleClear = useCallback(() => {
+    setQuery("");
+    if (
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("q")
+    ) {
+      router.push("/");
+    }
+  }, [router]);
+
   const handleImportFromUg = useCallback(async () => {
     const q = query.trim();
     if (!q) return;
@@ -68,7 +80,7 @@ export default function SearchBar() {
           {query.trim() && (
             <button
               type="button"
-              onClick={() => setQuery("")}
+              onClick={handleClear}
               title="Effacer la recherche"
               className="ml-auto p-2 text-zinc-400 hover:text-white transition-colors flex-shrink-0"
             >
