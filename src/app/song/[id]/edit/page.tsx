@@ -42,6 +42,7 @@ import {
   articulationByIndex,
   detectArticulationSequences,
 } from "@/lib/articulation";
+import { diagramsToTab } from "@/lib/diagrams-to-tab";
 import {
   ArrowLeft,
   FileText,
@@ -236,6 +237,7 @@ function EditSongView({ id }: { id: string }) {
   const router = useRouter();
   const hydrated = useHydrated();
   const [mode, setMode] = useState<EditMode>("diagrams");
+  const [seqView, setSeqView] = useState<"cards" | "tab">("cards");
   const [legatoEdit, setLegatoEdit] = useState<number | null>(null);
   const [editableContent, setEditableContent] = useState<string | null>(null);
   const [showBuilder, setShowBuilder] = useState(false);
@@ -322,6 +324,11 @@ function EditSongView({ id }: { id: string }) {
   const articulationMap = useMemo(
     () => articulationByIndex(articulationSequences),
     [articulationSequences]
+  );
+  const sequenceTab = useMemo(
+    () =>
+      diagramsToTab(diagrams, { title: song?.title, bpm: song?.bpm ?? 90 }),
+    [diagrams, song?.title, song?.bpm]
   );
 
   const activeProgram = useMemo(() => {
@@ -2461,6 +2468,37 @@ body: JSON.stringify({ videoId, stem }),
               </p>
             ) : (
               <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] uppercase tracking-wide text-zinc-500">
+                    Affichage
+                  </span>
+                  {(["cards", "tab"] as const).map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setSeqView(v)}
+                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-md transition-colors cursor-pointer ${
+                        seqView === v
+                          ? "bg-amber-400 text-black"
+                          : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                      }`}
+                    >
+                      {v === "cards" ? "Diagrammes" : "Tablature"}
+                    </button>
+                  ))}
+                </div>
+                {seqView === "tab" ? (
+                  <div className="rounded-xl border border-zinc-700/50 bg-zinc-900/40 p-3">
+                    {sequenceTab ? (
+                      <TabStaffView title={song?.title} bpm={bpm} tab={sequenceTab} />
+                    ) : (
+                      <p className="text-[11px] text-zinc-600">
+                        Aucune note à afficher en tablature.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <>
                 {articulationSequences.length > 0 && (
                   <div className="flex items-center gap-2 flex-wrap rounded-xl border border-zinc-700/50 bg-zinc-800/20 px-3 py-2">
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
@@ -2827,6 +2865,8 @@ body: JSON.stringify({ videoId, stem }),
                     </div>
                   </div>
                 ))}
+                  </>
+                )}
               </div>
             )}
           </div>
