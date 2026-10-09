@@ -1672,45 +1672,8 @@ body: JSON.stringify({ videoId, stem }),
                     Instrumental et voix — le Studio les joue avec les accords
                   </span>
                 </span>
-                {stemStatus.status === "checking" ? (
-                  <span className="flex items-center gap-1.5 text-[11px] text-zinc-500 bg-zinc-800/60 border border-zinc-700/60 rounded-full px-2.5 py-1 w-fit">
-                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-pulse" />
-                    Service stems : vérification…
-                  </span>
-                ) : stemStatus.status === "up" ? (
-                  <span className="flex items-center gap-1.5 text-[11px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-2.5 py-1 w-fit">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    Service stems : actif (port 8765)
-                    <span
-                      className={`font-semibold ${
-                        stemStatus.device === "cuda"
-                          ? "text-emerald-300"
-                          : "text-amber-400"
-                      }`}
-                      title={
-                        stemStatus.device === "cuda"
-                          ? "Découplage accéléré par le GPU — rapide"
-                          : "Découplage sur CPU : ~3,7× la durée du morceau (installer onnxruntime-gpu pour accélérer)"
-                      }
-                    >
-                      {stemStatus.device === "cuda"
-                        ? "GPU (CUDA)"
-                        : "CPU (lent : ~3,7× la durée)"}
-                    </span>
-                    {stemStatus.model && (
-                      <span className="text-zinc-400">{stemStatus.model}</span>
-                    )}
-                  </span>
-                ) : (
-                  <span
-                    className="flex items-center gap-1.5 text-[11px] text-red-400 bg-red-500/10 border border-red-500/30 rounded-full px-2.5 py-1 w-fit"
-                    title="Le service local (Demucs, port 8765) n'est pas joignable. Vercel n'a pas ce service : utilise localhost:3000."
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                    Service stems : absent — lance <b>start-stems.bat</b> puis reste sur localhost:3000
-                  </span>
-                )}
-                <div className="basis-full flex flex-col gap-2 rounded-lg border border-zinc-700/50 bg-zinc-900/40 p-2.5">
+                <div className="basis-full flex flex-col sm:flex-row gap-2 items-stretch">
+                  <div className="flex-1 flex flex-col gap-2 rounded-lg border border-zinc-700/50 bg-zinc-900/40 p-2.5">
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
                       stem
@@ -1796,6 +1759,78 @@ body: JSON.stringify({ videoId, stem }),
                       </>
                     )}
                   </div>
+                  </div>
+                  <div className="flex-1 flex flex-col gap-2 rounded-lg border border-zinc-700/50 bg-zinc-900/40 p-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                        stems YT
+                      </span>
+                      <span className="flex items-center gap-1 text-[10px] font-medium text-red-300 bg-red-500/10 border border-red-500/30 rounded-full px-1.5 py-0.5">
+                        <Music className="w-2.5 h-2.5" />
+                        YouTube
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {stemStatus.status === "checking" ? (
+                        <span className="flex items-center gap-1.5 text-[11px] text-zinc-500 bg-zinc-800/60 border border-zinc-700/60 rounded-full px-2.5 py-1 w-fit">
+                          <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-pulse" />
+                          Service stems : vérification…
+                        </span>
+                      ) : stemStatus.status === "up" ? (
+                        <span className="flex items-center gap-1.5 text-[11px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-2.5 py-1 w-fit">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                          Service stems : actif (port 8765)
+                          <span
+                            className={`font-semibold ${
+                              stemStatus.device === "cuda"
+                                ? "text-emerald-300"
+                                : "text-amber-400"
+                            }`}
+                            title={
+                              stemStatus.device === "cuda"
+                                ? "Découplage accéléré par le GPU — rapide"
+                                : "Découplage sur CPU : ~3,7× la durée du morceau (installer onnxruntime-gpu pour accélérer)"
+                            }
+                          >
+                            {stemStatus.device === "cuda"
+                              ? "GPU (CUDA)"
+                              : "CPU (lent : ~3,7× la durée)"}
+                          </span>
+                          {stemStatus.model && (
+                            <span className="text-zinc-400">{stemStatus.model}</span>
+                          )}
+                        </span>
+                      ) : (
+                        <span
+                          className="flex items-center gap-1.5 text-[11px] text-red-400 bg-red-500/10 border border-red-500/30 rounded-full px-2.5 py-1 w-fit"
+                          title="Le service local (Demucs, port 8765) n'est pas joignable. Vercel n'a pas ce service : utilise localhost:3000."
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                          Service stems : absent — lance <b>start-stems.bat</b> puis reste sur localhost:3000
+                        </span>
+                      )}
+                      {ytVideoId && (
+                        <button
+                          type="button"
+                          onClick={() => void handleExtractBothFromYouTube()}
+                          disabled={extracting}
+                          className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit cursor-pointer select-none disabled:cursor-wait ${
+                            extracting
+                              ? "bg-amber-500/20 text-amber-300"
+                              : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
+                          }`}
+                          title="Télécharge l'audio de la vidéo YouTube liée (yt-dlp) et extrait la voix + l'instrumental via Demucs en local"
+                        >
+                          {extracting ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Mic2 className="w-3.5 h-3.5" />
+                          )}
+                          {extracting ? `Extraction voix + instrumental… ${extractElapsed}s` : "Extraire voix + instrumental (YouTube)"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
                 <label
                   className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit cursor-pointer select-none disabled:cursor-wait ${
@@ -1823,26 +1858,6 @@ body: JSON.stringify({ videoId, stem }),
                     }}
                   />
                 </label>
-                {ytVideoId && (
-                  <button
-                    type="button"
-                    onClick={() => void handleExtractBothFromYouTube()}
-                    disabled={extracting}
-                    className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit cursor-pointer select-none disabled:cursor-wait ${
-                      extracting
-                        ? "bg-amber-500/20 text-amber-300"
-                        : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
-                    }`}
-                    title="Télécharge l'audio de la vidéo YouTube liée (yt-dlp) et extrait la voix + l'instrumental via Demucs en local"
-                  >
-                    {extracting ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Mic2 className="w-3.5 h-3.5" />
-                    )}
-                    {extracting ? `Extraction voix + instrumental… ${extractElapsed}s` : "Extraire voix + instrumental (YouTube)"}
-                  </button>
-                )}
                 {extractError && (
                   <span className="text-[11px] text-red-400" title={extractError}>
                     {extractError}
