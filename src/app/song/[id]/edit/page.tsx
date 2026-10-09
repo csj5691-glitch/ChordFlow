@@ -58,6 +58,7 @@ import {
   Download,
   Search,
   Lock,
+  Play,
 } from "lucide-react";
 
 function getStaticSong(id: string): SongTab | null {
@@ -246,6 +247,7 @@ function EditSongView({ id }: { id: string }) {
   const [extracting, setExtracting] = useState(false);
   const [extractElapsed, setExtractElapsed] = useState(0);
   const [extractError, setExtractError] = useState<string | null>(null);
+  const [launchingStems, setLaunchingStems] = useState(false);
   const [ytVideoId] = useState<string | null>(() => loadYouTubeId(id));
   const [stemStatus, setStemStatus] = useState<{
     status: "checking" | "up" | "down";
@@ -777,6 +779,25 @@ function EditSongView({ id }: { id: string }) {
     msg.includes("injoignable")
       ? "Service Demucs absent — lance start-stems.bat puis utilise l'app en local (localhost:3000)"
       : msg.slice(0, 160);
+
+  const handleLaunchStems = async () => {
+    if (launchingStems) return;
+    setLaunchingStems(true);
+    setExtractError(null);
+    try {
+      const res = await fetch("/api/stems-launch", { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setExtractError(data?.error ?? "Impossible de lancer start-stems.bat.");
+      }
+    } catch (err) {
+      setExtractError(
+        err instanceof Error ? err.message : "Impossible de lancer start-stems.bat."
+      );
+    } finally {
+      setLaunchingStems(false);
+    }
+  };
 
   const handleExtractBothFromFile = async (file: File) => {
     setExtracting(true);
@@ -1683,13 +1704,29 @@ body: JSON.stringify({ videoId, stem }),
                           )}
                         </span>
                       ) : (
-                        <span
-                          className="flex items-center gap-1.5 text-[11px] text-red-400 bg-red-500/10 border border-red-500/30 rounded-full px-2.5 py-1 w-fit"
-                          title="Le service local (Demucs, port 8765) n'est pas joignable. Vercel n'a pas ce service : utilise localhost:3000."
-                        >
-                          <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                          Service stems : absent — lance <b>start-stems.bat</b> puis reste sur localhost:3000
-                        </span>
+                        <>
+                          <span
+                            className="flex items-center gap-1.5 text-[11px] text-red-400 bg-red-500/10 border border-red-500/30 rounded-full px-2.5 py-1 w-fit"
+                            title="Le service local (Demucs, port 8765) n'est pas joignable. Vercel n'a pas ce service : utilise localhost:3000."
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                            Service stems : absent
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => void handleLaunchStems()}
+                            disabled={launchingStems}
+                            className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-colors w-fit cursor-pointer select-none disabled:cursor-wait disabled:opacity-60"
+                            title="Lancer le service local en exécutant start-stems.bat (localhost uniquement)"
+                          >
+                            {launchingStems ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Play className="w-3 h-3" />
+                            )}
+                            {launchingStems ? "Lancement…" : "Démarrer start-stems.bat"}
+                          </button>
+                        </>
                       )}
                       {ytVideoId && (
                         <button
