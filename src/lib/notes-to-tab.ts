@@ -30,6 +30,22 @@ export interface NotesToTabResult {
 // Corde 0 (rangée du haut) = mi aigu (64). Voir ascii-tab-midi (OPEN_NOTES).
 const OPEN_NOTES = [64, 59, 55, 50, 45, 40];
 const MAX_FRET = 24;
+// Écart maximal de la main : 4 doigts couvrent 4 cases consécutives, donc
+// l'écart entre la case frettée la plus grave et la plus aiguë doit rester
+// <= 3. Les cordes à vide (case 0) ne comptent pas (aucun doigt).
+const MAX_FRET_SPAN = 3;
+
+function frettedSpan(frets: number[]): number {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const f of frets) {
+    if (f > 0) {
+      if (f < min) min = f;
+      if (f > max) max = f;
+    }
+  }
+  return max >= min ? max - min : 0;
+}
 const TICKS_PER_BEAT = 480;
 const BAR_TICKS = 4 * TICKS_PER_BEAT; // 1920 (4/4)
 // Unités exprimables par le parseur (max 24 arcs : au-delà, unit < 60 km/h... er, ticks).
@@ -203,8 +219,13 @@ function planFrets(columns: Column[]): (Assignment | null)[] {
   let prevTop: { cost: number; assign: Assignment }[] = [];
   for (const col of columns) {
     const cands = enumerateAssignments([...col.pitches].sort((a, b) => a - b));
+    // Couvrir les notes dans un écart de 4 doigts : on privilégie les positions
+    // qui tiennent dans MAX_FRET_SPAN (autre corde/case pour les mêmes notes),
+    // et on ne retombe sur une position plus large que si aucune ne tient.
+    const tight = cands.filter((c) => frettedSpan(c.frets) <= MAX_FRET_SPAN);
+    const pool = tight.length > 0 ? tight : cands;
     const top: { cost: number; assign: Assignment }[] = [];
-    for (const cand of cands) {
+    for (const cand of pool) {
       let bestPrev = 0;
       if (prevTop.length > 0) {
         for (const p of prevTop) {
