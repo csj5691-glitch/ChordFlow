@@ -1722,9 +1722,15 @@ body: JSON.stringify({ videoId, stem }),
                   </span>
                 )}
                 <div className="basis-full flex flex-col gap-2 rounded-lg border border-zinc-700/50 bg-zinc-900/40 p-2.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                    stem
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                      stem
+                    </span>
+                    <span className="flex items-center gap-1 text-[10px] font-medium text-sky-300 bg-sky-500/10 border border-sky-500/30 rounded-full px-1.5 py-0.5">
+                      <Download className="w-2.5 h-2.5" />
+                      téléchargement
+                    </span>
+                  </div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <label
                       className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
