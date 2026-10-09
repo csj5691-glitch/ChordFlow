@@ -1087,6 +1087,34 @@ body: JSON.stringify({ videoId, stem }),
     }
   };
 
+  // Le sélecteur « fichier local » est partagé entre les modes GP et MIDI :
+  // on reconnaît le format à sa signature et on route vers le bon import, ce
+  // qui évite l'erreur « not a MIDI file » quand on choisit un .gp en mode MIDI.
+  const handleStLocalPickFile = async (file: File) => {
+    setGpError(null);
+    try {
+      const head = new Uint8Array(await file.slice(0, 20).arrayBuffer());
+      const isMidi =
+        head[0] === 0x4d && head[1] === 0x54 && head[2] === 0x68 && head[3] === 0x64; // "MThd"
+      const isZip =
+        head[0] === 0x50 &&
+        head[1] === 0x4b &&
+        (head[2] === 0x03 || head[2] === 0x05 || head[2] === 0x07); // GPX / GP7
+      const isGp = isZip || new TextDecoder().decode(head).startsWith("FICHIER GUITAR PRO"); // GP3/4/5
+      if (isMidi) {
+        await handleMidiPickFile(file);
+      } else if (isGp) {
+        await handleGpPickFile(file);
+      } else {
+        setGpError(
+          `Format non reconnu : « ${file.name} ». Choisissez un fichier Guitar Pro (.gp, .gp5, .gpx…) ou MIDI (.mid).`
+        );
+      }
+    } catch (err) {
+      setGpError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const setGpSelection = (track: GpTrackInfo, checked: boolean) => {
     if (!song || gpImportingTrack !== null) return;
     const alreadyImported = (song.gpTracks ?? []).some((t) => t.index === track.index);
@@ -1915,17 +1943,13 @@ body: JSON.stringify({ videoId, stem }),
                         fichier local
                         <input
                           type="file"
-                          accept={stMode === "midi" ? ".mid,.midi" : ".gp,.gp5,.gpx,.gp4,.gp3,.gtp"}
+                          accept=".gp,.gp5,.gpx,.gp4,.gp3,.gtp,.mid,.midi"
                           className="hidden"
                           disabled={gpImporting}
                           onChange={(e) => {
                             const file = e.target.files?.[0];
-                            if (file) {
-                              if (stMode === "midi") {
-                                void handleMidiPickFile(file);
-                              } else if (!gpImporting) {
-                                void handleGpPickFile(file);
-                              }
+                            if (file && !gpImporting) {
+                              void handleStLocalPickFile(file);
                             }
                             e.target.value = "";
                           }}
