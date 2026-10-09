@@ -6,12 +6,17 @@ import {
   formatChordName,
   type NoteName,
   type ChordQuality,
+  type ChordShape,
 } from "@/lib/chord-data";
 
 interface ChordDiagramProps {
   note: NoteName;
   quality: ChordQuality;
   label?: string;
+  // Forme déjà calculée (ex. CAGED) : si fournie, elle remplace le dictionnaire.
+  shape?: ChordShape;
+  // Case du capo : dessine une barre de capo sur la première case affichée.
+  capo?: number;
 }
 
 const STRING_NAMES = ["E", "A", "D", "G", "B", "e"];
@@ -26,8 +31,14 @@ const SVG_HEIGHT = PADDING_TOP + FRET_COUNT * FRET_SPACING + 20;
 const NUT_Y = PADDING_TOP;
 const MARKER_Y = PADDING_TOP - 16;
 
-export default function ChordDiagram({ note, quality, label }: ChordDiagramProps) {
-  const shape = getChordShape(note, quality);
+export default function ChordDiagram({
+  note,
+  quality,
+  label,
+  shape: shapeOverride,
+  capo = 0,
+}: ChordDiagramProps) {
+  const shape = shapeOverride ?? getChordShape(note, quality);
   const chordName = label ?? formatChordName(note, quality);
 
   return (
@@ -119,6 +130,32 @@ export default function ChordDiagram({ note, quality, label }: ChordDiagramProps
           </text>
         );
       })}
+
+      {capo > 0 && (
+        <g>
+          <rect
+            x={PADDING - 6}
+            y={NUT_Y - 7}
+            width={STRING_SPACING * 5 + 12}
+            height={14}
+            rx={7}
+            fill="#3f3f46"
+            stroke="#a1a1aa"
+            strokeWidth={1}
+          />
+          <text
+            x={SVG_WIDTH / 2}
+            y={NUT_Y + 4}
+            textAnchor="middle"
+            className="fill-amber-300"
+            fontSize="9"
+            fontWeight="bold"
+            fontFamily="monospace"
+          >
+            CAPO {capo}
+          </text>
+        </g>
+      )}
 
       {STRING_NAMES.map((name, sIdx) => {
         const x = PADDING + sIdx * STRING_SPACING;

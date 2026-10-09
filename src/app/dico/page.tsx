@@ -10,6 +10,7 @@ import {
   type ChordQuality,
 } from "@/lib/chord-data";
 import ChordDiagram from "@/components/ChordDiagram";
+import { cagedVoicings } from "@/lib/caged";
 import { BookOpen } from "lucide-react";
 
 export default function ChordDictionaryPage() {
@@ -17,6 +18,9 @@ export default function ChordDictionaryPage() {
   const [selectedQuality, setSelectedQuality] = useState<ChordQuality>(
     QUALITIES[0]
   );
+
+  const chordName = formatChordName(selectedNote, selectedQuality);
+  const caged = selectedQuality === "Maj" ? cagedVoicings(selectedNote) : null;
 
   return (
     <div className="flex flex-col items-center min-h-screen">
@@ -68,6 +72,53 @@ export default function ChordDictionaryPage() {
           <div className="flex-shrink-0">
             <ChordDiagram note={selectedNote} quality={selectedQuality} />
           </div>
+        </div>
+
+        <div className="w-full max-w-5xl mt-6 bg-zinc-900 border border-zinc-700 rounded-xl p-4">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <h2 className="text-lg font-bold text-white">Système CAGED</h2>
+            <span className="text-[10px] uppercase tracking-wide text-zinc-500">
+              5 formes · capo
+            </span>
+          </div>
+          {caged ? (
+            <>
+              <p className="text-zinc-500 text-xs mb-4">
+                {chordName} majeur : place un capo sur la case indiquée, puis joue
+                la forme ouverte correspondante.
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {caged.map((v) => (
+                  <div
+                    key={v.form}
+                    className="flex flex-col items-center gap-1 rounded-lg bg-zinc-800/40 border border-zinc-800 p-2"
+                  >
+                    <ChordDiagram
+                      note={selectedNote}
+                      quality="Maj"
+                      label={chordName}
+                      shape={v.shape}
+                      capo={v.capo}
+                    />
+                    <div className="text-center leading-tight">
+                      <div className="text-[11px] font-bold text-amber-400">
+                        Forme {v.form}
+                      </div>
+                      <div className="text-[10px] text-zinc-500">
+                        {v.capo === 0 ? "sans capo" : `capo ${v.capo}`}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="text-zinc-500 text-xs">
+              Le système CAGED s&apos;illustre sur les accords majeurs : choisis
+              la qualité « Maj » pour afficher les 5 positions (C‑A‑G‑E‑D) avec
+              capo.
+            </p>
+          )}
         </div>
       </main>
     </div>
