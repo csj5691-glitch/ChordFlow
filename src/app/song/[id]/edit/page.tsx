@@ -48,6 +48,7 @@ import {
   Save,
   Copy,
   Clipboard,
+  AudioLines,
   Mic2,
   Music,
   Music4,
@@ -1674,7 +1675,14 @@ body: JSON.stringify({ videoId, stem }),
                   </span>
                 </div>
               </div>
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap rounded-xl border border-zinc-700/50 bg-zinc-800/20 p-3">
+                <span className="basis-full flex items-center gap-2">
+                  <AudioLines className="w-3.5 h-3.5 text-amber-300" />
+                  <span className="text-xs font-bold text-zinc-300">Stem</span>
+                  <span className="hidden sm:inline text-[10px] text-zinc-600">
+                    Instrumental et voix — le Studio les joue avec les accords
+                  </span>
+                </span>
                 {stemStatus.status === "checking" ? (
                   <span className="flex items-center gap-1.5 text-[11px] text-zinc-500 bg-zinc-800/60 border border-zinc-700/60 rounded-full px-2.5 py-1 w-fit">
                     <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-pulse" />
@@ -1869,6 +1877,8 @@ body: JSON.stringify({ videoId, stem }),
                     Volume de chaque piste réglable dans le Studio
                   </span>
                 )}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
                   onClick={() => toggleSt("gp")}
