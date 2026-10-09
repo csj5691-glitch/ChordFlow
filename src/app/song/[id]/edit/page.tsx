@@ -1815,7 +1815,14 @@ body: JSON.stringify({ videoId, stem }),
                       : "Import MIDI (Songsterr)"}
                 </button>
               </div>
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap rounded-xl border border-zinc-700/50 bg-zinc-800/20 p-3">
+                <span className="basis-full flex items-center gap-2">
+                  <FileText className="w-3.5 h-3.5 text-sky-300" />
+                  <span className="text-xs font-bold text-zinc-300">Tablature</span>
+                  <span className="hidden sm:inline text-[10px] text-zinc-600">
+                    Importer une tablature Guitar Pro (Songsterr)
+                  </span>
+                </span>
                 <button
                   type="button"
                   onClick={() => toggleSt("gp")}
