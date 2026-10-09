@@ -142,6 +142,10 @@ export interface SavedChordShape {
   repeats?: number;
   sectionLabel?: string;
   legatoTo?: number[];
+  // Nombre de cordes qui sonnent (cordes à vide incluses) au moment de
+  // l'import GP. Sert à distinguer une note isolée (arpège) d'un accord plaqué
+  // dans la détection des séquences d'articulation.
+  sounding?: number;
   // For pitched non-fretted instruments (piano, keys, winds, strings): the
   // frequencies to play when the shape carries no fretboard fingers.
   pitchFrequencies?: number[];

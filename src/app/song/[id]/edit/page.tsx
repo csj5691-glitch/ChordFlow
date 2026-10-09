@@ -35,6 +35,14 @@ import {
   type SongTab,
 } from "@/lib/types";
 import {
+  ARTICULATION_BORDER,
+  ARTICULATION_CHIP,
+  ARTICULATION_LABEL,
+  ARTICULATION_SHORT,
+  articulationByIndex,
+  detectArticulationSequences,
+} from "@/lib/articulation";
+import {
   ArrowLeft,
   FileText,
   LayoutGrid,
@@ -306,6 +314,15 @@ function EditSongView({ id }: { id: string }) {
     : baseSong;
 
   const diagrams = useMemo(() => song?.diagrams ?? [], [song]);
+
+  const articulationSequences = useMemo(
+    () => detectArticulationSequences(diagrams),
+    [diagrams]
+  );
+  const articulationMap = useMemo(
+    () => articulationByIndex(articulationSequences),
+    [articulationSequences]
+  );
 
   const activeProgram = useMemo(() => {
     if (!song || activeSlot.kind !== "gp") return null;
@@ -2444,10 +2461,34 @@ body: JSON.stringify({ videoId, stem }),
               </p>
             ) : (
               <div className="flex flex-col gap-3">
+                {articulationSequences.length > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap rounded-xl border border-zinc-700/50 bg-zinc-800/20 px-3 py-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                      Séquences
+                    </span>
+                    {articulationSequences.map((seq, si) => (
+                      <span
+                        key={`${seq.kind}-${seq.start}-${si}`}
+                        title={ARTICULATION_LABEL[seq.kind]}
+                        className={`text-[10px] font-medium border rounded-full px-2 py-0.5 ${ARTICULATION_CHIP[seq.kind]}`}
+                      >
+                        {ARTICULATION_SHORT[seq.kind]}
+                        <span className="text-zinc-500">
+                          {" "}
+                          · {seq.start + 1}–{seq.end + 1}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                )}
                   {diagrams.map((d, i) => (
                   <div
                     key={d.id}
-                    className="bg-zinc-900 border border-zinc-700 rounded-xl p-3 flex flex-col sm:flex-row items-center gap-4"
+                    className={`bg-zinc-900 border border-zinc-700 rounded-xl p-3 flex flex-col sm:flex-row items-center gap-4 ${
+                      articulationMap.has(i)
+                        ? `border-l-4 ${ARTICULATION_BORDER[articulationMap.get(i)!]}`
+                        : ""
+                    }`}
                   >
                     {!(d.bar) && measureState.hasSignature && (
                       <div className="w-40 flex-shrink-0 h-6 flex items-center justify-center">

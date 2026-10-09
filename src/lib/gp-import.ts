@@ -500,7 +500,10 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
             continue;
           }
 
-          barChords.push(chordShape(fingers, mutedOn, legatoTo, duration, text));
+          const shape = chordShape(fingers, mutedOn, legatoTo, duration, text);
+          // Chaque note (cordes à vide incluses, fret 0 compris) est une corde qui sonne.
+          shape.sounding = fingers.length;
+          barChords.push(shape);
           pos += duration;
           continue;
         }
@@ -743,7 +746,9 @@ function pitchedShape(
           if (fret > 0) fingers.push({ string: s, fret, finger: 0 });
         });
         if (fingers.length > 0 || muted.some(Boolean)) {
-          return chordShape(fingers, muted, [], duration, chordName, data.baseFret);
+          const shape = chordShape(fingers, muted, [], duration, chordName, data.baseFret);
+          shape.sounding = STRING_COUNT - muted.filter(Boolean).length;
+          return shape;
         }
       }
     }
@@ -768,6 +773,7 @@ function pitchedShape(
     baseFret: 1,
     capo: 0,
     duration,
+    sounding: freqs.length,
     pitchFrequencies: freqs,
   };
 }
@@ -961,7 +967,11 @@ function chordShapeFromGp(gpChord: model.Chord, duration: number, text?: string)
 
   if (fingers.length === 0 && !muted.some(Boolean)) return null;
 
-  return chordShape(fingers, muted, [], duration, gpChord.name || text || "", gpChord.firstFret);
+  const shape = chordShape(fingers, muted, [], duration, gpChord.name || text || "", gpChord.firstFret);
+  // Cordes qui sonnent = cordes jouées (les cordes à vide ne sont pas listées
+  // dans `fingers`, elles ne sont ni frottées ni étouffées).
+  shape.sounding = n - muted.filter(Boolean).length;
+  return shape;
 }
 
 function chordShape(
