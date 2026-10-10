@@ -1591,7 +1591,7 @@ body: JSON.stringify({ videoId, stem }),
                 Riffs ({riffs.length})
               </h2>
               <span className="text-[10px] text-zinc-600 bg-zinc-800/60 rounded px-1.5 py-0.5">
-                Passages de notes seules (≥ 2 attaques) — cliquez pour éditer les notes
+                Passages de notes seules (≥ 2 attaques) — éditez les notes directement
               </span>
             </div>
             {riffs.length === 0 ? (
@@ -1601,57 +1601,19 @@ body: JSON.stringify({ videoId, stem }),
               </p>
             ) : (
               <div className="flex flex-col gap-4">
-                {riffs.map((riff, i) => {
-                  const sub = diagrams.slice(riff.start, riff.end + 1);
-                  const riffTab = diagramsToTab(sub, {
-                    title: song?.title,
-                    bpm,
-                  });
-                  const riffBeats = sub.reduce(
-                    (acc, d) => acc + (d.duration ?? 1) * (d.dotted ? 1.5 : 1),
-                    0
-                  );
-                  return (
-                    <div
-                      key={`riff-${riff.start}-${riff.end}`}
-                      className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-3 flex flex-col gap-2"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="flex flex-wrap items-center gap-2 text-xs font-semibold text-cyan-300">
-                          Riff {i + 1}
-                          <span className="text-zinc-500 font-normal">
-                            diagrammes {riff.start + 1}–{riff.end + 1} ·{" "}
-                            {sub.length} note{sub.length > 1 ? "s" : ""} ·{" "}
-                            {riffBeats} temps
-                          </span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setArpEdit({ start: riff.start, end: riff.end })
-                          }
-                          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25 transition-colors cursor-pointer"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                          Éditer les notes
-                        </button>
-                      </div>
-                      {riffTab ? (
-                        <div className="rounded-lg border border-zinc-700/50 bg-zinc-900/40 p-2">
-                          <TabStaffView
-                            title={song?.title}
-                            bpm={bpm}
-                            tab={riffTab}
-                          />
-                        </div>
-                      ) : (
-                        <p className="text-[11px] text-zinc-600">
-                          Aucune note à afficher pour ce riff.
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
+                {riffs.map((riff, i) => (
+                  <ArpeggioEditor
+                    key={`riff-${riff.start}-${riff.end}`}
+                    embedded
+                    heading={`Riff ${i + 1}`}
+                    diagrams={diagrams}
+                    start={riff.start}
+                    end={riff.end}
+                    title={song?.title}
+                    bpm={bpm}
+                    onChange={(list) => upsert({ ...song, diagrams: list })}
+                  />
+                ))}
               </div>
             )}
           </div>

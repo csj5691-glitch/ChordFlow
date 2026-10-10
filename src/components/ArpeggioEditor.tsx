@@ -74,8 +74,11 @@ interface ArpeggioEditorProps {
   end: number;
   title?: string;
   bpm: number;
-  onClose: () => void;
+  onClose?: () => void;
   onChange: (diagrams: SavedChordShape[]) => void;
+  // Affichage en ligne (dans la vue Riff) plutôt qu'en modale plein écran.
+  embedded?: boolean;
+  heading?: string;
 }
 
 export default function ArpeggioEditor({
@@ -86,6 +89,8 @@ export default function ArpeggioEditor({
   bpm,
   onClose,
   onChange,
+  embedded = false,
+  heading = "Éditeur d'arpège",
 }: ArpeggioEditorProps) {
   const [endIdx, setEndIdx] = useState(end);
 
@@ -100,12 +105,13 @@ export default function ArpeggioEditor({
   );
 
   useEffect(() => {
+    if (embedded || !onClose) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, embedded]);
 
   const updateNote = (k: number, note: PrimaryNote) => {
     const idx = start + k;
@@ -141,7 +147,7 @@ export default function ArpeggioEditor({
     list.splice(idx, 1);
     if (steps.length <= 1) {
       onChange(list);
-      onClose();
+      onClose?.();
       return;
     }
     setEndIdx((v) => v - 1);
@@ -174,37 +180,33 @@ export default function ArpeggioEditor({
     onChange(list);
   };
 
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-stretch sm:items-center justify-center p-0 sm:p-6"
-      onPointerDown={onClose}
-    >
-      <div
-        className="bg-zinc-950 border border-zinc-700 rounded-none sm:rounded-2xl w-full max-w-6xl max-h-full flex flex-col overflow-hidden"
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        <header className="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">
-          <Music className="w-5 h-5 text-cyan-300 flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <h2 className="text-white font-bold leading-tight">Éditeur d&apos;arpège</h2>
-            <p className="text-[11px] text-zinc-500 truncate">
-              Étapes {start + 1}–{endIdx + 1} · {steps.length} note
-              {steps.length > 1 ? "s" : ""}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
-            title="Fermer (Échap)"
-          >
-            <X className="w-4 h-4" />
-            Fermer
-          </button>
-        </header>
+  const header = (
+    <header className="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">
+      <Music className="w-5 h-5 text-cyan-300 flex-shrink-0" />
+      <div className="flex-1 min-w-0">
+        <h2 className="text-white font-bold leading-tight">{heading}</h2>
+        <p className="text-[11px] text-zinc-500 truncate">
+          Étapes {start + 1}–{endIdx + 1} · {steps.length} note
+          {steps.length > 1 ? "s" : ""}
+        </p>
+      </div>
+      {!embedded && onClose && (
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
+          title="Fermer (Échap)"
+        >
+          <X className="w-4 h-4" />
+          Fermer
+        </button>
+      )}
+    </header>
+  );
 
-        <div className="flex-1 overflow-y-auto">
-          <div className="p-4 flex flex-col gap-5">
+  const body = (
+    <div className={embedded ? "" : "flex-1 overflow-y-auto"}>
+      <div className="p-4 flex flex-col gap-5">
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
               {tab ? (
                 <TabStaffView title={title} bpm={bpm} tab={tab} />
@@ -354,6 +356,28 @@ export default function ArpeggioEditor({
             </p>
           </div>
         </div>
+  );
+
+  if (embedded) {
+    return (
+      <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 flex flex-col overflow-hidden">
+        {header}
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-stretch sm:items-center justify-center p-0 sm:p-6"
+      onPointerDown={onClose}
+    >
+      <div
+        className="bg-zinc-950 border border-zinc-700 rounded-none sm:rounded-2xl w-full max-w-6xl max-h-full flex flex-col overflow-hidden"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        {header}
+        {body}
       </div>
     </div>
   );
