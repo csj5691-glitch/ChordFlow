@@ -73,6 +73,8 @@ export interface SavedChordFinger {
   string: number;
   fret: number;
   finger: number;
+  // Note fantôme (import GP) : rendue entre parenthèses dans la tablature.
+  ghost?: boolean;
 }
 
 export type BarKind =

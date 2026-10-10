@@ -442,7 +442,7 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
         }
 
         if (fretted) {
-          const fingers: { string: number; fret: number; finger: number }[] = [];
+          const fingers: { string: number; fret: number; finger: number; ghost?: boolean }[] = [];
           const mutedOn = Array(6).fill(false);
           const legatoTo: number[] = [];
 
@@ -455,7 +455,7 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
               continue;
             }
             if (note.fret < 0) continue;
-            fingers.push({ string: s, fret: note.fret, finger: 0 });
+            fingers.push({ string: s, fret: note.fret, finger: 0, ghost: note.isGhost });
             if (note.isHammerPullOrigin) legatoTo.push(s);
           }
 
@@ -695,7 +695,7 @@ function pitchedShape(
     if (parsed) {
       const data = getChordShape(parsed.note, parsed.quality);
       if (data && data.frets && data.frets.length === STRING_COUNT) {
-        const fingers: { string: number; fret: number; finger: number }[] = [];
+        const fingers: { string: number; fret: number; finger: number; ghost?: boolean }[] = [];
         const muted = Array(STRING_COUNT).fill(false);
         data.frets.forEach((fret, s) => {
           if (fret < 0) {
@@ -909,7 +909,7 @@ function chordShapeFromGp(gpChord: model.Chord, duration: number, text?: string)
   // gpChord.strings[i]: fret per string, i = highest string first, -1 = not played.
   // Frets are ABSOLUTE (GPIF stores baseFret + relative fret). ChordFlow's
   // `fingers[].fret` is absolute too; `baseFret` is the top fret of the diagram.
-  const fingers: { string: number; fret: number; finger: number }[] = [];
+  const fingers: { string: number; fret: number; finger: number; ghost?: boolean }[] = [];
   const muted = Array(6).fill(false);
   const n = gpChord.strings.length;
 
@@ -934,7 +934,7 @@ function chordShapeFromGp(gpChord: model.Chord, duration: number, text?: string)
 }
 
 function chordShape(
-  raw: { string: number; fret: number; finger: number }[],
+  raw: { string: number; fret: number; finger: number; ghost?: boolean }[],
   muted: boolean[],
   legatoTo: number[],
   duration: number,

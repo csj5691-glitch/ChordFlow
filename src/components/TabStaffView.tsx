@@ -164,6 +164,7 @@ export default function TabStaffView({
   showMutes = true,
   highlight,
   rests,
+  ghosts,
   onChange,
 }: {
   title?: string;
@@ -174,6 +175,8 @@ export default function TabStaffView({
   showMutes?: boolean;
   highlight?: Set<string>;
   rests?: TabRest[];
+  // Clés de cellules (mesure|corde|colonne) des notes fantômes → entre parenthèses.
+  ghosts?: Set<string>;
   onChange?: (ascii: string) => void;
 }) {
   const model = useMemo(() => parseAsciiTabModel(tab), [tab]);
@@ -374,6 +377,7 @@ export default function TabStaffView({
                     showMutes={showMutes}
                     highlight={highlight}
                     rests={rests ? rests.filter((r) => r.m === m) : undefined}
+                    ghosts={ghosts}
                     sel={sel && sel.m === m ? sel : null}
                     onSelect={select}
                     onFret={changeFret}
@@ -402,6 +406,7 @@ function MeasureBox({
   showMutes,
   highlight,
   rests,
+  ghosts,
   sel,
   onSelect,
   onFret,
@@ -414,6 +419,7 @@ function MeasureBox({
   showMutes: boolean;
   highlight?: Set<string>;
   rests?: TabRest[];
+  ghosts?: Set<string>;
   sel: Cell | null;
   onSelect: (cell: Cell, dir?: "left" | "right" | "up" | "down") => void;
   onFret: (cell: Cell, delta: 1 | -1) => void;
@@ -578,9 +584,15 @@ function MeasureBox({
           const k = slotKind(tok);
           const isSel = sel !== null && sel.s === s && sel.slot === t;
           const isHit = highlight?.has(cellKey(cell)) ?? false;
+          const isGhost = ghosts?.has(cellKey(cell)) ?? false;
           const fretted = k === "note";
-          const label =
-            fretted ? String(tok?.fret ?? 0) : k === "mute" ? (showMutes ? "×" : "") : "";
+          const label = fretted
+            ? isGhost
+              ? `(${tok?.fret ?? 0})`
+              : String(tok?.fret ?? 0)
+            : k === "mute"
+              ? (showMutes ? "×" : "")
+              : "";
           return (
             <div
               key={`${s}-${t}`}

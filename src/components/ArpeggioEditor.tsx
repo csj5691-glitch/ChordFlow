@@ -145,6 +145,18 @@ export default function ArpeggioEditor({
     return set;
   }, [activeLocal, cells, lead]);
 
+  // Notes fantômes (import GP) : leurs cases sont affichées entre parenthèses.
+  const ghosts = useMemo(() => {
+    const set = new Set<string>();
+    for (let i = 0; i < noteSteps.length; i++) {
+      const st = noteSteps[i];
+      if (st.fingers.length > 0 && st.fingers.every((f) => f.ghost)) {
+        for (const c of cells[lead + i] ?? []) set.add(`${c.m}|${c.s}|${c.slot}`);
+      }
+    }
+    return set;
+  }, [noteSteps, cells, lead]);
+
   useEffect(() => {
     if (embedded || !onClose) return;
     const onKey = (e: KeyboardEvent) => {
@@ -303,7 +315,7 @@ export default function ArpeggioEditor({
       <div className="p-4 flex flex-col gap-5">
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
               {tab ? (
-                <TabStaffView title={title} bpm={bpm} tab={tab} showMutes={false} highlight={highlight} rests={rests} />
+                <TabStaffView title={title} bpm={bpm} tab={tab} showMutes={false} highlight={highlight} rests={rests} ghosts={ghosts} />
               ) : (
                 <p className="text-[11px] text-zinc-600">
                   Aucune note à afficher en tablature.
