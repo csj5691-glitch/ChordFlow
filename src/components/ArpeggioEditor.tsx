@@ -108,7 +108,7 @@ export default function ArpeggioEditor({
     [diagrams, start, endIdx]
   );
 
-  const { tab, cells } = useMemo(
+  const { tab, cells, rests } = useMemo(
     () => diagramsToTabWithPositions(steps, { title, bpm }),
     [steps, title, bpm]
   );
@@ -284,7 +284,7 @@ export default function ArpeggioEditor({
       <div className="p-4 flex flex-col gap-5">
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
               {tab ? (
-                <TabStaffView title={title} bpm={bpm} tab={tab} showMutes={false} highlight={highlight} />
+                <TabStaffView title={title} bpm={bpm} tab={tab} showMutes={false} highlight={highlight} rests={rests} />
               ) : (
                 <p className="text-[11px] text-zinc-600">
                   Aucune note à afficher en tablature.

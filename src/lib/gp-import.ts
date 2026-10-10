@@ -371,7 +371,6 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
   const STRING_INDEX = new Map<number, number>();
   for (let i = 1; i <= nStrings; i++) STRING_INDEX.set(i, i - 1);
 
-  const EPS = 1e-6;
   const beatDuration = (beat: model.Beat) =>
     durationToBeats(beat.duration, beat.dots, beat.tupletNumerator, beat.tupletDenominator);
 
@@ -395,13 +394,6 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
     return best;
   }
 
-  function absorbTailRest(barChords: SavedChordShape[], restBeats: number): void {
-    const last = barChords[barChords.length - 1];
-    if (!last || last.bar || last.silence) return;
-    const current = (last.duration ?? 1) * (last.dotted ? 1.5 : 1);
-    last.duration = +(current + restBeats).toFixed(4);
-  }
-
   for (let mbIdx = 0; mbIdx < score.masterBars.length; mbIdx++) {
     const bar = staff.bars[mbIdx];
     if (!bar) continue;
@@ -419,46 +411,20 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
     const voice = pickMainVoice(bar);
 
     if (voice) {
-      let barBeats = 0;
-      for (const beat of voice.beats) barBeats += beatDuration(beat);
-
-      let pos = 0;
-      let restStart = -1;
-
-      // Reaching the end of a measure on a rest that merely completes the bar
-      // (with the next bar playing) is strumming padding: fold it into the
-      // previous chord so the pause goes away while total duration stays exact.
-      const closeRestRun = (): void => {
-        if (restStart < 0) return;
-        const restBeats = pos - restStart;
-        restStart = -1;
-        if (Math.abs(restBeats - barBeats) < EPS) {
-          barChords.push(restShape(restBeats));
-          return;
-        }
-        if (pos >= barBeats - EPS) {
-          absorbTailRest(barChords, restBeats);
-          return;
-        }
-        barChords.push(restShape(restBeats));
-      };
-
       for (const beat of voice.beats) {
         const duration = beatDuration(beat);
         if (beat.isRest || beat.isEmpty || beat.notes.length === 0) {
-          if (restStart < 0) restStart = pos;
-          pos += duration;
+          // Un silence par temps de la voix principale : sa durée exacte (valeur
+          // + points) est conservée pour être affichée dans la portée.
+          barChords.push(restShape(duration));
           continue;
         }
-
-        closeRestRun();
 
         const text = beat.text || undefined;
 
         // Percussion: one shape per hit beat, holding its stroke count so the
         // playback uses a drum voice and the rhythm is never merged away.
         if (staff.isPercussion) {
-          pos += duration;
           const hits = beat.notes.filter((n) => !n.isTieDestination);
           if (hits.length > 0) {
             barChords.push(drumShape(drumLabel(hits), hits.length, duration));
@@ -472,7 +438,6 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
         if (fretted && gpChord && gpChord.strings.length === STRING_COUNT && gpChord.showDiagram) {
           const chord = chordShapeFromGp(gpChord, duration, text);
           if (chord) barChords.push(chord);
-          pos += duration;
           continue;
         }
 
@@ -496,7 +461,6 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
           }
 
           if (fingers.length === 0 && !mutedOn.some(Boolean)) {
-            pos += duration;
             continue;
           }
 
@@ -504,7 +468,6 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
           // Chaque note (cordes à vide incluses, fret 0 compris) est une corde qui sonne.
           shape.sounding = fingers.length;
           barChords.push(shape);
-          pos += duration;
           continue;
         }
 
@@ -518,10 +481,7 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
           const shape = pitchedShape(pitches, duration, gpChord?.name || text);
           if (shape) barChords.push(shape);
         }
-        pos += duration;
       }
-
-      closeRestRun();
     }
 
     if (masterBar.isRepeatEnd) {

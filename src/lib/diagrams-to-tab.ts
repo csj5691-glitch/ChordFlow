@@ -7,7 +7,7 @@
 // renvoi, section) ne consomment pas de temps ; un silence en consomme.
 
 import type { SavedChordShape } from "./types";
-import { notesToTab, type TabNoteEvent, type TabPosition } from "./notes-to-tab";
+import { notesToTab, type TabNoteEvent, type TabPosition, type TabRest } from "./notes-to-tab";
 
 // index 0 = corde grave (mi grave 40) → index 5 = mi aigu 64.
 const OPEN_NOTES_LOW_FIRST = [40, 45, 50, 55, 59, 64];
@@ -76,13 +76,14 @@ export function diagramsToTab(
 }
 
 // Comme `diagramsToTab`, mais renvoie aussi, pour CHAQUE diagramme, la liste des
-// cases (mesure/corde/colonne) où ses notes sont rendues dans la portée. Sert à
-// surligner la note en cours de lecture. `cells[i]` est vide si le diagramme ne
-// produit aucune note (marqueur, silence, percussion).
+// cases (mesure/corde/colonne) où ses notes sont rendues dans la portée, ainsi
+// que les silences à dessiner. Sert à surligner la note en cours de lecture et à
+// afficher les pauses/soupirs issus de l'import GP. `cells[i]` est vide si le
+// diagramme ne produit aucune note (marqueur, silence, percussion).
 export function diagramsToTabWithPositions(
   diagrams: SavedChordShape[],
   options: { title?: string; bpm?: number } = {}
-): { tab: string; cells: TabPosition[][] } {
+): { tab: string; cells: TabPosition[][]; rests: TabRest[] } {
   const events: TabNoteEvent[] = [];
   const columnOfDiagram: number[] = [];
   let beats = 0;
@@ -100,7 +101,14 @@ export function diagramsToTabWithPositions(
     const durationTicks = Math.max(1, Math.round(durationBeats * TICKS_PER_BEAT));
     beats += durationBeats;
 
-    if (shape.silence || shape.drumHits) {
+    // Silence : pas de note, mais on réserve sa place (mesure + colonne) pour
+    // dessiner le symbole de pause approprié.
+    if (shape.silence) {
+      events.push({ pitch: 0, startTick, durationTicks, rest: true });
+      columnOfDiagram.push(produced++);
+      continue;
+    }
+    if (shape.drumHits) {
       columnOfDiagram.push(-1);
       continue;
     }
@@ -128,9 +136,9 @@ export function diagramsToTabWithPositions(
     columnOfDiagram.push(events.length > before ? produced++ : -1);
   }
 
-  if (events.length === 0) return { tab: "", cells: diagrams.map(() => []) };
+  if (events.length === 0) return { tab: "", cells: diagrams.map(() => []), rests: [] };
 
   const result = notesToTab(events, { title: options.title, bpm: options.bpm });
   const cells = columnOfDiagram.map((c) => (c >= 0 ? result.positions[c] ?? [] : []));
-  return { tab: result.tab, cells };
+  return { tab: result.tab, cells, rests: result.rests };
 }

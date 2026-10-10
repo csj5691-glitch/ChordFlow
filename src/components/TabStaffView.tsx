@@ -4,6 +4,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { parseAsciiTabModel, type AsciiTabModel, type TabToken } from "@/lib/ascii-tab-midi";
+import type { TabRest } from "@/lib/notes-to-tab";
 import {
   slotKind,
   slotFrets,
@@ -57,6 +58,31 @@ function buildEditedMeasures(model: AsciiTabModel, edits: Edits): (TabToken | un
 }
 
 const STRING_COLORS = ["#86efac", "#fbbf24", "#67e8f9", "#a78bfa", "#f472b6", "#f87171"];
+
+// Symboles de silence (Unicode « Musical Symbols ») selon la durée en temps
+// (1 temps = noire). 4 = pause, 2 = demi-pause, 1 = soupir, 0,5 = demi-soupir,
+// 0,25 = quart de soupir, 0,125 = huitième de soupir, 0,0625 = seizième.
+const RESTS: { beats: number; char: string }[] = [
+  { beats: 4, char: "\u{1D13B}" },
+  { beats: 2, char: "\u{1D13C}" },
+  { beats: 1, char: "\u{1D13D}" },
+  { beats: 0.5, char: "\u{1D13E}" },
+  { beats: 0.25, char: "\u{1D13F}" },
+  { beats: 0.125, char: "\u{1D140}" },
+  { beats: 0.0625, char: "\u{1D141}" },
+];
+
+function restGlyph(beats: number): { char: string; dot: boolean } {
+  for (const r of RESTS) {
+    if (Math.abs(beats - r.beats) < 0.001) return { char: r.char, dot: false };
+    if (Math.abs(beats - r.beats * 1.5) < 0.001) return { char: r.char, dot: true };
+  }
+  let best = RESTS[0];
+  for (const r of RESTS) {
+    if (Math.abs(beats - r.beats) < Math.abs(beats - best.beats)) best = r;
+  }
+  return { char: best.char, dot: false };
+}
 
 function ChordMini({ frets }: { frets: (number | null)[] }) {
   const strings = frets.length;
@@ -137,6 +163,7 @@ export default function TabStaffView({
   maxMeasuresPerLine = 4,
   showMutes = true,
   highlight,
+  rests,
   onChange,
 }: {
   title?: string;
@@ -146,6 +173,7 @@ export default function TabStaffView({
   maxMeasuresPerLine?: number;
   showMutes?: boolean;
   highlight?: Set<string>;
+  rests?: TabRest[];
   onChange?: (ascii: string) => void;
 }) {
   const model = useMemo(() => parseAsciiTabModel(tab), [tab]);
@@ -345,6 +373,7 @@ export default function TabStaffView({
                     editable={editable}
                     showMutes={showMutes}
                     highlight={highlight}
+                    rests={rests ? rests.filter((r) => r.m === m) : undefined}
                     sel={sel && sel.m === m ? sel : null}
                     onSelect={select}
                     onFret={changeFret}
@@ -372,6 +401,7 @@ function MeasureBox({
   editable,
   showMutes,
   highlight,
+  rests,
   sel,
   onSelect,
   onFret,
@@ -383,6 +413,7 @@ function MeasureBox({
   editable: boolean;
   showMutes: boolean;
   highlight?: Set<string>;
+  rests?: TabRest[];
   sel: Cell | null;
   onSelect: (cell: Cell, dir?: "left" | "right" | "up" | "down") => void;
   onFret: (cell: Cell, delta: 1 | -1) => void;
@@ -511,6 +542,34 @@ function MeasureBox({
           />
         ))}
       </svg>
+
+      {/* silences (pause, demi-pause, soupir, demi-soupir, ...) */}
+      {rests && rests.length > 0 && (
+        <div className="absolute inset-0 pointer-events-none">
+          {rests.map((r, i) => {
+            const g = restGlyph(r.beats);
+            return (
+              <span
+                key={`rest-${i}`}
+                className="absolute select-none"
+                style={{
+                  left: r.slot * COL_W + COL_W / 2,
+                  top: PAD_TOP + 2.5 * LINE_H,
+                  transform: "translate(-50%, -50%)",
+                  fontSize: 34,
+                  lineHeight: 1,
+                  color: "#e4e4e7",
+                  fontFamily:
+                    "'Bravura','Noto Music','Segoe UI Symbol','Symbola','DejaVu Sans',serif",
+                }}
+              >
+                {g.char}
+                {g.dot ? <span style={{ fontSize: 20, verticalAlign: "top" }}>·</span> : null}
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       {/* cases (notes / étouffées / repos) */}
       {rows.map((row, s) =>

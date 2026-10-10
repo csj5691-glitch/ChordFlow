@@ -11,6 +11,9 @@ export interface TabNoteEvent {
   pitch: number;
   startTick: number;
   durationTicks: number;
+  // Silence : `pitch` est ignoré, la note occupe la durée et sera rendue comme
+  // un silence (pas de case de manche).
+  rest?: boolean;
 }
 
 export interface NotesToTabOptions {
@@ -26,6 +29,14 @@ export interface TabPosition {
   slot: number;
 }
 
+// Silence rendu dans la portée : mesure + colonne + durée en temps (pour choisir
+// le symbole : pause, demi-pause, soupir, demi-soupir, etc.).
+export interface TabRest {
+  m: number;
+  slot: number;
+  beats: number;
+}
+
 export interface NotesToTabResult {
   tab: string;
   measures: number;
@@ -34,6 +45,7 @@ export interface NotesToTabResult {
   dropped: number;
   outOfRange: number[];
   positions: TabPosition[][];
+  rests: TabRest[];
 }
 
 // Corde 0 (rangée du haut) = mi aigu (64). Voir ascii-tab-midi (OPEN_NOTES).
@@ -69,6 +81,8 @@ const LADDER = [
 interface Column {
   startTick: number;
   pitches: number[];
+  rest?: boolean;
+  durationTicks?: number;
 }
 
 interface Assignment {
@@ -193,20 +207,28 @@ function groupColumns(events: TabNoteEvent[]): {
   noteCount: number;
   outOfRange: number[];
 } {
-  const byStart = new Map<number, number[]>();
+  const byStart = new Map<number, { pitches: number[]; rest: boolean; durationTicks: number }>();
   const droppedSet = new Set<number>();
   let noteCount = 0;
   for (const ev of events) {
+    if (ev.rest) {
+      byStart.set(ev.startTick, { pitches: [], rest: true, durationTicks: ev.durationTicks });
+      continue;
+    }
     if (!Number.isFinite(ev.pitch) || ev.durationTicks <= 0) continue;
     noteCount++;
-    const list = byStart.get(ev.startTick) ?? [];
-    list.push(ev.pitch);
-    byStart.set(ev.startTick, list);
+    const col = byStart.get(ev.startTick) ?? { pitches: [], rest: false, durationTicks: 0 };
+    col.pitches.push(ev.pitch);
+    byStart.set(ev.startTick, col);
   }
   const columns: Column[] = [];
   const seen = new Set<number>();
   for (const [startTick, raw] of [...byStart.entries()].sort((a, b) => a[0] - b[0])) {
-    const { keep, outOfRange } = pickColumn(raw);
+    if (raw.rest) {
+      columns.push({ startTick, pitches: [], rest: true, durationTicks: raw.durationTicks });
+      continue;
+    }
+    const { keep, outOfRange } = pickColumn(raw.pitches);
     for (const p of outOfRange) if (!seen.has(p)) {
       seen.add(p);
       droppedSet.add(p);
@@ -341,7 +363,7 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
   }
 
   if (columns.length === 0) {
-    return { tab: "", measures: 0, noteCount, chordCount, dropped, outOfRange, positions: [] };
+    return { tab: "", measures: 0, noteCount, chordCount, dropped, outOfRange, positions: [], rests: [] };
   }
 
   const bpm = Math.min(400, Math.max(20, options.bpm ?? 120));
@@ -362,6 +384,7 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
 
   const rendered: string[][] = [];
   const positions: TabPosition[][] = [];
+  const rests: TabRest[] = [];
   let gi = 0;
   const maxMb = Math.floor(Math.max(...columns.map((c) => c.startTick)) / BAR_TICKS);
   for (let mb = 0; mb <= maxMb; mb++) {
@@ -376,6 +399,9 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
       const slot = Math.round((col.startTick - mb * BAR_TICKS) / unit);
       const assign = assignments[gi] ?? { strings: [], frets: [], pitches: [] };
       positions[gi] = assign.strings.map((s) => ({ m: mb, s, slot }));
+      if (col.rest) {
+        rests.push({ m: mb, slot, beats: (col.durationTicks ?? 0) / TICKS_PER_BEAT });
+      }
       gi++;
       return {
         slot,
@@ -410,5 +436,6 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
     dropped,
     outOfRange,
     positions,
+    rests,
   };
 }
