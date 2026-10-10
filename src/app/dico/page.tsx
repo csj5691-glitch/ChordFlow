@@ -221,12 +221,18 @@ export default function ChordDictionaryPage() {
             </span>
           </div>
           <p className="text-zinc-500 text-xs mb-4">
-            La pentatonique = 5 notes par octave, sans demi-tons : rien de
-            dissonant, idéal pour le solo. Majeure (1 2 3 5 6, son clair) et
-            mineure (1 ♭3 4 5 ♭7, son blues) sont <strong className="text-zinc-300">
-            relatives</strong> : la mineure relative d&apos;une majeure est 3
-            cases plus bas, les 5 positions du manche sont les mêmes — seule la
-            tonique change. Le rond <span className="text-amber-400 font-semibold">ambre</span> marque la
+            La pentatonique, ce n&apos;est que{" "}
+            <strong className="text-zinc-300">5 notes</strong> par octave, sans
+            demi-tons : rien de dissonant, idéal pour le solo. Majeure (1 2 3 5
+            6, son clair) et mineure (1 ♭3 4 5 ♭7, son blues) sont{" "}
+            <strong className="text-zinc-300">relatives</strong> : la mineure
+            relative d&apos;une majeure est 3 cases plus bas. Les 5 positions du
+            manche sont les <strong className="text-zinc-300">mêmes notes</strong>{" "}
+            et ne sont autres que les <strong className="text-zinc-300">5 formes
+            CAGED</strong> (C-A-G-E-D) — mêmes notes, seul le{" "}
+            <strong className="text-zinc-300">centre tonal</strong> change (clair
+            sur la majeure, sombre sur la mineure). Le rond{" "}
+            <span className="text-amber-400 font-semibold">ambre</span> marque la
             tonique.
           </p>
 
@@ -254,14 +260,14 @@ export default function ChordDictionaryPage() {
               </span>
             </div>
             <div className="flex gap-3 overflow-x-auto pb-2">
-              {pentMajor.map((box, i) => (
+              {pentMajor.map((box) => (
                 <div
-                  key={i}
+                  key={box.fretStart}
                   className="flex flex-col items-center gap-1 rounded-lg bg-zinc-800/40 border border-zinc-800 p-1.5 flex-shrink-0"
                 >
                   <ScaleBoxChart box={box} />
                   <span className="text-[10px] text-zinc-500">
-                    Pos {i + 1} · case {box.fretStart}
+                    Forme {box.cagedForm} · case {box.fretStart}
                   </span>
                 </div>
               ))}
@@ -294,19 +300,30 @@ export default function ChordDictionaryPage() {
               </span>
             </div>
             <div className="flex gap-3 overflow-x-auto pb-2">
-              {pentMinor.map((box, i) => (
+              {pentMinor.map((box) => (
                 <div
-                  key={i}
+                  key={box.fretStart}
                   className="flex flex-col items-center gap-1 rounded-lg bg-zinc-800/40 border border-zinc-800 p-1.5 flex-shrink-0"
                 >
                   <ScaleBoxChart box={box} />
                   <span className="text-[10px] text-zinc-500">
-                    Pos {i + 1} · case {box.fretStart}
+                    Forme {box.cagedForm} · case {box.fretStart}
                   </span>
                 </div>
               ))}
             </div>
           </div>
+
+          <p className="text-zinc-600 text-[11px] mt-2">
+            Les formes s&apos;emboîtent comme des{" "}
+            <span className="text-zinc-400">pièces de puzzle</span> : entre la
+            forme A et la forme G, les 6 cordes partagent une même case —
+            surnommée la{" "}
+            <span className="text-zinc-400">« pentatonic equator »</span> (John
+            Mayer). Pour t&apos;entraîner, découpe chaque forme en{" "}
+            <span className="text-zinc-400">blocs de 2 cordes</span> plutôt que
+            de monter/descendre mécaniquement.
+          </p>
         </div>
       </main>
     </div>

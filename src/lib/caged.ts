@@ -15,7 +15,7 @@ export type CagedForm = "C" | "A" | "G" | "E" | "D";
 export const CAGED_FORMS: CagedForm[] = ["C", "A", "G", "E", "D"];
 
 // Classe de hauteur de la fondamentale de chaque forme ouverte (C=0 … B=11).
-const FORM_ROOT_PC: Record<CagedForm, number> = { C: 0, A: 9, G: 7, E: 4, D: 2 };
+export const FORM_ROOT_PC: Record<CagedForm, number> = { C: 0, A: 9, G: 7, E: 4, D: 2 };
 
 const NOTE_PC: Record<string, number> = {
   C: 0,

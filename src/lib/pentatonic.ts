@@ -6,6 +6,7 @@
 // seule la tonique change.
 
 import type { NoteName } from "./chord-data";
+import { CAGED_FORMS, FORM_ROOT_PC, type CagedForm } from "./caged";
 
 const PC: Record<string, number> = {
   C: 0,
@@ -69,7 +70,25 @@ export interface PentBoxPosition {
 
 export interface PentBox {
   fretStart: number;
+  // Forme CAGED (C, A, G, E, D) que recouvre cette position : la pentatonique
+  // n'est que les 5 formes d'accords CAGED appliquées aux mêmes 5 notes.
+  cagedForm: CagedForm;
   positions: PentBoxPosition[];
+}
+
+// Forme CAGED dont la forme d'accord ouverte se pose juste sous la case donnée.
+function cagedFormFor(tonicPc: number, fretStart: number): CagedForm {
+  let best: CagedForm = CAGED_FORMS[0];
+  let bestDist = Infinity;
+  for (const form of CAGED_FORMS) {
+    const capo = (((tonicPc - FORM_ROOT_PC[form]) % 12) + 12) % 12;
+    const dist = (((fretStart - capo) % 12) + 12) % 12;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = form;
+    }
+  }
+  return best;
 }
 
 // Les 5 positions du manche : une fenêtre de 5 cases commençant sur chacune des
@@ -92,7 +111,7 @@ export function pentBoxes(tonic: NoteName, intervals: readonly number[]): PentBo
         }
       }
     }
-    return { fretStart, positions };
+    return { fretStart, cagedForm: cagedFormFor(tonicPc, fretStart), positions };
   });
 }
 
