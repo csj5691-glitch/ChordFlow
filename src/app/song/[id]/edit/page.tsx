@@ -9,6 +9,7 @@ import { BarGlyph } from "@/components/BarGlyph";
 import { NavGlyph } from "@/components/NavGlyph";
 import Conductor from "@/components/Conductor";
 import TabStaffView from "@/components/TabStaffView";
+import ArpeggioEditor from "@/components/ArpeggioEditor";
 import { loadAudioStems, loadMidiBlob, saveAudioStem, getAudioStemUrl } from "@/lib/audio-store";
 import {
   analyzeGuitarProFile,
@@ -238,6 +239,7 @@ function EditSongView({ id }: { id: string }) {
   const hydrated = useHydrated();
   const [mode, setMode] = useState<EditMode>("diagrams");
   const [seqView, setSeqView] = useState<"cards" | "tab">("cards");
+  const [arpEdit, setArpEdit] = useState<{ start: number; end: number } | null>(null);
   const [legatoEdit, setLegatoEdit] = useState<number | null>(null);
   const [editableContent, setEditableContent] = useState<string | null>(null);
   const [showBuilder, setShowBuilder] = useState(false);
@@ -2529,17 +2531,19 @@ body: JSON.stringify({ videoId, stem }),
                       Séquences
                     </span>
                     {articulationSequences.map((seq, si) => (
-                      <span
+                      <button
                         key={`${seq.kind}-${seq.start}-${si}`}
-                        title={ARTICULATION_LABEL[seq.kind]}
-                        className={`text-[10px] font-medium border rounded-full px-2 py-0.5 ${ARTICULATION_CHIP[seq.kind]}`}
+                        type="button"
+                        onClick={() => setArpEdit({ start: seq.start, end: seq.end })}
+                        title={`${ARTICULATION_LABEL[seq.kind]} — cliquer pour éditer les notes`}
+                        className={`text-[10px] font-medium border rounded-full px-2 py-0.5 cursor-pointer hover:brightness-125 transition ${ARTICULATION_CHIP[seq.kind]}`}
                       >
                         {ARTICULATION_SHORT[seq.kind]}
                         <span className="text-zinc-500">
                           {" "}
                           · {seq.start + 1}–{seq.end + 1}
                         </span>
-                      </span>
+                      </button>
                     ))}
                   </div>
                 )}
@@ -2954,6 +2958,17 @@ body: JSON.stringify({ videoId, stem }),
             Annuler
           </button>
         </div>
+      )}
+      {arpEdit && (
+        <ArpeggioEditor
+          diagrams={diagrams}
+          start={arpEdit.start}
+          end={arpEdit.end}
+          title={song?.title}
+          bpm={bpm}
+          onClose={() => setArpEdit(null)}
+          onChange={(list) => upsert({ ...song, diagrams: list })}
+        />
       )}
     </div>
   );
