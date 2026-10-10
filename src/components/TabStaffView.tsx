@@ -136,6 +136,7 @@ export default function TabStaffView({
   editable = false,
   maxMeasuresPerLine = 4,
   showMutes = true,
+  highlight,
   onChange,
 }: {
   title?: string;
@@ -144,6 +145,7 @@ export default function TabStaffView({
   editable?: boolean;
   maxMeasuresPerLine?: number;
   showMutes?: boolean;
+  highlight?: Set<string>;
   onChange?: (ascii: string) => void;
 }) {
   const model = useMemo(() => parseAsciiTabModel(tab), [tab]);
@@ -342,6 +344,7 @@ export default function TabStaffView({
                     measure={currentMeasures[m]}
                     editable={editable}
                     showMutes={showMutes}
+                    highlight={highlight}
                     sel={sel && sel.m === m ? sel : null}
                     onSelect={select}
                     onFret={changeFret}
@@ -368,6 +371,7 @@ function MeasureBox({
   measure,
   editable,
   showMutes,
+  highlight,
   sel,
   onSelect,
   onFret,
@@ -378,6 +382,7 @@ function MeasureBox({
   measure: { slots: number; rows: (TabToken | undefined)[][] };
   editable: boolean;
   showMutes: boolean;
+  highlight?: Set<string>;
   sel: Cell | null;
   onSelect: (cell: Cell, dir?: "left" | "right" | "up" | "down") => void;
   onFret: (cell: Cell, delta: 1 | -1) => void;
@@ -513,6 +518,7 @@ function MeasureBox({
           const cell: Cell = { m: index, s, slot: t };
           const k = slotKind(tok);
           const isSel = sel !== null && sel.s === s && sel.slot === t;
+          const isHit = highlight?.has(cellKey(cell)) ?? false;
           const fretted = k === "note";
           const label =
             fretted ? String(tok?.fret ?? 0) : k === "mute" ? (showMutes ? "×" : "") : "";
@@ -522,6 +528,12 @@ function MeasureBox({
               className="absolute group/cell"
               style={{ left: t * COL_W, top: PAD_TOP + s * LINE_H - LINE_H / 2, width: COL_W, height: LINE_H }}
             >
+              {isHit && (
+                <span
+                  className="absolute inset-0 rounded pointer-events-none"
+                  style={{ background: "rgba(34,211,238,0.28)", boxShadow: "0 0 0 1px rgba(103,232,249,0.9), 0 0 8px rgba(34,211,238,0.7)" }}
+                />
+              )}
               <button
                 type="button"
                 tabIndex={-1}
@@ -529,11 +541,13 @@ function MeasureBox({
                 onMouseDown={(e) => e.preventDefault()}
                 className={
                   "absolute inset-0 flex items-center justify-center rounded text-[13px] font-mono font-bold leading-none transition-colors " +
-                  (isSel
-                    ? "bg-amber-400/20 ring-1 ring-amber-300"
-                    : "hover:bg-white/5")
+                  (isHit
+                    ? "relative z-10 text-white drop-shadow "
+                    : isSel
+                      ? "bg-amber-400/20 ring-1 ring-amber-300"
+                      : "hover:bg-white/5")
                 }
-                style={fretted ? { color: STRING_COLORS[s] } : undefined}
+                style={fretted ? { color: isHit ? "#ffffff" : STRING_COLORS[s] } : undefined}
               >
                 {label}
               </button>

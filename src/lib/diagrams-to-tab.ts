@@ -7,7 +7,7 @@
 // renvoi, section) ne consomment pas de temps ; un silence en consomme.
 
 import type { SavedChordShape } from "./types";
-import { notesToTab, type TabNoteEvent } from "./notes-to-tab";
+import { notesToTab, type TabNoteEvent, type TabPosition } from "./notes-to-tab";
 
 // index 0 = corde grave (mi grave 40) → index 5 = mi aigu 64.
 const OPEN_NOTES_LOW_FIRST = [40, 45, 50, 55, 59, 64];
@@ -72,20 +72,40 @@ export function diagramsToTab(
   diagrams: SavedChordShape[],
   options: { title?: string; bpm?: number } = {}
 ): string {
+  return diagramsToTabWithPositions(diagrams, options).tab;
+}
+
+// Comme `diagramsToTab`, mais renvoie aussi, pour CHAQUE diagramme, la liste des
+// cases (mesure/corde/colonne) où ses notes sont rendues dans la portée. Sert à
+// surligner la note en cours de lecture. `cells[i]` est vide si le diagramme ne
+// produit aucune note (marqueur, silence, percussion).
+export function diagramsToTabWithPositions(
+  diagrams: SavedChordShape[],
+  options: { title?: string; bpm?: number } = {}
+): { tab: string; cells: TabPosition[][] } {
   const events: TabNoteEvent[] = [];
+  const columnOfDiagram: number[] = [];
   let beats = 0;
+  let produced = 0;
 
   for (const shape of diagrams) {
     // Marqueurs structurels : aucun temps, aucune note.
-    if (shape.bar || shape.navKind || shape.sectionLabel !== undefined) continue;
+    if (shape.bar || shape.navKind || shape.sectionLabel !== undefined) {
+      columnOfDiagram.push(-1);
+      continue;
+    }
 
     const durationBeats = beatsOf(shape);
     const startTick = Math.round(beats * TICKS_PER_BEAT);
     const durationTicks = Math.max(1, Math.round(durationBeats * TICKS_PER_BEAT));
     beats += durationBeats;
 
-    if (shape.silence || shape.drumHits) continue;
+    if (shape.silence || shape.drumHits) {
+      columnOfDiagram.push(-1);
+      continue;
+    }
 
+    const before = events.length;
     const strings = pitchedStrings(shape);
     if (strings.size === 0 && shape.pitchFrequencies) {
       for (const freq of shape.pitchFrequencies) {
@@ -93,18 +113,24 @@ export function diagramsToTab(
           events.push({ pitch: frequencyToPitch(freq), startTick, durationTicks });
         }
       }
-      continue;
+    } else {
+      for (const [string, fret] of strings) {
+        if (string < 0 || string >= OPEN_NOTES_LOW_FIRST.length) continue;
+        events.push({
+          pitch: OPEN_NOTES_LOW_FIRST[string] + fret,
+          startTick,
+          durationTicks,
+        });
+      }
     }
-    for (const [string, fret] of strings) {
-      if (string < 0 || string >= OPEN_NOTES_LOW_FIRST.length) continue;
-      events.push({
-        pitch: OPEN_NOTES_LOW_FIRST[string] + fret,
-        startTick,
-        durationTicks,
-      });
-    }
+    // Chaque diagramme qui produit des notes devient UNE colonne (startTick
+    // distinct) ; l'ordre des colonnes suit l'ordre des diagrammes.
+    columnOfDiagram.push(events.length > before ? produced++ : -1);
   }
 
-  if (events.length === 0) return "";
-  return notesToTab(events, { title: options.title, bpm: options.bpm }).tab;
+  if (events.length === 0) return { tab: "", cells: diagrams.map(() => []) };
+
+  const result = notesToTab(events, { title: options.title, bpm: options.bpm });
+  const cells = columnOfDiagram.map((c) => (c >= 0 ? result.positions[c] ?? [] : []));
+  return { tab: result.tab, cells };
 }

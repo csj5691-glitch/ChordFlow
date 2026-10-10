@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ChordShapeView from "@/components/ChordShapeView";
 import TabStaffView from "@/components/TabStaffView";
-import { diagramsToTab } from "@/lib/diagrams-to-tab";
+import { diagramsToTabWithPositions } from "@/lib/diagrams-to-tab";
 import { soundingNotes } from "@/lib/articulation";
 import { playSoftSequence, type SoftPlayer } from "@/lib/soft-player";
 import type { SavedChordShape } from "@/lib/types";
@@ -80,6 +80,9 @@ interface ArpeggioEditorProps {
   // Affichage en ligne (dans la vue Riff) plutôt qu'en modale plein écran.
   embedded?: boolean;
   heading?: string;
+  // Index (absolu dans `diagrams`) du diagramme en cours de lecture lors d'une
+  // lecture globale (« Écouter tout »), pour surligner la note sur la portée.
+  playingIndex?: number | null;
 }
 
 export default function ArpeggioEditor({
@@ -92,10 +95,12 @@ export default function ArpeggioEditor({
   onChange,
   embedded = false,
   heading = "Éditeur d'arpège",
+  playingIndex = null,
 }: ArpeggioEditorProps) {
   const [endIdx, setEndIdx] = useState(end);
   const [playing, setPlaying] = useState(false);
   const [showNotes, setShowNotes] = useState(!embedded);
+  const [localIndex, setLocalIndex] = useState<number | null>(null);
   const playerRef = useRef<SoftPlayer | null>(null);
 
   const steps = useMemo(
@@ -103,10 +108,23 @@ export default function ArpeggioEditor({
     [diagrams, start, endIdx]
   );
 
-  const tab = useMemo(
-    () => diagramsToTab(steps, { title, bpm }),
+  const { tab, cells } = useMemo(
+    () => diagramsToTabWithPositions(steps, { title, bpm }),
     [steps, title, bpm]
   );
+
+  // Note en cours de lecture : soit fournie par une lecture globale
+  // (`playingIndex`, index absolu → relatif à ce riff), soit par la lecture
+  // locale déclenchée par le bouton « Écouter ».
+  const activeLocal = playingIndex != null ? playingIndex - start : localIndex;
+  const highlight = useMemo(() => {
+    if (activeLocal == null) return undefined;
+    const list = cells[activeLocal];
+    if (!list || list.length === 0) return undefined;
+    const set = new Set<string>();
+    for (const c of list) set.add(`${c.m}|${c.s}|${c.slot}`);
+    return set;
+  }, [activeLocal, cells]);
 
   useEffect(() => {
     if (embedded || !onClose) return;
@@ -123,13 +141,23 @@ export default function ArpeggioEditor({
     playerRef.current?.stop();
     playerRef.current = null;
     setPlaying(false);
+    setLocalIndex(null);
   }, []);
 
   // Joue les `steps` affichés avec le lecteur d'aperçu doux (lecture
-  // progressive). `onEnded` remet le bouton à l'état arrêté.
+  // progressive). `onEnded` remet le bouton à l'état arrêté et `onIndex`
+  // surligne la note courante sur la portée.
   const playRiff = useCallback(() => {
     stopAudio();
-    const player = playSoftSequence(steps, bpm, () => setPlaying(false));
+    const player = playSoftSequence(
+      steps,
+      bpm,
+      () => {
+        setPlaying(false);
+        setLocalIndex(null);
+      },
+      (i) => setLocalIndex(i)
+    );
     if (!player) return;
     playerRef.current = player;
     setPlaying(true);
@@ -256,7 +284,7 @@ export default function ArpeggioEditor({
       <div className="p-4 flex flex-col gap-5">
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
               {tab ? (
-                <TabStaffView title={title} bpm={bpm} tab={tab} showMutes={false} />
+                <TabStaffView title={title} bpm={bpm} tab={tab} showMutes={false} highlight={highlight} />
               ) : (
                 <p className="text-[11px] text-zinc-600">
                   Aucune note à afficher en tablature.

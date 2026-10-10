@@ -50,11 +50,14 @@ function playSoftNote(
 
 // Joue une séquence de diagrammes. Renvoie un handle `stop()`, ou null si la
 // séquence est vide ou que Web Audio n'est pas disponible. `onEnded` est appelé
-// à la fin naturelle de la lecture (pas lors d'un `stop()` manuel).
+// à la fin naturelle de la lecture (pas lors d'un `stop()` manuel). `onIndex`
+// est appelé, aligné sur le temps réel, avec l'index du diagramme qui commence à
+// sonner (utile pour surligner la note courante).
 export function playSoftSequence(
   diagrams: SavedChordShape[],
   bpm: number,
-  onEnded?: () => void
+  onEnded?: () => void,
+  onIndex?: (index: number | null) => void
 ): SoftPlayer | null {
   const events = renderSequence(diagrams, bpm);
   if (events.length === 0) return null;
@@ -63,9 +66,15 @@ export function playSoftSequence(
     (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!Ctor) return null;
 
+  const indexByShape = new Map<SavedChordShape, number>();
+  diagrams.forEach((d, i) => {
+    if (!indexByShape.has(d)) indexByShape.set(d, i);
+  });
+
   const ctx = new Ctor();
   void ctx.resume().catch(() => {});
   let stopped = false;
+  const cueTimers = new Set<number>();
 
   // Bus doux : gain bas + passe-haut (coupe les graves) + passe-bas (adoucit).
   const master = ctx.createGain();
@@ -92,6 +101,8 @@ export function playSoftSequence(
     stopped = true;
     if (timer !== null) window.clearTimeout(timer);
     if (interval !== null) window.clearInterval(interval);
+    for (const id of cueTimers) window.clearTimeout(id);
+    cueTimers.clear();
     void ctx.close().catch(() => {});
   };
 
@@ -105,6 +116,16 @@ export function playSoftSequence(
       const dur = Math.max(0.2, ev.duration);
       for (const f of diagramFrequencies(ev.shape)) {
         if (f > 0) playSoftNote(ctx, master, f, at, dur);
+      }
+      if (onIndex) {
+        const idx = indexByShape.get(ev.shape);
+        if (idx !== undefined) {
+          const id = window.setTimeout(() => {
+            cueTimers.delete(id);
+            if (!stopped) onIndex(idx);
+          }, Math.max(0, (at - ctx.currentTime) * 1000));
+          cueTimers.add(id);
+        }
       }
     }
     if (ptr >= events.length) {

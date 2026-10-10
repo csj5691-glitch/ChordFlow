@@ -243,6 +243,7 @@ function EditSongView({ id }: { id: string }) {
   const [seqView, setSeqView] = useState<"cards" | "tab">("cards");
   const [arpEdit, setArpEdit] = useState<{ start: number; end: number } | null>(null);
   const [playingAll, setPlayingAll] = useState(false);
+  const [playingIndex, setPlayingIndex] = useState<number | null>(null);
   const allPlayerRef = useRef<SoftPlayer | null>(null);
   const [legatoEdit, setLegatoEdit] = useState<number | null>(null);
   const [editableContent, setEditableContent] = useState<string | null>(null);
@@ -349,13 +350,20 @@ function EditSongView({ id }: { id: string }) {
     allPlayerRef.current?.stop();
     allPlayerRef.current = null;
     setPlayingAll(false);
+    setPlayingIndex(null);
   }, []);
 
   const playAll = useCallback(() => {
     allPlayerRef.current?.stop();
     allPlayerRef.current = null;
-    const player = playSoftSequence(diagrams, song?.bpm ?? 90, () =>
-      setPlayingAll(false)
+    const player = playSoftSequence(
+      diagrams,
+      song?.bpm ?? 90,
+      () => {
+        setPlayingAll(false);
+        setPlayingIndex(null);
+      },
+      (i) => setPlayingIndex(i)
     );
     if (!player) return;
     allPlayerRef.current = player;
@@ -1665,6 +1673,7 @@ body: JSON.stringify({ videoId, stem }),
                   end={diagrams.length - 1}
                   title={song?.title}
                   bpm={bpm}
+                  playingIndex={playingAll ? playingIndex : null}
                   onChange={(list) => upsert({ ...song, diagrams: list })}
                 />
               </div>
@@ -1680,6 +1689,7 @@ body: JSON.stringify({ videoId, stem }),
                     end={riff.end}
                     title={song?.title}
                     bpm={bpm}
+                    playingIndex={playingAll ? playingIndex : null}
                     onChange={(list) => upsert({ ...song, diagrams: list })}
                   />
                 ))}

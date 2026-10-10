@@ -18,6 +18,14 @@ export interface NotesToTabOptions {
   bpm?: number;
 }
 
+// Position d'une note dans la portée rendue (mesure, corde 0 = aiguë, colonne).
+// Aligné sur ce que `TabStaffView` affiche, pour pouvoir surligner la note jouée.
+export interface TabPosition {
+  m: number;
+  s: number;
+  slot: number;
+}
+
 export interface NotesToTabResult {
   tab: string;
   measures: number;
@@ -25,6 +33,7 @@ export interface NotesToTabResult {
   chordCount: number;
   dropped: number;
   outOfRange: number[];
+  positions: TabPosition[][];
 }
 
 // Corde 0 (rangée du haut) = mi aigu (64). Voir ascii-tab-midi (OPEN_NOTES).
@@ -332,7 +341,7 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
   }
 
   if (columns.length === 0) {
-    return { tab: "", measures: 0, noteCount, chordCount, dropped, outOfRange };
+    return { tab: "", measures: 0, noteCount, chordCount, dropped, outOfRange, positions: [] };
   }
 
   const bpm = Math.min(400, Math.max(20, options.bpm ?? 120));
@@ -352,6 +361,7 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
   }
 
   const rendered: string[][] = [];
+  const positions: TabPosition[][] = [];
   let gi = 0;
   const maxMb = Math.floor(Math.max(...columns.map((c) => c.startTick)) / BAR_TICKS);
   for (let mb = 0; mb <= maxMb; mb++) {
@@ -362,11 +372,17 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
     }
     const rels = cols.map((c) => c.startTick - mb * BAR_TICKS);
     const { unit, slots } = tuneGrid(rels);
-    const entries = cols.map((col) => ({
-      slot: Math.round((col.startTick - mb * BAR_TICKS) / unit),
-      assign: assignments[gi++] ?? { strings: [], frets: [], pitches: [] },
-      durations: durByStart.get(col.startTick) ?? [],
-    }));
+    const entries = cols.map((col) => {
+      const slot = Math.round((col.startTick - mb * BAR_TICKS) / unit);
+      const assign = assignments[gi] ?? { strings: [], frets: [], pitches: [] };
+      positions[gi] = assign.strings.map((s) => ({ m: mb, s, slot }));
+      gi++;
+      return {
+        slot,
+        assign,
+        durations: durByStart.get(col.startTick) ?? [],
+      };
+    });
     rendered.push(renderMeasure(entries, unit, slots));
   }
 
@@ -393,5 +409,6 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
     chordCount,
     dropped,
     outOfRange,
+    positions,
   };
 }
