@@ -10,8 +10,18 @@ import {
   type ChordQuality,
 } from "@/lib/chord-data";
 import ChordDiagram from "@/components/ChordDiagram";
+import ScaleBoxChart from "@/components/ScaleBoxChart";
 import { cagedVoicings } from "@/lib/caged";
 import { MODES, modeRoots, modeTonicChord } from "@/lib/modes";
+import {
+  PENT_MAJOR,
+  PENT_MINOR,
+  MAJOR_DEGREES,
+  MINOR_DEGREES,
+  pentBoxes,
+  pentNotes,
+  relativeMinorOf,
+} from "@/lib/pentatonic";
 import { BookOpen } from "lucide-react";
 
 export default function ChordDictionaryPage() {
@@ -24,6 +34,11 @@ export default function ChordDictionaryPage() {
   const caged = cagedVoicings(selectedNote, selectedQuality);
   const roots = modeRoots(selectedNote);
   const parentName = selectedNote.split("/")[0];
+  const relMinor = relativeMinorOf(selectedNote) as NoteName;
+  const pentMajor = pentBoxes(selectedNote, PENT_MAJOR);
+  const pentMinor = pentBoxes(relMinor, PENT_MINOR);
+  const majorPentNotes = pentNotes(selectedNote, PENT_MAJOR);
+  const minorPentNotes = pentNotes(relMinor, PENT_MINOR);
 
   return (
     <div className="flex flex-col items-center min-h-screen">
@@ -196,6 +211,102 @@ export default function ChordDictionaryPage() {
             comprendre ce qui donne à chaque mode sa couleur — c&apos;est elle
             qu&apos;on vise en solo.
           </p>
+        </div>
+
+        <div className="w-full max-w-5xl mt-6 bg-zinc-900 border border-zinc-700 rounded-xl p-4">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <h2 className="text-lg font-bold text-white">Pentatonique</h2>
+            <span className="text-[10px] uppercase tracking-wide text-zinc-500">
+              2 gammes · 5 positions
+            </span>
+          </div>
+          <p className="text-zinc-500 text-xs mb-4">
+            La pentatonique = 5 notes par octave, sans demi-tons : rien de
+            dissonant, idéal pour le solo. Majeure (1 2 3 5 6, son clair) et
+            mineure (1 ♭3 4 5 ♭7, son blues) sont <strong className="text-zinc-300">
+            relatives</strong> : la mineure relative d&apos;une majeure est 3
+            cases plus bas, les 5 positions du manche sont les mêmes — seule la
+            tonique change. Le rond <span className="text-amber-400 font-semibold">ambre</span> marque la
+            tonique.
+          </p>
+
+          <div className="mb-6">
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              <h3 className="text-sm font-bold text-amber-300">
+                {selectedNote.split("/")[0]} majeur
+              </h3>
+              <span className="font-mono text-[11px] text-zinc-500">
+                {MAJOR_DEGREES.join(" ")}
+              </span>
+              <span className="flex flex-wrap gap-1">
+                {majorPentNotes.map((n, i) => (
+                  <span
+                    key={n}
+                    className="text-[10px] font-mono bg-zinc-800 border border-zinc-700 text-zinc-300 rounded-full px-2 py-0.5"
+                  >
+                    {i + 1}·{n}
+                  </span>
+                ))}
+              </span>
+              <span className="text-[10px] text-zinc-500 w-full sm:w-auto">
+                relative mineure :{" "}
+                <span className="text-zinc-300 font-semibold">{relMinor.split("/")[0]}</span>
+              </span>
+            </div>
+            <div className="flex gap-3 overflow-x-auto pb-2">
+              {pentMajor.map((box, i) => (
+                <div
+                  key={i}
+                  className="flex flex-col items-center gap-1 rounded-lg bg-zinc-800/40 border border-zinc-800 p-1.5 flex-shrink-0"
+                >
+                  <ScaleBoxChart box={box} />
+                  <span className="text-[10px] text-zinc-500">
+                    Pos {i + 1} · case {box.fretStart}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              <h3 className="text-sm font-bold text-amber-300">
+                {relMinor.split("/")[0]} mineur
+              </h3>
+              <span className="font-mono text-[11px] text-zinc-500">
+                {MINOR_DEGREES.join(" ")}
+              </span>
+              <span className="flex flex-wrap gap-1">
+                {minorPentNotes.map((n, i) => (
+                  <span
+                    key={n}
+                    className="text-[10px] font-mono bg-zinc-800 border border-zinc-700 text-zinc-300 rounded-full px-2 py-0.5"
+                  >
+                    {i + 1}·{n}
+                  </span>
+                ))}
+              </span>
+              <span className="text-[10px] text-zinc-500 w-full sm:w-auto">
+                relative majeure :{" "}
+                <span className="text-zinc-300 font-semibold">
+                  {selectedNote.split("/")[0]}
+                </span>
+              </span>
+            </div>
+            <div className="flex gap-3 overflow-x-auto pb-2">
+              {pentMinor.map((box, i) => (
+                <div
+                  key={i}
+                  className="flex flex-col items-center gap-1 rounded-lg bg-zinc-800/40 border border-zinc-800 p-1.5 flex-shrink-0"
+                >
+                  <ScaleBoxChart box={box} />
+                  <span className="text-[10px] text-zinc-500">
+                    Pos {i + 1} · case {box.fretStart}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </main>
     </div>
