@@ -43,7 +43,7 @@ import {
   articulationByIndex,
   detectArticulationSequences,
 } from "@/lib/articulation";
-import { diagramsToTab } from "@/lib/diagrams-to-tab";
+import { diagramsToTabWithPositions } from "@/lib/diagrams-to-tab";
 import { playSoftSequence, type SoftPlayer } from "@/lib/soft-player";
 import {
   ArrowLeft,
@@ -334,7 +334,10 @@ function EditSongView({ id }: { id: string }) {
   );
   const sequenceTab = useMemo(
     () =>
-      diagramsToTab(diagrams, { title: song?.title, bpm: song?.bpm ?? 90 }),
+      diagramsToTabWithPositions(diagrams, {
+        title: song?.title,
+        bpm: song?.bpm ?? 90,
+      }),
     [diagrams, song?.title, song?.bpm]
   );
 
@@ -2646,8 +2649,13 @@ body: JSON.stringify({ videoId, stem }),
                 </div>
                 {seqView === "tab" ? (
                   <div className="rounded-xl border border-zinc-700/50 bg-zinc-900/40 p-3">
-                    {sequenceTab ? (
-                      <TabStaffView title={song?.title} bpm={bpm} tab={sequenceTab} />
+                    {sequenceTab.tab ? (
+                      <TabStaffView
+                        title={song?.title}
+                        bpm={bpm}
+                        tab={sequenceTab.tab}
+                        rests={sequenceTab.rests}
+                      />
                     ) : (
                       <p className="text-[11px] text-zinc-600">
                         Aucune note à afficher en tablature.
