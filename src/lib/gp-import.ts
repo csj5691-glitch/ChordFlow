@@ -454,7 +454,6 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
               mutedOn[s] = true;
               continue;
             }
-            if (note.isGhost) continue;
             if (note.fret < 0) continue;
             fingers.push({ string: s, fret: note.fret, finger: 0 });
             if (note.isHammerPullOrigin) legatoTo.push(s);
