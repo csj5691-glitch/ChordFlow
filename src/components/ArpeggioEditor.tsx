@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ChordShapeView from "@/components/ChordShapeView";
 import TabStaffView from "@/components/TabStaffView";
-import { diagramsToTab } from "@/lib/diagrams-to-tab";
+import { diagramsToTab, diagramFrequencies } from "@/lib/diagrams-to-tab";
 import { soundingNotes } from "@/lib/articulation";
 import { renderSequence } from "@/lib/chord-synth";
 import type { SavedChordShape } from "@/lib/types";
@@ -201,7 +201,7 @@ export default function ArpeggioEditor({
     master.gain.value = 0.22;
     const hp = ctx.createBiquadFilter();
     hp.type = "highpass";
-    hp.frequency.value = 420;
+    hp.frequency.value = 180;
     hp.Q.value = 0.5;
     const lp = ctx.createBiquadFilter();
     lp.type = "lowpass";
@@ -222,7 +222,7 @@ export default function ArpeggioEditor({
         if (ev.silence) continue;
         const at = Math.max(ctx.currentTime, t0 + ev.start);
         const dur = Math.max(0.2, ev.duration);
-        for (const f of ev.notes) {
+        for (const f of diagramFrequencies(ev.shape)) {
           if (f > 0) playSoftNote(ctx, master, f, at, dur);
         }
       }

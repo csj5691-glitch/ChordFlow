@@ -45,6 +45,29 @@ function pitchedStrings(shape: SavedChordShape): Map<number, number> {
   return out;
 }
 
+// Fréquences (Hz) des notes réellement jouées par un diagramme, exactement
+// comme la tablature : doigtés + cordes à vide seulement si `sounding` en
+// demande (un import GP marque `sounding = fingers.length`). Sert à l'aperçu
+// sonore pour qu'il joue les MÊMES notes que la portée — et non des cordes à
+// vide fantômes pour chaque corde absente du diagramme.
+function midiToFreq(m: number): number {
+  return 440 * Math.pow(2, (m - 69) / 12);
+}
+
+export function diagramFrequencies(shape: SavedChordShape): number[] {
+  const out: number[] = [];
+  for (const [string, fret] of pitchedStrings(shape)) {
+    if (string < 0 || string >= OPEN_NOTES_LOW_FIRST.length) continue;
+    out.push(midiToFreq(OPEN_NOTES_LOW_FIRST[string] + fret));
+  }
+  if (out.length === 0 && shape.pitchFrequencies) {
+    for (const freq of shape.pitchFrequencies) {
+      if (Number.isFinite(freq) && freq > 0) out.push(freq);
+    }
+  }
+  return out;
+}
+
 export function diagramsToTab(
   diagrams: SavedChordShape[],
   options: { title?: string; bpm?: number } = {}
