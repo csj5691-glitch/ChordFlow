@@ -95,6 +95,7 @@ export default function ArpeggioEditor({
 }: ArpeggioEditorProps) {
   const [endIdx, setEndIdx] = useState(end);
   const [playing, setPlaying] = useState(false);
+  const [showNotes, setShowNotes] = useState(!embedded);
   const playerRef = useRef<SoftPlayer | null>(null);
 
   const steps = useMemo(
@@ -264,20 +265,31 @@ export default function ArpeggioEditor({
             </div>
 
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                Notes de l&apos;arpège
-              </span>
               <button
                 type="button"
-                onClick={addStep}
-                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-colors"
+                onClick={() => setShowNotes((v) => !v)}
+                className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 hover:text-zinc-300 transition-colors"
+                title={showNotes ? "Masquer les notes" : "Afficher les notes"}
               >
-                <Plus className="w-3.5 h-3.5" />
-                Ajouter une note
+                <ChevronRight
+                  className={`w-3.5 h-3.5 transition-transform ${showNotes ? "rotate-90" : ""}`}
+                />
+                Notes de l&apos;arpège
               </button>
+              {showNotes && (
+                <button
+                  type="button"
+                  onClick={addStep}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Ajouter une note
+                </button>
+              )}
             </div>
 
-            <div className="flex gap-3 overflow-x-auto pb-2">
+            {showNotes && (
+              <div className="flex gap-3 overflow-x-auto pb-2">
               {steps.map((step, k) => {
                 const isSingle = soundingNotes(step) <= 1;
                 const p = primaryNote(step);
@@ -395,11 +407,14 @@ export default function ArpeggioEditor({
                 );
               })}
             </div>
+            )}
 
-            <p className="text-[11px] text-zinc-600">
-              Chaque note = un diagramme à corde unique. Les modifications sont
-              enregistrées immédiatement dans la séquence.
-            </p>
+            {showNotes && (
+              <p className="text-[11px] text-zinc-600">
+                Chaque note = un diagramme à corde unique. Les modifications sont
+                enregistrées immédiatement dans la séquence.
+              </p>
+            )}
           </div>
         </div>
   );
