@@ -103,14 +103,23 @@ export default function ArpeggioEditor({
   const [localIndex, setLocalIndex] = useState<number | null>(null);
   const playerRef = useRef<SoftPlayer | null>(null);
 
-  const steps = useMemo(
+  // Notes éditables du riff (une carte par note).
+  const noteSteps = useMemo(
     () => diagrams.slice(start, endIdx + 1),
     [diagrams, start, endIdx]
   );
 
+  // Portée du riff : les notes, PLUS les silences qui les suivent (pause,
+  // demi-pause, soupir...) pour que le rythme soit lisible dans la tablature.
+  const tabSteps = useMemo(() => {
+    let t = endIdx + 1;
+    while (t < diagrams.length && diagrams[t].silence) t++;
+    return diagrams.slice(start, t);
+  }, [diagrams, start, endIdx]);
+
   const { tab, cells, rests } = useMemo(
-    () => diagramsToTabWithPositions(steps, { title, bpm }),
-    [steps, title, bpm]
+    () => diagramsToTabWithPositions(tabSteps, { title, bpm }),
+    [tabSteps, title, bpm]
   );
 
   // Note en cours de lecture : soit fournie par une lecture globale
@@ -144,13 +153,13 @@ export default function ArpeggioEditor({
     setLocalIndex(null);
   }, []);
 
-  // Joue les `steps` affichés avec le lecteur d'aperçu doux (lecture
+  // Joue les notes affichées avec le lecteur d'aperçu doux (lecture
   // progressive). `onEnded` remet le bouton à l'état arrêté et `onIndex`
   // surligne la note courante sur la portée.
   const playRiff = useCallback(() => {
     stopAudio();
     const player = playSoftSequence(
-      steps,
+      noteSteps,
       bpm,
       () => {
         setPlaying(false);
@@ -161,7 +170,7 @@ export default function ArpeggioEditor({
     if (!player) return;
     playerRef.current = player;
     setPlaying(true);
-  }, [steps, bpm, stopAudio]);
+  }, [noteSteps, bpm, stopAudio]);
 
   // Libère le contexte audio si l'éditeur est démonté en pleine lecture.
   useEffect(() => {
@@ -202,7 +211,7 @@ export default function ArpeggioEditor({
     const list = diagrams.slice();
     if (!list[idx]) return;
     list.splice(idx, 1);
-    if (steps.length <= 1) {
+    if (noteSteps.length <= 1) {
       onChange(list);
       onClose?.();
       return;
@@ -243,14 +252,14 @@ export default function ArpeggioEditor({
       <div className="flex-1 min-w-0">
         <h2 className="text-white font-bold leading-tight">{heading}</h2>
         <p className="text-[11px] text-zinc-500 truncate">
-          Étapes {start + 1}–{endIdx + 1} · {steps.length} note
-          {steps.length > 1 ? "s" : ""}
+          Étapes {start + 1}–{endIdx + 1} · {noteSteps.length} note
+          {noteSteps.length > 1 ? "s" : ""}
         </p>
       </div>
       <button
         type="button"
         onClick={() => (playing ? stopAudio() : playRiff())}
-        disabled={steps.length === 0}
+        disabled={noteSteps.length === 0}
         className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
           playing
             ? "bg-amber-500 text-black hover:bg-amber-400"
@@ -318,7 +327,7 @@ export default function ArpeggioEditor({
 
             {showNotes && (
               <div className="flex gap-3 overflow-x-auto pb-2">
-              {steps.map((step, k) => {
+              {noteSteps.map((step, k) => {
                 const isSingle = soundingNotes(step) <= 1;
                 const p = primaryNote(step);
                 return (
@@ -408,7 +417,7 @@ export default function ArpeggioEditor({
                       <button
                         type="button"
                         onClick={() => move(k, 1)}
-                        disabled={k === steps.length - 1}
+                        disabled={k === noteSteps.length - 1}
                         className="w-8 h-8 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
                         title="Déplacer après"
                       >
