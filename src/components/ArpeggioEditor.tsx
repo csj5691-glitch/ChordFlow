@@ -109,13 +109,23 @@ export default function ArpeggioEditor({
     [diagrams, start, endIdx]
   );
 
-  // Portée du riff : les notes, PLUS les silences qui les suivent (pause,
-  // demi-pause, soupir...) pour que le rythme soit lisible dans la tablature.
-  const tabSteps = useMemo(() => {
+  // Portée du riff : les notes, PLUS les silences contigus juste avant
+  // (leading) et juste après (trailing), pour que le rythme soit lisible.
+  // `lead` = nombre de silences en tête → décale l'index des notes dans
+  // `tabSteps` (utilisé pour le surlignage de la note jouée).
+  const tabRange = useMemo(() => {
+    let s = start;
+    while (s > 0 && diagrams[s - 1].silence) s--;
     let t = endIdx + 1;
     while (t < diagrams.length && diagrams[t].silence) t++;
-    return diagrams.slice(start, t);
+    return { s, t };
   }, [diagrams, start, endIdx]);
+  const lead = start - tabRange.s;
+
+  const tabSteps = useMemo(
+    () => diagrams.slice(tabRange.s, tabRange.t),
+    [diagrams, tabRange]
+  );
 
   const { tab, cells, rests } = useMemo(
     () => diagramsToTabWithPositions(tabSteps, { title, bpm }),
@@ -128,12 +138,12 @@ export default function ArpeggioEditor({
   const activeLocal = playingIndex != null ? playingIndex - start : localIndex;
   const highlight = useMemo(() => {
     if (activeLocal == null) return undefined;
-    const list = cells[activeLocal];
+    const list = cells[lead + activeLocal];
     if (!list || list.length === 0) return undefined;
     const set = new Set<string>();
     for (const c of list) set.add(`${c.m}|${c.s}|${c.slot}`);
     return set;
-  }, [activeLocal, cells]);
+  }, [activeLocal, cells, lead]);
 
   useEffect(() => {
     if (embedded || !onClose) return;
