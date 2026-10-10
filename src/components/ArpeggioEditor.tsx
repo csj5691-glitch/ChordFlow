@@ -209,7 +209,7 @@ export default function ArpeggioEditor({
       <div className="p-4 flex flex-col gap-5">
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
               {tab ? (
-                <TabStaffView title={title} bpm={bpm} tab={tab} />
+                <TabStaffView title={title} bpm={bpm} tab={tab} showMutes={false} />
               ) : (
                 <p className="text-[11px] text-zinc-600">
                   Aucune note à afficher en tablature.
@@ -248,7 +248,7 @@ export default function ArpeggioEditor({
                     </div>
 
                     <div className="w-40">
-                      <ChordShapeView shape={step} />
+                      <ChordShapeView shape={step} showMutes={false} />
                     </div>
 
                     {isSingle ? (

@@ -135,6 +135,7 @@ export default function TabStaffView({
   tab,
   editable = false,
   maxMeasuresPerLine = 4,
+  showMutes = true,
   onChange,
 }: {
   title?: string;
@@ -142,6 +143,7 @@ export default function TabStaffView({
   tab: string;
   editable?: boolean;
   maxMeasuresPerLine?: number;
+  showMutes?: boolean;
   onChange?: (ascii: string) => void;
 }) {
   const model = useMemo(() => parseAsciiTabModel(tab), [tab]);
@@ -339,6 +341,7 @@ export default function TabStaffView({
                     firstInStaff={i === 0}
                     measure={currentMeasures[m]}
                     editable={editable}
+                    showMutes={showMutes}
                     sel={sel && sel.m === m ? sel : null}
                     onSelect={select}
                     onFret={changeFret}
@@ -364,6 +367,7 @@ function MeasureBox({
   firstInStaff,
   measure,
   editable,
+  showMutes,
   sel,
   onSelect,
   onFret,
@@ -373,6 +377,7 @@ function MeasureBox({
   firstInStaff: boolean;
   measure: { slots: number; rows: (TabToken | undefined)[][] };
   editable: boolean;
+  showMutes: boolean;
   sel: Cell | null;
   onSelect: (cell: Cell, dir?: "left" | "right" | "up" | "down") => void;
   onFret: (cell: Cell, delta: 1 | -1) => void;
@@ -510,7 +515,7 @@ function MeasureBox({
           const isSel = sel !== null && sel.s === s && sel.slot === t;
           const fretted = k === "note";
           const label =
-            fretted ? String(tok?.fret ?? 0) : k === "mute" ? "×" : "";
+            fretted ? String(tok?.fret ?? 0) : k === "mute" ? (showMutes ? "×" : "") : "";
           return (
             <div
               key={`${s}-${t}`}

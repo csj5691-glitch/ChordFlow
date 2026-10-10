@@ -21,13 +21,14 @@ interface ChordShapeViewProps {
   shape: SavedChordShape;
   onNoteClick?: (stringIndex: number) => void;
   legatoStrings?: number[];
+  showMutes?: boolean;
 }
 
 function strIsMuted(shape: SavedChordShape, s: number): boolean {
   return shape.muted[s] === true;
 }
 
-export default function ChordShapeView({ shape, onNoteClick, legatoStrings }: ChordShapeViewProps) {
+export default function ChordShapeView({ shape, onNoteClick, legatoStrings, showMutes = true }: ChordShapeViewProps) {
   const baseFret = shape.baseFret || 1;
 
   if (shape.silence) {
@@ -151,11 +152,11 @@ export default function ChordShapeView({ shape, onNoteClick, legatoStrings }: Ch
               x={x}
               y={24}
               textAnchor="middle"
-              className={isMutedStr ? "fill-red-400 font-bold" : "fill-zinc-400"}
+              className={isMutedStr && showMutes ? "fill-red-400 font-bold" : "fill-zinc-400"}
               fontSize="12"
               fontFamily="monospace"
             >
-              {isMutedStr ? "X" : name}
+              {isMutedStr && showMutes ? "X" : name}
             </text>
             {isOpen && (
               <circle
