@@ -1,13 +1,18 @@
 "use client";
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ChordShapeView from "@/components/ChordShapeView";
 import TabStaffView from "@/components/TabStaffView";
 import { diagramsToTab } from "@/lib/diagrams-to-tab";
 import { soundingNotes } from "@/lib/articulation";
+import { renderSequence } from "@/lib/chord-synth";
+import { playGmEvent } from "@/lib/gm-voice";
 import type { SavedChordShape } from "@/lib/types";
-import { X, ChevronLeft, ChevronRight, Plus, Trash2, Copy, Music } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Plus, Trash2, Copy, Music, Play, Square } from "lucide-react";
+
+// Timbre de guitare General MIDI : 25 = Steel String Guitar (guitare acoustique).
+const GUITAR_PROGRAM = 25;
 
 // index 0 = corde grave (mi grave). Même convention que ChordShapeView.
 const STRINGS = ["E", "A", "D", "G", "B", "e"];
@@ -93,6 +98,9 @@ export default function ArpeggioEditor({
   heading = "Éditeur d'arpège",
 }: ArpeggioEditorProps) {
   const [endIdx, setEndIdx] = useState(end);
+  const [playing, setPlaying] = useState(false);
+  const ctxRef = useRef<AudioContext | null>(null);
+  const stopTimerRef = useRef<number | null>(null);
 
   const steps = useMemo(
     () => diagrams.slice(start, endIdx + 1),
@@ -112,6 +120,62 @@ export default function ArpeggioEditor({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, embedded]);
+
+  // Stoppe la lecture en fermant son contexte audio (coupe nettes des voix
+  // encore planifiées) et annule le minuteur de fin.
+  const stopAudio = useCallback(() => {
+    if (stopTimerRef.current !== null) {
+      window.clearTimeout(stopTimerRef.current);
+      stopTimerRef.current = null;
+    }
+    const c = ctxRef.current;
+    ctxRef.current = null;
+    if (c) void c.close().catch(() => {});
+    setPlaying(false);
+  }, []);
+
+  // Joue le riff (les `steps` affichés) avec un timbre de guitare MIDI. Le
+  // contexte audio est créé au clic (geste utilisateur) puis recréé à chaque
+  // lecture : `stopAudio` le ferme systématiquement, donc pas d'accumulation.
+  const playRiff = useCallback(async () => {
+    stopAudio();
+    const events = renderSequence(steps, bpm);
+    if (events.length === 0) return;
+    const Ctor =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctor) return;
+    const ctx = new Ctor();
+    ctxRef.current = ctx;
+    try {
+      await ctx.resume();
+    } catch {
+      // L'état réel est relu ci-dessous.
+    }
+    const master = ctx.createGain();
+    master.gain.value = 0.7;
+    master.connect(ctx.destination);
+    const t0 = ctx.currentTime + 0.08;
+    for (const ev of events) {
+      playGmEvent(ctx, ev, master, t0 + ev.start, GUITAR_PROGRAM, {
+        strum: "off",
+        gain: 1,
+      });
+    }
+    const last = events[events.length - 1];
+    const totalMs = (last.start + last.duration + 0.6) * 1000;
+    setPlaying(true);
+    stopTimerRef.current = window.setTimeout(() => stopAudio(), totalMs);
+  }, [steps, bpm, stopAudio]);
+
+  // Libère le contexte audio si l'éditeur est démonté en pleine lecture.
+  useEffect(() => {
+    return () => {
+      if (stopTimerRef.current !== null) window.clearTimeout(stopTimerRef.current);
+      const c = ctxRef.current;
+      if (c) void c.close().catch(() => {});
+    };
+  }, []);
 
   const updateNote = (k: number, note: PrimaryNote) => {
     const idx = start + k;
@@ -190,6 +254,24 @@ export default function ArpeggioEditor({
           {steps.length > 1 ? "s" : ""}
         </p>
       </div>
+      <button
+        type="button"
+        onClick={() => (playing ? stopAudio() : void playRiff())}
+        disabled={steps.length === 0}
+        className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+          playing
+            ? "bg-amber-500 text-black hover:bg-amber-400"
+            : "bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25"
+        }`}
+        title={playing ? "Arrêter la lecture" : "Écouter le riff (guitare MIDI)"}
+      >
+        {playing ? (
+          <Square className="w-3.5 h-3.5" />
+        ) : (
+          <Play className="w-3.5 h-3.5" />
+        )}
+        {playing ? "Stop" : "Écouter"}
+      </button>
       {!embedded && onClose && (
         <button
           type="button"
