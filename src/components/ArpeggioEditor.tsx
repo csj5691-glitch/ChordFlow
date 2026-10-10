@@ -195,14 +195,20 @@ export default function ArpeggioEditor({
       void ctx.close().catch(() => {});
       return;
     }
-    // Bus doux : gain bas + filtre passe-bas pour éviter toute saturation.
+    // Bus doux : gain bas + passe-haut (coupe les basses) + passe-bas (adoucit
+    // les aigus extrêmes) pour un son clair, léger et sans saturation.
     const master = ctx.createGain();
     master.gain.value = 0.22;
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 420;
+    hp.Q.value = 0.5;
     const lp = ctx.createBiquadFilter();
     lp.type = "lowpass";
-    lp.frequency.value = 4500;
+    lp.frequency.value = 5000;
     lp.Q.value = 0.3;
-    master.connect(lp);
+    master.connect(hp);
+    hp.connect(lp);
     lp.connect(ctx.destination);
 
     const t0 = ctx.currentTime + 0.1;
