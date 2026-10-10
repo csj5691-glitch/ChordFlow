@@ -4,47 +4,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ChordShapeView from "@/components/ChordShapeView";
 import TabStaffView from "@/components/TabStaffView";
-import { diagramsToTab, diagramFrequencies } from "@/lib/diagrams-to-tab";
+import { diagramsToTab } from "@/lib/diagrams-to-tab";
 import { soundingNotes } from "@/lib/articulation";
-import { renderSequence } from "@/lib/chord-synth";
+import { playSoftSequence, type SoftPlayer } from "@/lib/soft-player";
 import type { SavedChordShape } from "@/lib/types";
 import { X, ChevronLeft, ChevronRight, Plus, Trash2, Copy, Music, Play, Square } from "lucide-react";
-
-// Aperçu « doux et simple » : une note = un sinus + une légère 2e harmonique,
-// avec une attaque et une extinction douces. Aucun bruit, aucun partiel
-// agressif : le son reste clair et sans saturation, même en accords.
-function playSoftNote(
-  ctx: AudioContext,
-  master: GainNode,
-  freq: number,
-  when: number,
-  dur: number
-) {
-  const end = when + dur + 0.3;
-  const gate = ctx.createGain();
-  gate.gain.setValueAtTime(0, when);
-  gate.gain.linearRampToValueAtTime(0.85, when + 0.02);
-  gate.gain.linearRampToValueAtTime(0.4, when + Math.max(0.02, dur));
-  gate.gain.linearRampToValueAtTime(0, end);
-  gate.connect(master);
-
-  const osc = ctx.createOscillator();
-  osc.type = "sine";
-  osc.frequency.value = freq;
-  osc.connect(gate);
-  osc.start(when);
-  osc.stop(end + 0.02);
-
-  const harm = ctx.createOscillator();
-  harm.type = "sine";
-  harm.frequency.value = freq * 2;
-  const harmGain = ctx.createGain();
-  harmGain.gain.value = 0.1;
-  harm.connect(harmGain);
-  harmGain.connect(gate);
-  harm.start(when);
-  harm.stop(end + 0.02);
-}
 
 // index 0 = corde grave (mi grave). Même convention que ChordShapeView.
 const STRINGS = ["E", "A", "D", "G", "B", "e"];
@@ -131,9 +95,7 @@ export default function ArpeggioEditor({
 }: ArpeggioEditorProps) {
   const [endIdx, setEndIdx] = useState(end);
   const [playing, setPlaying] = useState(false);
-  const ctxRef = useRef<AudioContext | null>(null);
-  const intervalRef = useRef<number | null>(null);
-  const stopTimerRef = useRef<number | null>(null);
+  const playerRef = useRef<SoftPlayer | null>(null);
 
   const steps = useMemo(
     () => diagrams.slice(start, endIdx + 1),
@@ -154,100 +116,28 @@ export default function ArpeggioEditor({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, embedded]);
 
-  // Stoppe la lecture en fermant son contexte audio (coupe nette des voix
-  // encore planifiées) et annule le minuteur/la pompe.
+  // Stoppe la lecture (ferme le contexte audio : coupe nette des voix déjà
+  // planifiées) et met à jour l'état du bouton.
   const stopAudio = useCallback(() => {
-    if (stopTimerRef.current !== null) {
-      window.clearTimeout(stopTimerRef.current);
-      stopTimerRef.current = null;
-    }
-    if (intervalRef.current !== null) {
-      window.clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-    const c = ctxRef.current;
-    ctxRef.current = null;
-    if (c) void c.close().catch(() => {});
+    playerRef.current?.stop();
+    playerRef.current = null;
     setPlaying(false);
   }, []);
 
-  // Joue le riff (les `steps` affichés) avec un son doux et simple. La
-  // planification est PROGRESSIVE (fenêtre glissante, comme le Chef d'orchestre)
-  // : on ne crée les nœuds que juste avant de les jouer. Planifier des milliers
-  // d'événements d'un coup (séquence complète) saturait le graphe audio et
-  // produisait un son dégradé.
-  const playRiff = useCallback(async () => {
+  // Joue les `steps` affichés avec le lecteur d'aperçu doux (lecture
+  // progressive). `onEnded` remet le bouton à l'état arrêté.
+  const playRiff = useCallback(() => {
     stopAudio();
-    const events = renderSequence(steps, bpm);
-    if (events.length === 0) return;
-    const Ctor =
-      window.AudioContext ??
-      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctor) return;
-    const ctx = new Ctor();
-    ctxRef.current = ctx;
-    try {
-      await ctx.resume();
-    } catch {
-      // L'état réel est relu ci-dessous.
-    }
-    if (ctxRef.current !== ctx) {
-      void ctx.close().catch(() => {});
-      return;
-    }
-    // Bus doux : gain bas + passe-haut (coupe les basses) + passe-bas (adoucit
-    // les aigus extrêmes) pour un son clair, léger et sans saturation.
-    const master = ctx.createGain();
-    master.gain.value = 0.22;
-    const hp = ctx.createBiquadFilter();
-    hp.type = "highpass";
-    hp.frequency.value = 180;
-    hp.Q.value = 0.5;
-    const lp = ctx.createBiquadFilter();
-    lp.type = "lowpass";
-    lp.frequency.value = 5000;
-    lp.Q.value = 0.3;
-    master.connect(hp);
-    hp.connect(lp);
-    lp.connect(ctx.destination);
-
-    const t0 = ctx.currentTime + 0.1;
-    let ptr = 0;
+    const player = playSoftSequence(steps, bpm, () => setPlaying(false));
+    if (!player) return;
+    playerRef.current = player;
     setPlaying(true);
-    const pump = () => {
-      if (ctxRef.current !== ctx) return;
-      const horizon = ctx.currentTime - t0 + 0.3;
-      while (ptr < events.length && events[ptr].start <= horizon) {
-        const ev = events[ptr++];
-        if (ev.silence) continue;
-        const at = Math.max(ctx.currentTime, t0 + ev.start);
-        const dur = Math.max(0.2, ev.duration);
-        for (const f of diagramFrequencies(ev.shape)) {
-          if (f > 0) playSoftNote(ctx, master, f, at, dur);
-        }
-      }
-      if (ptr >= events.length) {
-        if (intervalRef.current !== null) {
-          window.clearInterval(intervalRef.current);
-          intervalRef.current = null;
-        }
-        const last = events[events.length - 1];
-        const endAt = t0 + last.start + Math.max(0.2, last.duration) + 0.4;
-        const ms = Math.max(0, (endAt - ctx.currentTime) * 1000);
-        stopTimerRef.current = window.setTimeout(() => stopAudio(), ms);
-      }
-    };
-    intervalRef.current = window.setInterval(pump, 40);
-    pump();
   }, [steps, bpm, stopAudio]);
 
   // Libère le contexte audio si l'éditeur est démonté en pleine lecture.
   useEffect(() => {
     return () => {
-      if (stopTimerRef.current !== null) window.clearTimeout(stopTimerRef.current);
-      if (intervalRef.current !== null) window.clearInterval(intervalRef.current);
-      const c = ctxRef.current;
-      if (c) void c.close().catch(() => {});
+      playerRef.current?.stop();
     };
   }, []);
 
@@ -330,7 +220,7 @@ export default function ArpeggioEditor({
       </div>
       <button
         type="button"
-        onClick={() => (playing ? stopAudio() : void playRiff())}
+        onClick={() => (playing ? stopAudio() : playRiff())}
         disabled={steps.length === 0}
         className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
           playing

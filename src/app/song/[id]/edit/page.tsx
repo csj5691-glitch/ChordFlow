@@ -44,6 +44,7 @@ import {
   detectArticulationSequences,
 } from "@/lib/articulation";
 import { diagramsToTab } from "@/lib/diagrams-to-tab";
+import { playSoftSequence, type SoftPlayer } from "@/lib/soft-player";
 import {
   ArrowLeft,
   FileText,
@@ -69,6 +70,7 @@ import {
   Search,
   Lock,
   Play,
+  Square,
 } from "lucide-react";
 
 function getStaticSong(id: string): SongTab | null {
@@ -240,6 +242,8 @@ function EditSongView({ id }: { id: string }) {
   const [mode, setMode] = useState<EditMode>("diagrams");
   const [seqView, setSeqView] = useState<"cards" | "tab">("cards");
   const [arpEdit, setArpEdit] = useState<{ start: number; end: number } | null>(null);
+  const [playingAll, setPlayingAll] = useState(false);
+  const allPlayerRef = useRef<SoftPlayer | null>(null);
   const [legatoEdit, setLegatoEdit] = useState<number | null>(null);
   const [editableContent, setEditableContent] = useState<string | null>(null);
   const [showBuilder, setShowBuilder] = useState(false);
@@ -339,6 +343,30 @@ function EditSongView({ id }: { id: string }) {
     () => articulationSequences.filter((seq) => seq.kind === "arpeges"),
     [articulationSequences]
   );
+
+  // Lecture continue de TOUTES les étapes (1 → N) de la piste avec le son doux.
+  const stopAll = useCallback(() => {
+    allPlayerRef.current?.stop();
+    allPlayerRef.current = null;
+    setPlayingAll(false);
+  }, []);
+
+  const playAll = useCallback(() => {
+    allPlayerRef.current?.stop();
+    allPlayerRef.current = null;
+    const player = playSoftSequence(diagrams, song?.bpm ?? 90, () =>
+      setPlayingAll(false)
+    );
+    if (!player) return;
+    allPlayerRef.current = player;
+    setPlayingAll(true);
+  }, [diagrams, song?.bpm]);
+
+  useEffect(() => {
+    return () => {
+      allPlayerRef.current?.stop();
+    };
+  }, []);
 
   const activeProgram = useMemo(() => {
     if (!song || activeSlot.kind !== "gp") return null;
@@ -1593,6 +1621,29 @@ body: JSON.stringify({ videoId, stem }),
               <span className="text-[10px] text-zinc-600 bg-zinc-800/60 rounded px-1.5 py-0.5">
                 Passages de notes seules (≥ 2 attaques) — éditez les notes directement
               </span>
+              {diagrams.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => (playingAll ? stopAll() : playAll())}
+                  className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ml-auto ${
+                    playingAll
+                      ? "bg-amber-500 text-black hover:bg-amber-400"
+                      : "bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25"
+                  }`}
+                  title={
+                    playingAll
+                      ? "Arrêter la lecture"
+                      : "Écouter toutes les étapes en continu (son doux)"
+                  }
+                >
+                  {playingAll ? (
+                    <Square className="w-3.5 h-3.5" />
+                  ) : (
+                    <Play className="w-3.5 h-3.5" />
+                  )}
+                  {playingAll ? "Arrêter" : `Écouter tout (1–${diagrams.length})`}
+                </button>
+              )}
             </div>
             {diagrams.length === 0 ? (
               <p className="text-sm text-zinc-600">
