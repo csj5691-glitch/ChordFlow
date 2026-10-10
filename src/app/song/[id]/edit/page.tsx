@@ -1594,11 +1594,29 @@ body: JSON.stringify({ videoId, stem }),
                 Passages de notes seules (≥ 2 attaques) — éditez les notes directement
               </span>
             </div>
-            {riffs.length === 0 ? (
+            {diagrams.length === 0 ? (
               <p className="text-sm text-zinc-600">
-                Aucun riff détecté. Un riff apparaît quand des notes seules
-                (sans accord) s&apos;enchaînent sur au moins 2 attaques.
+                Aucun diagramme dans cette piste. Importez un fichier Guitar
+                Pro/MIDI ou créez des diagrammes d&apos;abord.
               </p>
+            ) : riffs.length === 0 ? (
+              <div className="flex flex-col gap-3">
+                <p className="text-sm text-zinc-600">
+                  Aucun riff distinct détecté — édition de la séquence
+                  complète.
+                </p>
+                <ArpeggioEditor
+                  key="riff-all"
+                  embedded
+                  heading="Séquence complète"
+                  diagrams={diagrams}
+                  start={0}
+                  end={diagrams.length - 1}
+                  title={song?.title}
+                  bpm={bpm}
+                  onChange={(list) => upsert({ ...song, diagrams: list })}
+                />
+              </div>
             ) : (
               <div className="flex flex-col gap-4">
                 {riffs.map((riff, i) => (
