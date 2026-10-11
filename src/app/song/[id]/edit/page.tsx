@@ -280,6 +280,7 @@ function EditSongView({ id }: { id: string }) {
   const [gpPendingFile, setGpPendingFile] = useState<File | null>(null);
   const [gpImportingTrack, setGpImportingTrack] = useState<number | null>(null);
   const [gpSelected, setGpSelected] = useState<Set<number>>(new Set());
+  const [gpDropGhosts, setGpDropGhosts] = useState(false);
   const [ntLoading, setNtLoading] = useState(false);
   const [ntError, setNtError] = useState<string | null>(null);
   const [ntResult, setNtResult] = useState<{ trackName: string; result: GpNotationTabResult } | null>(null);
@@ -1216,7 +1217,7 @@ body: JSON.stringify({ videoId, stem }),
     for (const t of targets) {
       setGpImportingTrack(t.index);
       try {
-        const result = await importGuitarProTrack(gpPendingFile, t.index);
+        const result = await importGuitarProTrack(gpPendingFile, t.index, { dropGhostNotes: gpDropGhosts });
         if (result.warnings.length > 0) setGpWarnings((w) => [...w, ...result.warnings]);
         if (result.diagrams.length === 0) continue;
         next = {
@@ -2235,6 +2236,21 @@ body: JSON.stringify({ videoId, stem }),
                     <p className="text-[11px] text-zinc-300 font-semibold">
                       Pistes du fichier — cochez-en plusieurs à importer
                     </p>
+                    <label
+                      className="flex items-center gap-1.5 text-[10px] text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer select-none"
+                      title="Écarter les notes fantômes (entre parenthèses) du fichier Guitar Pro : elles sont écrites très douces, pour une gestion sans fioritures"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={gpDropGhosts}
+                        onChange={(e) => setGpDropGhosts(e.target.checked)}
+                        disabled={gpImportingTrack !== null}
+                        className="accent-emerald-500"
+                      />
+                      Ignorer les notes fantômes
+                    </label>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-1.5">
                       <button
                         disabled={
