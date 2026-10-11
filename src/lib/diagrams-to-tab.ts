@@ -21,6 +21,24 @@ function beatsOf(shape: SavedChordShape): number {
   return (shape.duration ?? 1) * (shape.dotted ? 1.5 : 1);
 }
 
+// Marqueur structurel (barre, renvoi, section) : aucun temps, aucune note.
+function isTimeless(shape: SavedChordShape): boolean {
+  return !!(shape.bar || shape.navKind || shape.sectionLabel !== undefined);
+}
+
+// Tick absolu (dans la chanson) du diagramme d'indice `index` : somme des durées
+// des diagrammes qui le précèdent (les marqueurs ne comptent pas). Sert à caler
+// la numérotation des mesures d'un riff sur celles de la chanson entière.
+export function ticksBefore(diagrams: SavedChordShape[], index: number): number {
+  let beats = 0;
+  const end = Math.min(index, diagrams.length);
+  for (let i = 0; i < end; i++) {
+    if (isTimeless(diagrams[i])) continue;
+    beats += beatsOf(diagrams[i]);
+  }
+  return Math.round(beats * TICKS_PER_BEAT);
+}
+
 // Cordes qui sonnent : les doigtés, complétés par les cordes à vide non
 // énumérées (imports GP nommés où les cordes à vide ne figurent pas dans
 // `fingers`, mais comptées dans `sounding`).
@@ -70,7 +88,7 @@ export function diagramFrequencies(shape: SavedChordShape): number[] {
 
 export function diagramsToTab(
   diagrams: SavedChordShape[],
-  options: { title?: string; bpm?: number } = {}
+  options: { title?: string; bpm?: number; originTick?: number } = {}
 ): string {
   return diagramsToTabWithPositions(diagrams, options).tab;
 }
@@ -82,8 +100,14 @@ export function diagramsToTab(
 // diagramme ne produit aucune note (marqueur, silence, percussion).
 export function diagramsToTabWithPositions(
   diagrams: SavedChordShape[],
-  options: { title?: string; bpm?: number } = {}
-): { tab: string; cells: TabPosition[][]; rests: TabRest[]; grid: { unit: number; slots: number }[] } {
+  options: { title?: string; bpm?: number; originTick?: number } = {}
+): {
+  tab: string;
+  cells: TabPosition[][];
+  rests: TabRest[];
+  grid: { unit: number; slots: number; notes: { slot: number; beats: number }[] }[];
+  measureOffset: number;
+} {
   const events: TabNoteEvent[] = [];
   const columnOfDiagram: number[] = [];
   let beats = 0;
@@ -136,9 +160,26 @@ export function diagramsToTabWithPositions(
     columnOfDiagram.push(events.length > before ? produced++ : -1);
   }
 
-  if (events.length === 0) return { tab: "", cells: diagrams.map(() => []), rests: [], grid: [] };
+  if (events.length === 0)
+    return {
+      tab: "",
+      cells: diagrams.map(() => []),
+      rests: [],
+      grid: [],
+      measureOffset: Math.floor((options.originTick ?? 0) / (4 * TICKS_PER_BEAT)),
+    };
 
-  const result = notesToTab(events, { title: options.title, bpm: options.bpm });
+  const result = notesToTab(events, {
+    title: options.title,
+    bpm: options.bpm,
+    originTick: options.originTick,
+  });
   const cells = columnOfDiagram.map((c) => (c >= 0 ? result.positions[c] ?? [] : []));
-  return { tab: result.tab, cells, rests: result.rests, grid: result.grid };
+  return {
+    tab: result.tab,
+    cells,
+    rests: result.rests,
+    grid: result.grid,
+    measureOffset: result.measureOffset,
+  };
 }

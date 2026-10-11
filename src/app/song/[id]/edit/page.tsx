@@ -2654,6 +2654,7 @@ body: JSON.stringify({ videoId, stem }),
                         bpm={bpm}
                         tab={sequenceTab.tab}
                         rests={sequenceTab.rests}
+                        measures={sequenceTab.grid.length}
                       />
                     ) : (
                       <p className="text-[11px] text-zinc-600">

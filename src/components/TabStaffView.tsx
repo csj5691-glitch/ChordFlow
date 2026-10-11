@@ -92,6 +92,30 @@ function restGlyph(beats: number): { char: string; dot: boolean } {
   return { char: best.char, dot: false };
 }
 
+// Glyphes de valeur de note (Unicode « Musical Symbols ») selon la durée en temps.
+// 4 = ronde, 2 = blanche, 1 = noire, 0,5 = croche, 0,25 = double-croche, etc.
+const NOTES: { beats: number; char: string }[] = [
+  { beats: 4, char: "\u{1D15D}" },
+  { beats: 2, char: "\u{1D15E}" },
+  { beats: 1, char: "\u{1D15F}" },
+  { beats: 0.5, char: "\u{1D160}" },
+  { beats: 0.25, char: "\u{1D161}" },
+  { beats: 0.125, char: "\u{1D162}" },
+  { beats: 0.0625, char: "\u{1D163}" },
+];
+
+function noteGlyph(beats: number): { char: string; dot: boolean } {
+  for (const n of NOTES) {
+    if (Math.abs(beats - n.beats) < 0.001) return { char: n.char, dot: false };
+    if (Math.abs(beats - n.beats * 1.5) < 0.001) return { char: n.char, dot: true };
+  }
+  let best = NOTES[2];
+  for (const n of NOTES) {
+    if (Math.abs(beats - n.beats) < Math.abs(beats - best.beats)) best = n;
+  }
+  return { char: best.char, dot: false };
+}
+
 function ChordMini({ frets }: { frets: (number | null)[] }) {
   const strings = frets.length;
   const spacingX = 9;
@@ -175,6 +199,8 @@ export default function TabStaffView({
   ghosts,
   legatos,
   beats,
+  measureOffset = 0,
+  measures,
   onChange,
 }: {
   title?: string;
@@ -189,8 +215,14 @@ export default function TabStaffView({
   ghosts?: Set<string>;
   // Arcs hammer-on / pull-off au-dessus des notes liées.
   legatos?: LegatoArc[];
-  // Réglette des temps : grille rythmique par mesure (ticks/colonne + colonnes).
-  beats?: { unit: number; slots: number }[];
+  // Réglette des temps + valeurs de notes : grille rythmique par mesure.
+  beats?: { unit: number; slots: number; notes: { slot: number; beats: number }[] }[];
+  // N° (0-based) de la première mesure affichée dans la chanson : décale les
+  // numéros pour qu'un riff affiche les mesures réelles (ex. 6, 7…).
+  measureOffset?: number;
+  // Nombre de mesures RÉELLES (ignoré si strictement supérieur à celui du modèle) :
+  // masque la mesure vide synthétique ajoutée pour le dernier barreau `|`.
+  measures?: number;
   onChange?: (ascii: string) => void;
 }) {
   const model = useMemo(() => parseAsciiTabModel(tab), [tab]);
@@ -336,7 +368,11 @@ export default function TabStaffView({
     [editable, sel, changeFret, select, toggleMute, toggleTie, setEdit]
   );
 
-  const measureIndices = currentMeasures.map((_, i) => i);
+  const measureIndices = Array.from(
+    { length: Math.max(0, Math.min(measures ?? currentMeasures.length, currentMeasures.length)) },
+    (_, i) => i
+  );
+  const visibleMeasures = Math.max(0, Math.min(measures ?? currentMeasures.length, currentMeasures.length));
 
   const riffCount = useMemo(
     () =>
@@ -352,7 +388,7 @@ export default function TabStaffView({
       <div className="text-[10px] text-zinc-500 mb-1.5 px-1">
         {title ?? (model.title === "MIDI" ? "" : model.title)}
         {((bpm ?? model.bpm) > 0) && ` · ${bpm ?? model.bpm} BPM`}
-        {currentMeasures.length > 0 && ` · ${currentMeasures.length} mesure${currentMeasures.length > 1 ? "s" : ""}`}
+        {visibleMeasures > 0 && ` · ${visibleMeasures} mesure${visibleMeasures > 1 ? "s" : ""}`}
         {riffCount > 0 && ` · ${riffCount} riff${riffCount > 1 ? "s" : ""}`}
       </div>
       <div
@@ -386,6 +422,7 @@ export default function TabStaffView({
                     key={m}
                     index={m}
                     firstInStaff={i === 0}
+                    measureNumber={m + 1 + measureOffset}
                     measure={currentMeasures[m]}
                     editable={editable}
                     showMutes={showMutes}
@@ -417,6 +454,7 @@ export default function TabStaffView({
 function MeasureBox({
   index,
   firstInStaff,
+  measureNumber,
   measure,
   editable,
   showMutes,
@@ -432,6 +470,7 @@ function MeasureBox({
 }: {
   index: number;
   firstInStaff: boolean;
+  measureNumber: number;
   measure: { slots: number; rows: (TabToken | undefined)[][] };
   editable: boolean;
   showMutes: boolean;
@@ -439,7 +478,7 @@ function MeasureBox({
   rests?: TabRest[];
   ghosts?: Set<string>;
   legatos?: LegatoArc[];
-  beats?: { unit: number; slots: number };
+  beats?: { unit: number; slots: number; notes: { slot: number; beats: number }[] };
   sel: Cell | null;
   onSelect: (cell: Cell, dir?: "left" | "right" | "up" | "down") => void;
   onFret: (cell: Cell, delta: 1 | -1) => void;
@@ -448,6 +487,7 @@ function MeasureBox({
   const { slots, rows } = measure;
   const width = slots * COL_W;
   const height = PAD_TOP + 6 * LINE_H;
+  const VALUE_H = 16; // hauteur de la bande « valeur des notes » sous la portée
 
   // Riffs : passages de notes seules → bande teintée + étiquette « RIFF ».
   const riffRuns = detectRiffRuns(rows, slots);
@@ -459,6 +499,11 @@ function MeasureBox({
         .map((b) => ({ beat: b + 1, col: (b * BEAT_TICKS) / beats.unit }))
         .filter((m) => Number.isInteger(m.col) && m.col >= 0 && m.col < slots)
     : [];
+
+  // Valeur de chaque note (glyphe) sous sa colonne d'attaque.
+  const valueMarks = (beats?.notes ?? [])
+    .filter((n) => n.slot >= 0 && n.slot < slots && n.beats > 0)
+    .map((n) => ({ slot: n.slot, ...noteGlyph(n.beats) }));
 
   // Accords plaqués : chaque colonne avec ≥ 2 notes → nom au-dessus + diagramme
   // au survol (strumming).
@@ -479,7 +524,10 @@ function MeasureBox({
         (firstInStaff ? "border-l-2 border-white/25 " : "border-l border-zinc-700/60 ") +
         "border-r border-zinc-700/60"
       }
-      style={{ width: width + 2, height: height + (riffRuns.length > 0 ? 14 : 0) }}
+      style={{
+        width: width + 2,
+        height: height + (beats ? VALUE_H : 0) + (riffRuns.length > 0 ? 14 : 0),
+      }}
     >
       {/* lignes de la portée (6 cordes, l'aiguë en haut) */}
       {Array.from({ length: 6 }, (_, s) => (
@@ -508,14 +556,14 @@ function MeasureBox({
       ))}
       {/* numéro de mesure */}
       <span className="absolute left-1/2 -translate-x-1/2 top-0.5 text-[9px] text-zinc-500 leading-none">
-        {index + 1}
+        {measureNumber}
       </span>
       {/* étiquette de riff, sous la portée */}
       {riffRuns.map((r) => (
         <span
           key={`riff-label-${r.start}`}
           className="absolute text-[8px] font-bold tracking-widest text-cyan-300/90 leading-none"
-          style={{ left: r.start * COL_W + 3, top: PAD_TOP + 6 * LINE_H + 3 }}
+          style={{ left: r.start * COL_W + 3, top: PAD_TOP + 6 * LINE_H + (beats ? VALUE_H : 0) + 3 }}
         >
           RIFF
         </span>
@@ -676,6 +724,32 @@ function MeasureBox({
                 {m.beat}
               </span>
             </div>
+          ))}
+        </div>
+      )}
+
+      {/* valeur de chaque note (glyphe de durée) sous sa colonne */}
+      {valueMarks.length > 0 && (
+        <div
+          className="absolute inset-x-0 pointer-events-none"
+          style={{ top: PAD_TOP + 6 * LINE_H + 1 }}
+        >
+          {valueMarks.map((m, i) => (
+            <span
+              key={`val-${i}`}
+              className="absolute leading-none"
+              style={{
+                left: m.slot * COL_W + COL_W / 2,
+                transform: "translateX(-50%)",
+                fontSize: 13,
+                color: "#a1a1aa",
+                fontFamily:
+                  "'Bravura','Noto Music','Segoe UI Symbol','Symbola','DejaVu Sans',serif",
+              }}
+            >
+              {m.char}
+              {m.dot ? <span style={{ fontSize: 9, verticalAlign: "top" }}>·</span> : null}
+            </span>
           ))}
         </div>
       )}

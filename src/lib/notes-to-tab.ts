@@ -19,6 +19,10 @@ export interface TabNoteEvent {
 export interface NotesToTabOptions {
   title?: string;
   bpm?: number;
+  // Tick absolu (dans la chanson entière) du début de la séquence fournie. Permet
+  // d'aligner la numérotation des mesures sur celles de la chanson : un riff qui
+  // démarre en plein milieu de la mesure 6 est bien rendu dans la mesure 6.
+  originTick?: number;
 }
 
 // Position d'une note dans la portée rendue (mesure, corde 0 = aiguë, colonne).
@@ -46,9 +50,13 @@ export interface NotesToTabResult {
   outOfRange: number[];
   positions: TabPosition[][];
   rests: TabRest[];
-  // Grille rythmique retenue par mesure (ticks par colonne + nombre de colonnes) :
-  // sert à dessiner la réglette des temps (1 2 3 4) sous la portée.
-  grid: { unit: number; slots: number }[];
+  // Grille rythmique retenue par mesure (ticks par colonne + nombre de colonnes)
+  // et valeur (en temps) de chaque attaque : sert à dessiner la réglette des temps
+  // (1 2 3 4) et les glyphes de valeur de note sous la portée.
+  grid: { unit: number; slots: number; notes: { slot: number; beats: number }[] }[];
+  // N° (0-based) de la première mesure rendue dans la chanson entière : 0 si la
+  // séquence part du début, sinon le décalage fourni via `originTick`.
+  measureOffset: number;
 }
 
 // Corde 0 (rangée du haut) = mi aigu (64). Voir ascii-tab-midi (OPEN_NOTES).
@@ -366,13 +374,19 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
   }
 
   if (columns.length === 0) {
-    return { tab: "", measures: 0, noteCount, chordCount, dropped, outOfRange, positions: [], rests: [], grid: [] };
+    return { tab: "", measures: 0, noteCount, chordCount, dropped, outOfRange, positions: [], rests: [], grid: [], measureOffset: 0 };
   }
 
   const bpm = Math.min(400, Math.max(20, options.bpm ?? 120));
+  // Alignement sur la grille de mesures de la chanson : `originTick` = tick absolu
+  // du début de la séquence fournie. On le ramène au début de sa mesure ; les
+  // colonnes sont donc décalées du reste (`originBase`) pour se caler pile dessus.
+  const originTick = options.originTick ?? 0;
+  const measureOffset = Math.floor(originTick / BAR_TICKS);
+  const originBase = originTick - measureOffset * BAR_TICKS;
   const byMeasure = new Map<number, Column[]>();
   for (const col of columns) {
-    const mb = Math.floor(col.startTick / BAR_TICKS);
+    const mb = Math.floor((col.startTick + originBase) / BAR_TICKS);
     const list = byMeasure.get(mb) ?? [];
     list.push(col);
     byMeasure.set(mb, list);
@@ -388,21 +402,22 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
   const rendered: string[][] = [];
   const positions: TabPosition[][] = [];
   const rests: TabRest[] = [];
-  const grid: { unit: number; slots: number }[] = [];
+  const grid: { unit: number; slots: number; notes: { slot: number; beats: number }[] }[] = [];
   let gi = 0;
-  const maxMb = Math.floor(Math.max(...columns.map((c) => c.startTick)) / BAR_TICKS);
+  const maxMb = Math.floor((Math.max(...columns.map((c) => c.startTick)) + originBase) / BAR_TICKS);
   for (let mb = 0; mb <= maxMb; mb++) {
     const cols = byMeasure.get(mb) ?? [];
     if (cols.length === 0) {
       rendered.push(Array(6).fill(Array(4).fill(MUTE).join("")));
-      grid.push({ unit: TICKS_PER_BEAT, slots: 4 });
+      grid.push({ unit: TICKS_PER_BEAT, slots: 4, notes: [] });
       continue;
     }
-    const rels = cols.map((c) => c.startTick - mb * BAR_TICKS);
+    // Tick du début de la mesure, relatif au début de la séquence fournie.
+    const barStart = mb * BAR_TICKS - originBase;
+    const rels = cols.map((c) => c.startTick - barStart);
     const { unit, slots } = tuneGrid(rels);
-    grid.push({ unit, slots });
     const entries = cols.map((col) => {
-      const slot = Math.round((col.startTick - mb * BAR_TICKS) / unit);
+      const slot = Math.round((col.startTick - barStart) / unit);
       const assign = assignments[gi] ?? { strings: [], frets: [], pitches: [] };
       positions[gi] = assign.strings.map((s) => ({ m: mb, s, slot }));
       if (col.rest) {
@@ -412,9 +427,20 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
       return {
         slot,
         assign,
+        rest: col.rest ?? false,
         durations: durByStart.get(col.startTick) ?? [],
       };
     });
+    // Valeur (en temps) de chaque attaque de note = plus longue note de la colonne
+    // (les silences portent déjà un symbole de pause, pas de glyphe de note).
+    const notes = entries
+      .filter((e) => !e.rest)
+      .map((e) => {
+        let ticks = 0;
+        for (const d of e.durations) ticks = Math.max(ticks, d.durationTicks);
+        return { slot: e.slot, beats: ticks / TICKS_PER_BEAT };
+      });
+    grid.push({ unit, slots, notes });
     rendered.push(renderMeasure(entries, unit, slots));
   }
 
@@ -444,5 +470,6 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
     positions,
     rests,
     grid,
+    measureOffset,
   };
 }

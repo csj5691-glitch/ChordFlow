@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ChordShapeView from "@/components/ChordShapeView";
 import TabStaffView from "@/components/TabStaffView";
-import { diagramsToTabWithPositions } from "@/lib/diagrams-to-tab";
+import { diagramsToTabWithPositions, ticksBefore } from "@/lib/diagrams-to-tab";
 import { soundingNotes } from "@/lib/articulation";
 import { playSoftSequence, type SoftPlayer } from "@/lib/soft-player";
 import type { SavedChordShape } from "@/lib/types";
@@ -127,9 +127,22 @@ export default function ArpeggioEditor({
     [diagrams, tabRange]
   );
 
-  const { tab, cells, rests, grid } = useMemo(
-    () => diagramsToTabWithPositions(tabSteps, { title, bpm }),
-    [tabSteps, title, bpm]
+  // Tick absolu (dans la chanson) du début de la portée → aligne la numérotation
+  // des mesures sur celles de la chanson entière (ex. un riff qui démarre au
+  // milieu de la mesure 6 affiche bien « 6 », « 7 », …).
+  const originTick = useMemo(
+    () => ticksBefore(diagrams, tabRange.s),
+    [diagrams, tabRange]
+  );
+
+  const { tab, cells, rests, grid, measureOffset } = useMemo(
+    () =>
+      diagramsToTabWithPositions(tabSteps, {
+        title,
+        bpm,
+        originTick,
+      }),
+    [tabSteps, title, bpm, originTick]
   );
 
   // Note en cours de lecture : soit fournie par une lecture globale
@@ -341,7 +354,7 @@ export default function ArpeggioEditor({
       <div className="p-4 flex flex-col gap-5">
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
               {tab ? (
-                <TabStaffView title={title} bpm={bpm} tab={tab} showMutes={false} highlight={highlight} rests={rests} ghosts={ghosts} legatos={legatos} beats={grid} />
+                <TabStaffView title={title} bpm={bpm} tab={tab} showMutes={false} highlight={highlight} rests={rests} ghosts={ghosts} legatos={legatos} beats={grid} measureOffset={measureOffset} measures={grid.length} />
               ) : (
                 <p className="text-[11px] text-zinc-600">
                   Aucune note à afficher en tablature.
