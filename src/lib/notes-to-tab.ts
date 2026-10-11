@@ -18,6 +18,8 @@ export interface TabNoteEvent {
   // corde même si l'optimiseur du manche la déplacerait. Sert à garder la cible
   // (et la source) d'un hammer-on / pull-off sur la MÊME corde.
   preferString?: number;
+  // Slide de la note : « / » vers l'aigu, « \ » vers le grave (visuel portée).
+  slide?: "/" | "\\";
 }
 
 export interface NotesToTabOptions {
@@ -35,6 +37,8 @@ export interface TabPosition {
   m: number;
   s: number;
   slot: number;
+  // Slide de la note rendue : « / » = glissade vers l'aigu, « \ » = vers le grave.
+  slide?: "/" | "\\";
 }
 
 // Silence rendu dans la portée : mesure + colonne + durée en temps (pour choisir
@@ -100,6 +104,8 @@ interface Column {
   durationTicks?: number;
   // Hauteur MIDI → corde imposée (0 = mi aigu).
   prefers?: Map<number, number>;
+  // Hauteur MIDI → direction de slide de la note.
+  slides?: Map<number, "/" | "\\">;
 }
 
 interface Assignment {
@@ -226,19 +232,20 @@ function groupColumns(events: TabNoteEvent[]): {
   noteCount: number;
   outOfRange: number[];
 } {
-  const byStart = new Map<number, { pitches: number[]; rest: boolean; durationTicks: number; prefers: Map<number, number> }>();
+  const byStart = new Map<number, { pitches: number[]; rest: boolean; durationTicks: number; prefers: Map<number, number>; slides: Map<number, "/" | "\\"> }>();
   const droppedSet = new Set<number>();
   let noteCount = 0;
   for (const ev of events) {
     if (ev.rest) {
-      byStart.set(ev.startTick, { pitches: [], rest: true, durationTicks: ev.durationTicks, prefers: new Map<number, number>() });
+      byStart.set(ev.startTick, { pitches: [], rest: true, durationTicks: ev.durationTicks, prefers: new Map<number, number>(), slides: new Map<number, "/" | "\\">() });
       continue;
     }
     if (!Number.isFinite(ev.pitch) || ev.durationTicks <= 0) continue;
     noteCount++;
-    const col = byStart.get(ev.startTick) ?? { pitches: [], rest: false, durationTicks: 0, prefers: new Map<number, number>() };
+    const col = byStart.get(ev.startTick) ?? { pitches: [], rest: false, durationTicks: 0, prefers: new Map<number, number>(), slides: new Map<number, "/" | "\\">() };
     col.pitches.push(ev.pitch);
     if (ev.preferString !== undefined) col.prefers.set(ev.pitch, ev.preferString);
+    if (ev.slide) col.slides.set(ev.pitch, ev.slide);
     byStart.set(ev.startTick, col);
   }
   const columns: Column[] = [];
@@ -253,7 +260,7 @@ function groupColumns(events: TabNoteEvent[]): {
       seen.add(p);
       droppedSet.add(p);
     }
-    columns.push({ startTick, pitches: [...keep], prefers: raw.prefers });
+    columns.push({ startTick, pitches: [...keep], prefers: raw.prefers, slides: raw.slides });
   }
   return {
     columns,
@@ -416,7 +423,20 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
   const rests: TabRest[] = [];
   const grid: { unit: number; slots: number; notes: { slot: number; beats: number }[] }[] = [];
   let gi = 0;
-  const maxMb = Math.floor((Math.max(...columns.map((c) => c.startTick)) + originBase) / BAR_TICKS);
+  // Nombre de mesures rendues : colonnes réelles, PLUS la fin réelle des notes
+  // (une tenue qui traverse la barre de mesure garde la mesure suivante visible).
+  const lastStart = Math.max(...columns.map((c) => c.startTick));
+  let lastEnd = lastStart;
+  for (const col of columns) {
+    const ds = durByStart.get(col.startTick) ?? [];
+    let maxDur = 0;
+    for (const d of ds) maxDur = Math.max(maxDur, d.durationTicks);
+    lastEnd = Math.max(lastEnd, col.startTick + maxDur);
+  }
+  const maxMb = Math.max(
+    Math.floor((lastStart + originBase) / BAR_TICKS),
+    Math.floor((lastEnd + originBase - 1) / BAR_TICKS)
+  );
   for (let mb = 0; mb <= maxMb; mb++) {
     const cols = byMeasure.get(mb) ?? [];
     if (cols.length === 0) {
@@ -431,7 +451,12 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
     const entries = cols.map((col) => {
       const slot = Math.round((col.startTick - barStart) / unit);
       const assign = assignments[gi] ?? { strings: [], frets: [], pitches: [] };
-      positions[gi] = assign.strings.map((s) => ({ m: mb, s, slot }));
+      positions[gi] = assign.strings.map((s, ai) => ({
+        m: mb,
+        s,
+        slot,
+        slide: col.slides?.get(assign.pitches[ai]),
+      }));
       if (col.rest) {
         rests.push({ m: mb, slot, beats: (col.durationTicks ?? 0) / TICKS_PER_BEAT });
       }

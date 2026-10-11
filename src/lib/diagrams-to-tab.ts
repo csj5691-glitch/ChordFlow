@@ -86,6 +86,13 @@ export function diagramFrequencies(shape: SavedChordShape): number[] {
   return out;
 }
 
+export interface TabSlideMark {
+  m: number;
+  s: number;
+  slot: number;
+  dir: "/" | "\\";
+}
+
 export function diagramsToTab(
   diagrams: SavedChordShape[],
   options: { title?: string; bpm?: number; originTick?: number } = {}
@@ -107,6 +114,8 @@ export function diagramsToTabWithPositions(
   rests: TabRest[];
   grid: { unit: number; slots: number; notes: { slot: number; beats: number }[] }[];
   measureOffset: number;
+  // Slides rendus dans la portée (cases + direction), pour le dessin " / " " \ ".
+  slides: TabSlideMark[];
 } {
   const events: TabNoteEvent[] = [];
   const columnOfDiagram: number[] = [];
@@ -155,11 +164,13 @@ export function diagramsToTabWithPositions(
     for (const [string, fret] of strings) {
       if (string < 0 || string >= OPEN_NOTES_LOW_FIRST.length) continue;
       const onLegato = legatoHere.includes(string) || legatoPrev.includes(string);
+      const slide = shape.slides?.find((sl) => sl.string === string)?.dir;
       events.push({
         pitch: OPEN_NOTES_LOW_FIRST[string] + fret,
         startTick,
         durationTicks,
         ...(onLegato ? { preferString: OPEN_NOTES_LOW_FIRST.length - 1 - string } : {}),
+        ...(slide ? { slide } : {}),
       });
     }
     }
@@ -175,6 +186,7 @@ export function diagramsToTabWithPositions(
       rests: [],
       grid: [],
       measureOffset: Math.floor((options.originTick ?? 0) / (4 * TICKS_PER_BEAT)),
+      slides: [],
     };
 
   const result = notesToTab(events, {
@@ -183,11 +195,18 @@ export function diagramsToTabWithPositions(
     originTick: options.originTick,
   });
   const cells = columnOfDiagram.map((c) => (c >= 0 ? result.positions[c] ?? [] : []));
+  const slides: TabSlideMark[] = [];
+  for (const pos of result.positions) {
+    for (const p of pos) {
+      if (p.slide) slides.push({ m: p.m, s: p.s, slot: p.slot, dir: p.slide });
+    }
+  }
   return {
     tab: result.tab,
     cells,
     rests: result.rests,
     grid: result.grid,
     measureOffset: result.measureOffset,
+    slides,
   };
 }

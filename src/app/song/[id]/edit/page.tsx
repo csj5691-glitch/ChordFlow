@@ -341,6 +341,14 @@ function EditSongView({ id }: { id: string }) {
     [diagrams, song?.title, song?.bpm]
   );
 
+  // Slides : tableau des positions rendues → clés de cellules (Map pour
+  // TabStaffView), comme les fantômes/legatos.
+  const slidesMap = useMemo(() => {
+    const map = new Map<string, "/" | "\\">();
+    for (const s of sequenceTab.slides) map.set(`${s.m}|${s.s}|${s.slot}`, s.dir);
+    return map;
+  }, [sequenceTab.slides]);
+
   // Riffs : passages de notes seules (séquences d'« arpèges »), éditables
   // individuellement dans l'éditeur de notes.
   const riffs = useMemo(
@@ -2654,6 +2662,7 @@ body: JSON.stringify({ videoId, stem }),
                         bpm={bpm}
                         tab={sequenceTab.tab}
                         rests={sequenceTab.rests}
+                        slides={slidesMap}
                         measures={sequenceTab.grid.length}
                       />
                     ) : (

@@ -197,6 +197,7 @@ export default function TabStaffView({
   rests,
   ghosts,
   legatos,
+  slides,
   beats,
   measureOffset = 0,
   measures,
@@ -214,6 +215,8 @@ export default function TabStaffView({
   ghosts?: Set<string>;
   // Arcs hammer-on / pull-off au-dessus des notes liées.
   legatos?: LegatoArc[];
+  // Clés de cellules → direction du slide (« / » ou « \ ») dessinée à côté.
+  slides?: Map<string, "/" | "\\">;
   // Réglette des temps + valeurs de notes : grille rythmique par mesure.
   beats?: { unit: number; slots: number; notes: { slot: number; beats: number }[] }[];
   // N° (0-based) de la première mesure affichée dans la chanson : décale les
@@ -430,6 +433,7 @@ export default function TabStaffView({
                     rests={rests ? rests.filter((r) => r.m === m) : undefined}
                     ghosts={ghosts}
                     legatos={legatos ? legatos.filter((l) => l.from.m === m) : undefined}
+                    slides={slides}
                     beats={beats ? beats[m] : undefined}
                     sel={sel && sel.m === m ? sel : null}
                     onSelect={select}
@@ -463,6 +467,7 @@ function MeasureBox({
   rests,
   ghosts,
   legatos,
+  slides,
   beats,
   sel,
   onSelect,
@@ -480,6 +485,7 @@ function MeasureBox({
   rests?: TabRest[];
   ghosts?: Set<string>;
   legatos?: LegatoArc[];
+  slides?: Map<string, "/" | "\\">;
   beats?: { unit: number; slots: number; notes: { slot: number; beats: number }[] };
   sel: Cell | null;
   onSelect: (cell: Cell, dir?: "left" | "right" | "up" | "down") => void;
@@ -657,6 +663,7 @@ function MeasureBox({
           const isSel = sel !== null && sel.s === s && sel.slot === t;
           const isHit = highlight?.has(cellKey(cell)) ?? false;
           const isGhost = ghosts?.has(cellKey(cell)) ?? false;
+          const slideDir = slides?.get(cellKey(cell));
           const fretted = k === "note";
           const label = fretted
             ? isGhost
@@ -693,6 +700,11 @@ function MeasureBox({
                 style={fretted ? { color: isHit ? "#ffffff" : STRING_COLORS[s] } : undefined}
               >
                 {label}
+                {slideDir && (
+                  <span className="text-[8px] opacity-80" style={{ color: isHit ? "#d0fbf6" : "#f0fdf4" }}>
+                    {slideDir}
+                  </span>
+                )}
               </button>
               {editable && (
                 <div className="absolute left-1/2 -translate-x-1/2 top-full mt-0.5 z-10 hidden group-hover/cell:flex gap-0.5">

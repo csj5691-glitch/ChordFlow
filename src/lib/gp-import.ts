@@ -371,6 +371,10 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
   const STRING_INDEX = new Map<number, number>();
   for (let i = 1; i <= nStrings; i++) STRING_INDEX.set(i, i - 1);
 
+  // Dernier diagramme temporel (note, silence, percussion) créé : les liaisons
+  // (beats entièrement liés) prolongent sa durée au lieu de créer une attaque.
+  let lastAttacked: SavedChordShape | null = null;
+
   const beatDuration = (beat: model.Beat) =>
     durationToBeats(beat.duration, beat.dots, beat.tupletNumerator, beat.tupletDenominator);
 
@@ -413,10 +417,37 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
     if (voice) {
       for (const beat of voice.beats) {
         const duration = beatDuration(beat);
+
+        // Beat entièrement LIÉ (toutes les notes sont des tenues de la mesure
+        // précédente) : PAS de nouvelle attaque. On prolonge la durée réelle du
+        // diagramme précédent pour que le son tienne (et aucun chiffre ne se
+        // répète) ; s'il n'y a rien à prolonger, on garde un silence pour
+        // préserver la grille de la mesure.
+        const allTied =
+          beat.notes.length > 0 && beat.notes.every((n) => n.isTieDestination);
+        if (allTied) {
+          if (
+            lastAttacked &&
+            !lastAttacked.silence &&
+            !lastAttacked.drumHits &&
+            !lastAttacked.bar &&
+            !lastAttacked.navKind
+          ) {
+            const prevBeats = (lastAttacked.duration ?? 1) * (lastAttacked.dotted ? 1.5 : 1);
+            lastAttacked.duration = +(prevBeats + duration).toFixed(4);
+            lastAttacked.dotted = undefined;
+          } else {
+            barChords.push(restShape(duration));
+            lastAttacked = barChords[barChords.length - 1];
+          }
+          continue;
+        }
+
         if (beat.isRest || beat.isEmpty || beat.notes.length === 0) {
           // Un silence par temps de la voix principale : sa durée exacte (valeur
           // + points) est conservée pour être affichée dans la portée.
           barChords.push(restShape(duration));
+          lastAttacked = barChords[barChords.length - 1];
           continue;
         }
 
@@ -427,7 +458,9 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
         if (staff.isPercussion) {
           const hits = beat.notes.filter((n) => !n.isTieDestination);
           if (hits.length > 0) {
-            barChords.push(drumShape(drumLabel(hits), hits.length, duration));
+            const shape = drumShape(drumLabel(hits), hits.length, duration);
+            barChords.push(shape);
+            lastAttacked = shape;
           }
           continue;
         }
@@ -437,7 +470,10 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
         const gpChord = beat.chord;
         if (fretted && gpChord && gpChord.strings.length === STRING_COUNT && gpChord.showDiagram) {
           const chord = chordShapeFromGp(gpChord, duration, text);
-          if (chord) barChords.push(chord);
+          if (chord) {
+            barChords.push(chord);
+            lastAttacked = chord;
+          }
           continue;
         }
 
@@ -445,11 +481,18 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
           const fingers: { string: number; fret: number; finger: number; ghost?: boolean }[] = [];
           const mutedOn = Array(6).fill(false);
           const legatoTo: number[] = [];
+          // Slides de décalage (type Shift/Legato/Out) : on marque simplement la
+          // corde ; la direction est déduite ensuite de la note suivante sur la
+          // même corde (resolveSlideDirections).
+          const slides: { string: number; dir?: "/" | "\\" }[] = [];
 
           for (const note of beat.notes) {
             if (!note.isStringed || note.fret === undefined || note.fret === null) continue;
             const s = STRING_INDEX.get(note.string);
             if (s === undefined || s < 0 || s > 5) continue;
+            // Corde LIÉE : tenue du son depuis la note précédente, PAS une
+            // nouvelle attaque. On ne la re-joue pas (Guitar Pro / Songsterr non plus).
+            if (note.isTieDestination) continue;
             if (note.isDead) {
               mutedOn[s] = true;
               continue;
@@ -457,16 +500,18 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
             if (note.fret < 0) continue;
             fingers.push({ string: s, fret: note.fret, finger: 0, ghost: note.isGhost });
             if (note.isHammerPullOrigin) legatoTo.push(s);
+            if (note.slideOutType) slides.push({ string: s });
           }
 
           if (fingers.length === 0 && !mutedOn.some(Boolean)) {
             continue;
           }
 
-          const shape = chordShape(fingers, mutedOn, legatoTo, duration, text);
+          const shape = chordShape(fingers, mutedOn, legatoTo, duration, text, undefined, slides);
           // Chaque note (cordes à vide incluses, fret 0 compris) est une corde qui sonne.
           shape.sounding = fingers.length;
           barChords.push(shape);
+          lastAttacked = shape;
           continue;
         }
 
@@ -478,7 +523,10 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
           .filter((p): p is number => typeof p === "number" && Number.isFinite(p));
         if (pitches.length > 0) {
           const shape = pitchedShape(pitches, duration, gpChord?.name || text);
-          if (shape) barChords.push(shape);
+          if (shape) {
+            barChords.push(shape);
+            lastAttacked = shape;
+          }
         }
       }
     }
@@ -492,6 +540,10 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
       diagrams.push(...barChords);
     }
   }
+
+  // Direction des slides de décalage : déduite de l'attaque suivante sur la
+  // même corde (les liaisons retirées ne font plus d'attaque parasite).
+  resolveSlideDirections(diagrams);
 
   const merged = mergeIdenticalChords(diagrams);
 
@@ -866,7 +918,32 @@ function shapeKey(d: SavedChordShape): string {
     d.barreCount,
     d.baseFret,
     d.capo,
+    d.slides,
   ]);
+}
+
+// Direction des slides de décalage (Shift / Legato) : compare la case courante
+// à la PROCHAINE attaque sur la même corde (une corde liée a été retirée des
+// diagrammes, donc la prochaine attaque est bien la cible du slide).
+function resolveSlideDirections(diagrams: SavedChordShape[]): void {
+  for (let k = 0; k < diagrams.length; k++) {
+    const d = diagrams[k];
+    if (!d.slides || d.slides.length === 0) continue;
+    for (const sl of d.slides) {
+      if (sl.dir) continue;
+      const cur = d.fingers.find((f) => f.string === sl.string && f.fret >= 0)?.fret;
+      if (cur === undefined) continue;
+      let nextFret: number | null = null;
+      for (let j = k + 1; j < diagrams.length && nextFret === null; j++) {
+        const nd = diagrams[j];
+        if (nd.silence || nd.drumHits || nd.bar || nd.navKind) continue;
+        const f = nd.fingers.find((f) => f.string === sl.string && f.fret >= 0);
+        if (f) nextFret = f.fret;
+      }
+      if (nextFret !== null) sl.dir = nextFret > cur ? "/" : "\\";
+    }
+    d.slides = d.slides.filter((s) => s.dir !== undefined);
+  }
 }
 
 // Consecutive identical chord strokes collapse into a single held chord:
@@ -939,7 +1016,8 @@ function chordShape(
   legatoTo: number[],
   duration: number,
   chordName?: string,
-  baseFretHint?: number
+  baseFretHint?: number,
+  slides?: { string: number; dir?: "/" | "\\" }[]
 ): SavedChordShape {
   // Barre detection: >=3 fretted strings sharing the same fret = barre
   let barreOn = false;
@@ -1001,5 +1079,6 @@ function chordShape(
     capo: 0,
     duration,
     legatoTo: legatoTo.length ? legatoTo : undefined,
+    slides: slides && slides.length ? slides : undefined,
   };
 }

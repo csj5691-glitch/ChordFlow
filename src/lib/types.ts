@@ -154,6 +154,10 @@ export interface SavedChordShape {
   // For percussion (batterie): number of drum strokes on this shape. Kept
   // separate so repeated hits are never merged and play with a drum voice.
   drumHits?: number;
+  // Slides de décalage (import GP) : cordes qui glissent, avec la direction
+  // visuelle (« / » = vers l'aigu, « \\ » = vers le grave). `dir` absent =
+  // direction à déduire de la note suivante sur la même corde.
+  slides?: { string: number; dir?: "/" | "\\" }[];
 }
 
 export interface AnalyzedSong {
