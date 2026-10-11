@@ -21,7 +21,6 @@ const LINE_H = 15;
 const COL_W = 34;
 const PAD_TOP = 44; // étage : numéro de mesure + chips d'accords
 const GUTTER = 26;
-const BEAT_TICKS = 480; // ticks par temps (noire) : sert à placer la réglette 1 2 3 4
 
 type CellEdit = { fret: number | null; tie: boolean };
 type Edits = Map<string, CellEdit | null>; // null = repos (supprime la note)
@@ -422,6 +421,7 @@ export default function TabStaffView({
                     key={m}
                     index={m}
                     firstInStaff={i === 0}
+                    lastInStaff={i === group.length - 1}
                     measureNumber={m + 1 + measureOffset}
                     measure={currentMeasures[m]}
                     editable={editable}
@@ -454,6 +454,7 @@ export default function TabStaffView({
 function MeasureBox({
   index,
   firstInStaff,
+  lastInStaff,
   measureNumber,
   measure,
   editable,
@@ -470,6 +471,7 @@ function MeasureBox({
 }: {
   index: number;
   firstInStaff: boolean;
+  lastInStaff: boolean;
   measureNumber: number;
   measure: { slots: number; rows: (TabToken | undefined)[][] };
   editable: boolean;
@@ -492,14 +494,6 @@ function MeasureBox({
   // Riffs : passages de notes seules → bande teintée + étiquette « RIFF ».
   const riffRuns = detectRiffRuns(rows, slots);
 
-  // Réglette des temps : positions (en colonnes) des 4 temps de la mesure, d'après
-  // la grille rythmique (ticks par colonne). 4/4 → temps aux ticks 0/480/960/1440.
-  const beatMarks = beats
-    ? [0, 1, 2, 3]
-        .map((b) => ({ beat: b + 1, col: (b * BEAT_TICKS) / beats.unit }))
-        .filter((m) => Number.isInteger(m.col) && m.col >= 0 && m.col < slots)
-    : [];
-
   // Valeur de chaque note (glyphe) sous sa colonne d'attaque.
   const valueMarks = (beats?.notes ?? [])
     .filter((n) => n.slot >= 0 && n.slot < slots && n.beats > 0)
@@ -518,17 +512,22 @@ function MeasureBox({
   }
 
   return (
-    <div
-      className={
-        "relative shrink-0 bg-zinc-950/40 " +
-        (firstInStaff ? "border-l-2 border-white/25 " : "border-l border-zinc-700/60 ") +
-        "border-r border-zinc-700/60"
-      }
-      style={{
-        width: width + 2,
-        height: height + (beats ? VALUE_H : 0) + (riffRuns.length > 0 ? 14 : 0),
-      }}
-    >
+    <div className="relative shrink-0 bg-zinc-950/40" style={{ width: width + 2, height: height + (beats ? VALUE_H : 0) + (riffRuns.length > 0 ? 14 : 0) }}>
+      {/* barres de mesure : fins traits blancs (même texture que la réglette)
+          aux limites de chaque mesure, sur la hauteur de la portée */}
+      {!firstInStaff && (
+        <div
+          className="absolute pointer-events-none"
+          style={{ left: 0, top: PAD_TOP, width: 1, height: 6 * LINE_H, background: "rgba(255,255,255,0.3)" }}
+        />
+      )}
+      {lastInStaff && (
+        <div
+          className="absolute pointer-events-none"
+          style={{ right: 0, top: PAD_TOP, width: 1, height: 6 * LINE_H, background: "rgba(255,255,255,0.3)" }}
+        />
+      )}
+
       {/* lignes de la portée (6 cordes, l'aiguë en haut) */}
       {Array.from({ length: 6 }, (_, s) => (
         <div
@@ -705,27 +704,6 @@ function MeasureBox({
             </div>
           );
         })
-      )}
-
-      {/* réglette des temps (1 2 3 4) sous la portée */}
-      {beatMarks.length > 0 && (
-        <div
-          className="absolute inset-x-0 pointer-events-none"
-          style={{ top: PAD_TOP + 6 * LINE_H - 12 }}
-        >
-          {beatMarks.map((m) => (
-            <div
-              key={`beat-${m.beat}`}
-              className="absolute flex flex-col items-center"
-              style={{ left: m.col * COL_W + COL_W / 2, transform: "translateX(-50%)" }}
-            >
-              <span className="block w-px h-1 bg-white/30" />
-              <span className="text-[8px] leading-none font-mono text-zinc-400">
-                {m.beat}
-              </span>
-            </div>
-          ))}
-        </div>
       )}
 
       {/* valeur de chaque note (glyphe de durée) sous sa colonne */}
