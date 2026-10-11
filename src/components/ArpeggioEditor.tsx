@@ -184,8 +184,11 @@ export default function ArpeggioEditor({
         for (let j = i + 1; j < noteSteps.length; j++) {
           const tf = noteSteps[j].fingers.find((f) => f.string === str);
           if (!tf) continue;
-          const from = (cells[lead + i] ?? [])[0];
-          const to = (cells[lead + j] ?? [])[0];
+          // Règle hammer-on / pull-off : les deux notes se jouent sur la MÊME
+          // corde. Corde du diagramme (0 = mi grave) → case (0 = mi aigu) = 5 - str.
+          const tabString = 5 - str;
+          const from = (cells[lead + i] ?? []).find((c) => c.s === tabString);
+          const to = (cells[lead + j] ?? []).find((c) => c.s === tabString);
           if (from && to) {
             pairs.push({ from, to, type: tf.fret > fromFret ? "h" : "p" });
           }

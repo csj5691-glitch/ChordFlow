@@ -113,7 +113,8 @@ export function diagramsToTabWithPositions(
   let beats = 0;
   let produced = 0;
 
-  for (const shape of diagrams) {
+  for (let k = 0; k < diagrams.length; k++) {
+    const shape = diagrams[k];
     // Marqueurs structurels : aucun temps, aucune note.
     if (shape.bar || shape.navKind || shape.sectionLabel !== undefined) {
       columnOfDiagram.push(-1);
@@ -146,14 +147,21 @@ export function diagramsToTabWithPositions(
         }
       }
     } else {
-      for (const [string, fret] of strings) {
-        if (string < 0 || string >= OPEN_NOTES_LOW_FIRST.length) continue;
-        events.push({
-          pitch: OPEN_NOTES_LOW_FIRST[string] + fret,
-          startTick,
-          durationTicks,
-        });
-      }
+// Corde d'un legato (hammer-on / pull-off) : la source ET la cible doivent
+    // rester sur la MÊME corde physique, sinon l'arc serait dessiné en diagonale
+    // vers la corde suivante. On impose la corde d'origine à l'optimiseur.
+    const legatoHere = shape.legatoTo ?? [];
+    const legatoPrev = k > 0 ? diagrams[k - 1].legatoTo ?? [] : [];
+    for (const [string, fret] of strings) {
+      if (string < 0 || string >= OPEN_NOTES_LOW_FIRST.length) continue;
+      const onLegato = legatoHere.includes(string) || legatoPrev.includes(string);
+      events.push({
+        pitch: OPEN_NOTES_LOW_FIRST[string] + fret,
+        startTick,
+        durationTicks,
+        ...(onLegato ? { preferString: OPEN_NOTES_LOW_FIRST.length - 1 - string } : {}),
+      });
+    }
     }
     // Chaque diagramme qui produit des notes devient UNE colonne (startTick
     // distinct) ; l'ordre des colonnes suit l'ordre des diagrammes.

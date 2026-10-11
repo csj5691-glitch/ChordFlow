@@ -14,6 +14,10 @@ export interface TabNoteEvent {
   // Silence : `pitch` est ignoré, la note occupe la durée et sera rendue comme
   // un silence (pas de case de manche).
   rest?: boolean;
+  // Corde imposée (0 = mi aigu, convention OPEN_NOTES) : la note reste sur cette
+  // corde même si l'optimiseur du manche la déplacerait. Sert à garder la cible
+  // (et la source) d'un hammer-on / pull-off sur la MÊME corde.
+  preferString?: number;
 }
 
 export interface NotesToTabOptions {
@@ -94,6 +98,8 @@ interface Column {
   pitches: number[];
   rest?: boolean;
   durationTicks?: number;
+  // Hauteur MIDI → corde imposée (0 = mi aigu).
+  prefers?: Map<number, number>;
 }
 
 interface Assignment {
@@ -158,7 +164,7 @@ function transitionCost(prev: Assignment | null, a: Assignment): number {
   return cost;
 }
 
-function enumerateAssignments(pitches: number[]): Assignment[] {
+function enumerateAssignments(pitches: number[], prefer?: Map<number, number>): Assignment[] {
   const openLow = OPEN_NOTES[OPEN_NOTES.length - 1];
   const openHigh = OPEN_NOTES[0];
   if (pitches.some((p) => p < openLow || p > openHigh + MAX_FRET)) return [];
@@ -175,8 +181,10 @@ function enumerateAssignments(pitches: number[]): Assignment[] {
       return;
     }
     const pitch = pitches[i];
+    const forced = prefer?.get(pitch);
     for (let s = 0; s < 6; s++) {
       if (used.has(s)) continue;
+      if (forced !== undefined && s !== forced) continue;
       const fret = pitch - OPEN_NOTES[s];
       if (fret < 0 || fret > MAX_FRET) continue;
       cur.push({ string: s, fret });
@@ -218,18 +226,19 @@ function groupColumns(events: TabNoteEvent[]): {
   noteCount: number;
   outOfRange: number[];
 } {
-  const byStart = new Map<number, { pitches: number[]; rest: boolean; durationTicks: number }>();
+  const byStart = new Map<number, { pitches: number[]; rest: boolean; durationTicks: number; prefers: Map<number, number> }>();
   const droppedSet = new Set<number>();
   let noteCount = 0;
   for (const ev of events) {
     if (ev.rest) {
-      byStart.set(ev.startTick, { pitches: [], rest: true, durationTicks: ev.durationTicks });
+      byStart.set(ev.startTick, { pitches: [], rest: true, durationTicks: ev.durationTicks, prefers: new Map<number, number>() });
       continue;
     }
     if (!Number.isFinite(ev.pitch) || ev.durationTicks <= 0) continue;
     noteCount++;
-    const col = byStart.get(ev.startTick) ?? { pitches: [], rest: false, durationTicks: 0 };
+    const col = byStart.get(ev.startTick) ?? { pitches: [], rest: false, durationTicks: 0, prefers: new Map<number, number>() };
     col.pitches.push(ev.pitch);
+    if (ev.preferString !== undefined) col.prefers.set(ev.pitch, ev.preferString);
     byStart.set(ev.startTick, col);
   }
   const columns: Column[] = [];
@@ -244,7 +253,7 @@ function groupColumns(events: TabNoteEvent[]): {
       seen.add(p);
       droppedSet.add(p);
     }
-    columns.push({ startTick, pitches: [...keep] });
+    columns.push({ startTick, pitches: [...keep], prefers: raw.prefers });
   }
   return {
     columns,
@@ -260,7 +269,10 @@ function planFrets(columns: Column[]): (Assignment | null)[] {
   const chosen: (Assignment | null)[] = [];
   let prevTop: { cost: number; assign: Assignment }[] = [];
   for (const col of columns) {
-    const cands = enumerateAssignments([...col.pitches].sort((a, b) => a - b));
+    const sorted = [...col.pitches].sort((a, b) => a - b);
+    // Cordes imposées (legato) d'abord ; repli sur une assignation libre.
+    let cands = enumerateAssignments(sorted, col.prefers);
+    if (cands.length === 0) cands = enumerateAssignments(sorted);
     // Couvrir les notes dans un écart de 4 doigts : on privilégie les positions
     // qui tiennent dans MAX_FRET_SPAN (autre corde/case pour les mêmes notes),
     // et on ne retombe sur une position plus large que si aucune ne tient.

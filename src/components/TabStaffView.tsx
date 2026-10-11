@@ -20,8 +20,7 @@ import {
 const LINE_H = 15;
 const COL_W = 34;
 const PAD_TOP = 44; // étage : numéro de mesure + chips d'accords
-const GUTTER = 26;
-const BEAT_TICKS = 480; // ticks par temps (noire) : sert à placer la réglette 1 2 3 4
+const GUTTER = 26; // colonne des noms de cordes à la gauche de chaque portée
 
 type CellEdit = { fret: number | null; tie: boolean };
 type Edits = Map<string, CellEdit | null>; // null = repos (supprime la note)
@@ -215,7 +214,7 @@ export default function TabStaffView({
   ghosts?: Set<string>;
   // Arcs hammer-on / pull-off au-dessus des notes liées.
   legatos?: LegatoArc[];
-  // Réglette des temps + valeurs de notes : grille rythmique par mesure.
+  // Grille rythmique par mesure : temps + valeurs de notes (glyphes de durée).
   beats?: { unit: number; slots: number; notes: { slot: number; beats: number }[] }[];
   // N° (0-based) de la première mesure affichée dans la chanson : décale les
   // numéros pour qu'un riff affiche les mesures réelles (ex. 6, 7…).
@@ -422,6 +421,8 @@ export default function TabStaffView({
                     key={m}
                     index={m}
                     firstInStaff={i === 0}
+                    lastInStaff={i === group.length - 1}
+                    final={m === visibleMeasures - 1}
                     measureNumber={m + 1 + measureOffset}
                     measure={currentMeasures[m]}
                     editable={editable}
@@ -454,6 +455,8 @@ export default function TabStaffView({
 function MeasureBox({
   index,
   firstInStaff,
+  lastInStaff,
+  final,
   measureNumber,
   measure,
   editable,
@@ -470,6 +473,8 @@ function MeasureBox({
 }: {
   index: number;
   firstInStaff: boolean;
+  lastInStaff: boolean;
+  final: boolean;
   measureNumber: number;
   measure: { slots: number; rows: (TabToken | undefined)[][] };
   editable: boolean;
@@ -492,14 +497,6 @@ function MeasureBox({
   // Riffs : passages de notes seules → bande teintée + étiquette « RIFF ».
   const riffRuns = detectRiffRuns(rows, slots);
 
-  // Réglette des temps : positions (en colonnes) des 4 temps de la mesure, d'après
-  // la grille rythmique (ticks par colonne). 4/4 → temps aux ticks 0/480/960/1440.
-  const beatMarks = beats
-    ? [0, 1, 2, 3]
-        .map((b) => ({ beat: b + 1, col: (b * BEAT_TICKS) / beats.unit }))
-        .filter((m) => Number.isInteger(m.col) && m.col >= 0 && m.col < slots)
-    : [];
-
   // Valeur de chaque note (glyphe) sous sa colonne d'attaque.
   const valueMarks = (beats?.notes ?? [])
     .filter((n) => n.slot >= 0 && n.slot < slots && n.beats > 0)
@@ -521,8 +518,12 @@ function MeasureBox({
     <div
       className={
         "relative shrink-0 bg-zinc-950/40 " +
-        (firstInStaff ? "border-l-2 border-white/25 " : "border-l border-zinc-700/60 ") +
-        "border-r border-zinc-700/60"
+        (firstInStaff ? "border-l-2 border-white/25 " : "border-l-2 border-zinc-400/80 ") +
+        (lastInStaff
+          ? final
+            ? "border-r-4 border-zinc-300/90 "
+            : "border-r-2 border-zinc-400/80 "
+          : "")
       }
       style={{
         width: width + 2,
@@ -705,27 +706,6 @@ function MeasureBox({
             </div>
           );
         })
-      )}
-
-      {/* réglette des temps (1 2 3 4) sous la portée */}
-      {beatMarks.length > 0 && (
-        <div
-          className="absolute inset-x-0 pointer-events-none"
-          style={{ top: PAD_TOP + 6 * LINE_H - 12 }}
-        >
-          {beatMarks.map((m) => (
-            <div
-              key={`beat-${m.beat}`}
-              className="absolute flex flex-col items-center"
-              style={{ left: m.col * COL_W + COL_W / 2, transform: "translateX(-50%)" }}
-            >
-              <span className="block w-px h-1 bg-white/30" />
-              <span className="text-[8px] leading-none font-mono text-zinc-400">
-                {m.beat}
-              </span>
-            </div>
-          ))}
-        </div>
       )}
 
       {/* valeur de chaque note (glyphe de durée) sous sa colonne */}
