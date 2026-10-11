@@ -83,7 +83,7 @@ export function diagramsToTab(
 export function diagramsToTabWithPositions(
   diagrams: SavedChordShape[],
   options: { title?: string; bpm?: number } = {}
-): { tab: string; cells: TabPosition[][]; rests: TabRest[] } {
+): { tab: string; cells: TabPosition[][]; rests: TabRest[]; grid: { unit: number; slots: number }[] } {
   const events: TabNoteEvent[] = [];
   const columnOfDiagram: number[] = [];
   let beats = 0;
@@ -136,9 +136,9 @@ export function diagramsToTabWithPositions(
     columnOfDiagram.push(events.length > before ? produced++ : -1);
   }
 
-  if (events.length === 0) return { tab: "", cells: diagrams.map(() => []), rests: [] };
+  if (events.length === 0) return { tab: "", cells: diagrams.map(() => []), rests: [], grid: [] };
 
   const result = notesToTab(events, { title: options.title, bpm: options.bpm });
   const cells = columnOfDiagram.map((c) => (c >= 0 ? result.positions[c] ?? [] : []));
-  return { tab: result.tab, cells, rests: result.rests };
+  return { tab: result.tab, cells, rests: result.rests, grid: result.grid };
 }

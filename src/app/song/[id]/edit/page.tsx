@@ -1232,11 +1232,10 @@ body: JSON.stringify({ videoId, stem }),
           officialPlain: next.officialPlain || result.song.officialPlain,
           officialSynced: next.officialSynced || result.song.officialSynced,
         };
-        // If the re-imported track is the one currently displayed, its fresh
-        // diagrams must also replace the active sequence.
-        if (activeSlot.kind === "gp" && activeSlot.index === t.index) {
-          next = { ...next, diagrams: result.diagrams };
-        }
+        // The re-imported track's fresh diagrams always replace the active
+        // sequence so the riff/diagram view reflects the new import right away
+        // (otherwise song.diagrams keeps stale diagrams after a re-import).
+        next = { ...next, diagrams: result.diagrams };
         const drops = await upsert(next);
         if (drops.length > 0) {
           setGpWarnings((w) => [

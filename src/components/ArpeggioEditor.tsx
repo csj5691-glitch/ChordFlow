@@ -127,7 +127,7 @@ export default function ArpeggioEditor({
     [diagrams, tabRange]
   );
 
-  const { tab, cells, rests } = useMemo(
+  const { tab, cells, rests, grid } = useMemo(
     () => diagramsToTabWithPositions(tabSteps, { title, bpm }),
     [tabSteps, title, bpm]
   );
@@ -155,6 +155,32 @@ export default function ArpeggioEditor({
       }
     }
     return set;
+  }, [noteSteps, cells, lead]);
+
+  // Hammer-on (H) / pull-off (P) : arcs au-dessus des deux notes liées.
+  const legatos = useMemo(() => {
+    const pairs: {
+      from: { m: number; s: number; slot: number };
+      to: { m: number; s: number; slot: number };
+      type: "h" | "p";
+    }[] = [];
+    for (let i = 0; i < noteSteps.length; i++) {
+      for (const str of noteSteps[i].legatoTo ?? []) {
+        const fromFret = noteSteps[i].fingers.find((f) => f.string === str)?.fret;
+        if (fromFret === undefined) continue;
+        for (let j = i + 1; j < noteSteps.length; j++) {
+          const tf = noteSteps[j].fingers.find((f) => f.string === str);
+          if (!tf) continue;
+          const from = (cells[lead + i] ?? [])[0];
+          const to = (cells[lead + j] ?? [])[0];
+          if (from && to) {
+            pairs.push({ from, to, type: tf.fret > fromFret ? "h" : "p" });
+          }
+          break;
+        }
+      }
+    }
+    return pairs;
   }, [noteSteps, cells, lead]);
 
   useEffect(() => {
@@ -315,7 +341,7 @@ export default function ArpeggioEditor({
       <div className="p-4 flex flex-col gap-5">
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
               {tab ? (
-                <TabStaffView title={title} bpm={bpm} tab={tab} showMutes={false} highlight={highlight} rests={rests} ghosts={ghosts} />
+                <TabStaffView title={title} bpm={bpm} tab={tab} showMutes={false} highlight={highlight} rests={rests} ghosts={ghosts} legatos={legatos} beats={grid} />
               ) : (
                 <p className="text-[11px] text-zinc-600">
                   Aucune note à afficher en tablature.

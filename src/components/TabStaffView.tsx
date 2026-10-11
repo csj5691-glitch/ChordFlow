@@ -21,6 +21,7 @@ const LINE_H = 15;
 const COL_W = 34;
 const PAD_TOP = 44; // étage : numéro de mesure + chips d'accords
 const GUTTER = 26;
+const BEAT_TICKS = 480; // ticks par temps (noire) : sert à placer la réglette 1 2 3 4
 
 type CellEdit = { fret: number | null; tie: boolean };
 type Edits = Map<string, CellEdit | null>; // null = repos (supprime la note)
@@ -33,6 +34,13 @@ interface Cell {
 
 function cellKey(c: Cell): string {
   return `${c.m}|${c.s}|${c.slot}`;
+}
+
+// Liaison hammer-on (H) / pull-off (P) entre deux notes d'une même corde.
+interface LegatoArc {
+  from: { m: number; s: number; slot: number };
+  to: { m: number; s: number; slot: number };
+  type: "h" | "p";
 }
 
 // Applique les éditions à une copie du modèle (rangées complétées à `slots`) et
@@ -165,6 +173,8 @@ export default function TabStaffView({
   highlight,
   rests,
   ghosts,
+  legatos,
+  beats,
   onChange,
 }: {
   title?: string;
@@ -177,6 +187,10 @@ export default function TabStaffView({
   rests?: TabRest[];
   // Clés de cellules (mesure|corde|colonne) des notes fantômes → entre parenthèses.
   ghosts?: Set<string>;
+  // Arcs hammer-on / pull-off au-dessus des notes liées.
+  legatos?: LegatoArc[];
+  // Réglette des temps : grille rythmique par mesure (ticks/colonne + colonnes).
+  beats?: { unit: number; slots: number }[];
   onChange?: (ascii: string) => void;
 }) {
   const model = useMemo(() => parseAsciiTabModel(tab), [tab]);
@@ -378,6 +392,8 @@ export default function TabStaffView({
                     highlight={highlight}
                     rests={rests ? rests.filter((r) => r.m === m) : undefined}
                     ghosts={ghosts}
+                    legatos={legatos ? legatos.filter((l) => l.from.m === m) : undefined}
+                    beats={beats ? beats[m] : undefined}
                     sel={sel && sel.m === m ? sel : null}
                     onSelect={select}
                     onFret={changeFret}
@@ -407,6 +423,8 @@ function MeasureBox({
   highlight,
   rests,
   ghosts,
+  legatos,
+  beats,
   sel,
   onSelect,
   onFret,
@@ -420,6 +438,8 @@ function MeasureBox({
   highlight?: Set<string>;
   rests?: TabRest[];
   ghosts?: Set<string>;
+  legatos?: LegatoArc[];
+  beats?: { unit: number; slots: number };
   sel: Cell | null;
   onSelect: (cell: Cell, dir?: "left" | "right" | "up" | "down") => void;
   onFret: (cell: Cell, delta: 1 | -1) => void;
@@ -432,27 +452,13 @@ function MeasureBox({
   // Riffs : passages de notes seules → bande teintée + étiquette « RIFF ».
   const riffRuns = detectRiffRuns(rows, slots);
 
-  // Liaisons : suite de slots liés de même case sur une corde → arc de tenue.
-  const ties: { x1: number; x2: number; y: number; key: string }[] = [];
-  for (let s = 0; s < 6; s++) {
-    let runStart = -1;
-    for (let t = 0; t <= slots; t++) {
-      const tok = t < slots ? rows[s][t] : undefined;
-      const tied = tok !== undefined && tok.fret !== null && tok.tie;
-      if (tied && runStart === -1) runStart = t;
-      if ((!tied || t === slots) && runStart !== -1) {
-        if (t - runStart >= 2) {
-          ties.push({
-            x1: runStart * COL_W + COL_W / 2,
-            x2: (t - 1) * COL_W + COL_W / 2,
-            y: PAD_TOP + s * LINE_H - 7,
-            key: `${s}-${runStart}`,
-          });
-        }
-        runStart = -1;
-      }
-    }
-  }
+  // Réglette des temps : positions (en colonnes) des 4 temps de la mesure, d'après
+  // la grille rythmique (ticks par colonne). 4/4 → temps aux ticks 0/480/960/1440.
+  const beatMarks = beats
+    ? [0, 1, 2, 3]
+        .map((b) => ({ beat: b + 1, col: (b * BEAT_TICKS) / beats.unit }))
+        .filter((m) => Number.isInteger(m.col) && m.col >= 0 && m.col < slots)
+    : [];
 
   // Accords plaqués : chaque colonne avec ≥ 2 notes → nom au-dessus + diagramme
   // au survol (strumming).
@@ -531,22 +537,41 @@ function MeasureBox({
         </div>
       ))}
 
-      {/* arcs de tenue */}
+      {/* liaisons hammer-on / pull-off */}
       <svg
         className="absolute inset-0 pointer-events-none"
         width={width}
         height={height}
       >
-        {ties.map((tie) => (
-          <path
-            key={tie.key}
-            d={`M ${tie.x1} ${tie.y} Q ${(tie.x1 + tie.x2) / 2} ${tie.y - 7} ${tie.x2} ${tie.y}`}
-            fill="none"
-            stroke="#94a3b8"
-            strokeWidth={1.4}
-            strokeLinecap="round"
-          />
-        ))}
+        {(legatos ?? [])
+          .filter((l) => l.to.m === index)
+          .map((leg, i) => {
+            const x1 = leg.from.slot * COL_W + COL_W / 2;
+            const x2 = leg.to.slot * COL_W + COL_W / 2;
+            const y = PAD_TOP + leg.from.s * LINE_H - 14;
+            const midX = (x1 + x2) / 2;
+            return (
+              <g key={`leg-${i}`}>
+                <path
+                  d={`M ${x1} ${y} Q ${midX} ${y - 8} ${x2} ${y}`}
+                  fill="none"
+                  stroke="#fbbf24"
+                  strokeWidth={1.4}
+                  strokeLinecap="round"
+                />
+                <text
+                  x={midX}
+                  y={y - 9}
+                  textAnchor="middle"
+                  fontSize={9}
+                  fontWeight={700}
+                  fill="#fbbf24"
+                >
+                  {leg.type === "h" ? "H" : "P"}
+                </text>
+              </g>
+            );
+          })}
       </svg>
 
       {/* silences (pause, demi-pause, soupir, demi-soupir, ...) */}
@@ -632,6 +657,27 @@ function MeasureBox({
             </div>
           );
         })
+      )}
+
+      {/* réglette des temps (1 2 3 4) sous la portée */}
+      {beatMarks.length > 0 && (
+        <div
+          className="absolute inset-x-0 pointer-events-none"
+          style={{ top: PAD_TOP + 6 * LINE_H - 12 }}
+        >
+          {beatMarks.map((m) => (
+            <div
+              key={`beat-${m.beat}`}
+              className="absolute flex flex-col items-center"
+              style={{ left: m.col * COL_W + COL_W / 2, transform: "translateX(-50%)" }}
+            >
+              <span className="block w-px h-1 bg-white/30" />
+              <span className="text-[8px] leading-none font-mono text-zinc-400">
+                {m.beat}
+              </span>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

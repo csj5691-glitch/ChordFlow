@@ -46,6 +46,9 @@ export interface NotesToTabResult {
   outOfRange: number[];
   positions: TabPosition[][];
   rests: TabRest[];
+  // Grille rythmique retenue par mesure (ticks par colonne + nombre de colonnes) :
+  // sert à dessiner la réglette des temps (1 2 3 4) sous la portée.
+  grid: { unit: number; slots: number }[];
 }
 
 // Corde 0 (rangée du haut) = mi aigu (64). Voir ascii-tab-midi (OPEN_NOTES).
@@ -363,7 +366,7 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
   }
 
   if (columns.length === 0) {
-    return { tab: "", measures: 0, noteCount, chordCount, dropped, outOfRange, positions: [], rests: [] };
+    return { tab: "", measures: 0, noteCount, chordCount, dropped, outOfRange, positions: [], rests: [], grid: [] };
   }
 
   const bpm = Math.min(400, Math.max(20, options.bpm ?? 120));
@@ -385,16 +388,19 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
   const rendered: string[][] = [];
   const positions: TabPosition[][] = [];
   const rests: TabRest[] = [];
+  const grid: { unit: number; slots: number }[] = [];
   let gi = 0;
   const maxMb = Math.floor(Math.max(...columns.map((c) => c.startTick)) / BAR_TICKS);
   for (let mb = 0; mb <= maxMb; mb++) {
     const cols = byMeasure.get(mb) ?? [];
     if (cols.length === 0) {
       rendered.push(Array(6).fill(Array(4).fill(MUTE).join("")));
+      grid.push({ unit: TICKS_PER_BEAT, slots: 4 });
       continue;
     }
     const rels = cols.map((c) => c.startTick - mb * BAR_TICKS);
     const { unit, slots } = tuneGrid(rels);
+    grid.push({ unit, slots });
     const entries = cols.map((col) => {
       const slot = Math.round((col.startTick - mb * BAR_TICKS) / unit);
       const assign = assignments[gi] ?? { strings: [], frets: [], pitches: [] };
@@ -437,5 +443,6 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
     outOfRange,
     positions,
     rests,
+    grid,
   };
 }
