@@ -106,29 +106,31 @@ function noteGlyph(beats: number): { beats: number; dot: boolean } {
 
 function NoteFigure({ beats, dot, color }: { beats: number; dot: boolean; color: string }) {
   const filled = beats <= 1;
-  const stemH = 22;
-  const flags = beats <= 0.5 ? (beats <= 0.125 ? (beats <= 0.0625 ? 3 : 2) : 1) : 0;
-  const w = 26;
-  const h = 30;
+  const stemH = 18;
+  const beams = beats <= 0.5 ? (beats <= 0.125 ? (beats <= 0.0625 ? 3 : 2) : 1) : 0;
+  const w = 22;
+  const h = 34;
   const cx = 8;
-  const cy = 14;
+  const cy = 16;
+  const beamH = 2.5;
+  const beamGap = 3.5;
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: "block" }}>
-      <line x1={2} y1={h - 3} x2={w - 2} y2={h - 3} stroke={color} strokeWidth={1.2} />
-      {flags > 0 && (
-        <line x1={cx + 5} y1={cy} x2={cx + 5} y2={cy - stemH} stroke={color} strokeWidth={1.6} />
+      {beams > 0 && (
+        <line x1={cx + 4} y1={cy} x2={cx + 4} y2={cy - stemH} stroke={color} strokeWidth={1.4} />
       )}
-      {flags >= 1 && (
-        <path d={`M ${cx + 5} ${cy - stemH} Q ${cx + 13} ${cy - stemH + 5} ${cx + 9} ${cy - stemH + 10}`} fill="none" stroke={color} strokeWidth={1.4} />
-      )}
-      {flags >= 2 && (
-        <path d={`M ${cx + 5} ${cy - stemH + 7} Q ${cx + 13} ${cy - stemH + 12} ${cx + 9} ${cy - stemH + 17}`} fill="none" stroke={color} strokeWidth={1.4} />
-      )}
-      {flags >= 3 && (
-        <path d={`M ${cx + 5} ${cy - stemH + 14} Q ${cx + 13} ${cy - stemH + 19} ${cx + 9} ${cy - stemH + 24}`} fill="none" stroke={color} strokeWidth={1.4} />
-      )}
-      <ellipse cx={cx} cy={cy} rx={5.5} ry={4} fill={filled ? color : "none"} stroke={color} strokeWidth={1.6} />
-      {dot && <circle cx={cx + 9} cy={cy} r={1.6} fill={color} />}
+      {Array.from({ length: beams }, (_, i) => (
+        <rect
+          key={`b${i}`}
+          x={cx + 4}
+          y={cy - stemH + i * (beamH + beamGap)}
+          width={7}
+          height={beamH}
+          fill={color}
+        />
+      ))}
+      <ellipse cx={cx} cy={cy} rx={5} ry={3.5} fill={filled ? color : "none"} stroke={color} strokeWidth={1.4} />
+      {dot && <circle cx={cx + 8} cy={cy} r={1.4} fill={color} />}
     </svg>
   );
 }
