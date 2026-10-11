@@ -418,6 +418,14 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
       for (const beat of voice.beats) {
         const duration = beatDuration(beat);
 
+        // Notes d'agrément (grace notes) : beat « décoratif » inséré juste
+        // AVANT l'attaque principale (même position de lecture). Il ne crée
+        // aucun diagramme ni temps ; ses notes sont attachées à l'attaque
+        // suivante via graceBefore (voir plus bas).
+        if (beat.graceType) {
+          continue;
+        }
+
         // Beat entièrement LIÉ (toutes les notes sont des tenues de la mesure
         // précédente) : PAS de nouvelle attaque. On prolonge la durée réelle du
         // diagramme précédent pour que le son tienne (et aucun chiffre ne se
@@ -485,6 +493,24 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
           // corde ; la direction est déduite ensuite de la note suivante sur la
           // même corde (resolveSlideDirections).
           const slides: { string: number; dir?: "/" | "\\" }[] = [];
+          // Notes d'agrément rattachées à cette attaque (beat « grace »
+          // précédent, groupé par alphaTab dans graceGroup) : petites notes
+          // jouées juste avant, affichées en réduit avant le diagramme.
+          const graceBefore: { string: number; fret: number }[] = [];
+          if (beat.graceGroup && beat.graceGroup.beats.length > 0) {
+            const graceBeats = [...beat.graceGroup.beats].sort(
+              (a, b) => (a.graceIndex ?? 0) - (b.graceIndex ?? 0)
+            );
+            for (const gb of graceBeats) {
+              for (const gn of gb.notes) {
+                if (!gn.isStringed || gn.isDead || gn.isTieDestination) continue;
+                const gs = STRING_INDEX.get(gn.string);
+                if (gs === undefined || gs < 0 || gs > 5) continue;
+                if (gn.fret === undefined || gn.fret === null || gn.fret < 0) continue;
+                graceBefore.push({ string: gs, fret: gn.fret });
+              }
+            }
+          }
 
           for (const note of beat.notes) {
             if (!note.isStringed || note.fret === undefined || note.fret === null) continue;
@@ -507,7 +533,7 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
             continue;
           }
 
-          const shape = chordShape(fingers, mutedOn, legatoTo, duration, text, undefined, slides);
+          const shape = chordShape(fingers, mutedOn, legatoTo, duration, text, undefined, slides, graceBefore);
           // Chaque note (cordes à vide incluses, fret 0 compris) est une corde qui sonne.
           shape.sounding = fingers.length;
           barChords.push(shape);
@@ -919,6 +945,7 @@ function shapeKey(d: SavedChordShape): string {
     d.baseFret,
     d.capo,
     d.slides,
+    d.graceBefore,
   ]);
 }
 
@@ -1017,7 +1044,8 @@ function chordShape(
   duration: number,
   chordName?: string,
   baseFretHint?: number,
-  slides?: { string: number; dir?: "/" | "\\" }[]
+  slides?: { string: number; dir?: "/" | "\\" }[],
+  graceBefore?: { string: number; fret: number }[]
 ): SavedChordShape {
   // Barre detection: >=3 fretted strings sharing the same fret = barre
   let barreOn = false;
@@ -1080,5 +1108,6 @@ function chordShape(
     duration,
     legatoTo: legatoTo.length ? legatoTo : undefined,
     slides: slides && slides.length ? slides : undefined,
+    graceBefore: graceBefore && graceBefore.length ? graceBefore : undefined,
   };
 }

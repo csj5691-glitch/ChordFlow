@@ -158,6 +158,9 @@ export interface SavedChordShape {
   // visuelle (« / » = vers l'aigu, « \\ » = vers le grave). `dir` absent =
   // direction à déduire de la note suivante sur la même corde.
   slides?: { string: number; dir?: "/" | "\\" }[];
+  // Notes d'agrément (import GP, beat « grace » avant l'attaque) : petites
+  // notes jouées juste avant ce diagramme. Affichées en petit avant l'attaque.
+  graceBefore?: { string: number; fret: number }[];
 }
 
 export interface AnalyzedSong {

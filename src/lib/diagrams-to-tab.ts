@@ -93,6 +93,13 @@ export interface TabSlideMark {
   dir: "/" | "\\";
 }
 
+export interface TabGraceMark {
+  m: number;
+  s: number;
+  slot: number;
+  fret: number;
+}
+
 export function diagramsToTab(
   diagrams: SavedChordShape[],
   options: { title?: string; bpm?: number; originTick?: number } = {}
@@ -116,6 +123,8 @@ export function diagramsToTabWithPositions(
   measureOffset: number;
   // Slides rendus dans la portée (cases + direction), pour le dessin " / " " \ ".
   slides: TabSlideMark[];
+  // Notes d'agrément rendues (petites cases avant l'attaque), pour le dessin réduit.
+  graces: TabGraceMark[];
 } {
   const events: TabNoteEvent[] = [];
   const columnOfDiagram: number[] = [];
@@ -187,6 +196,7 @@ export function diagramsToTabWithPositions(
       grid: [],
       measureOffset: Math.floor((options.originTick ?? 0) / (4 * TICKS_PER_BEAT)),
       slides: [],
+      graces: [],
     };
 
   const result = notesToTab(events, {
@@ -201,6 +211,22 @@ export function diagramsToTabWithPositions(
       if (p.slide) slides.push({ m: p.m, s: p.s, slot: p.slot, dir: p.slide });
     }
   }
+  // Notes d'agrément : pour chaque diagramme avec graceBefore, retrouver la
+  // case rendue (mesure/corde/colonne) et marquer la case de grâce.
+  // grace.string est en convention flow (0 = mi grave) ; pos.s est en
+  // convention notesToTab (0 = mi aigu) → conversion 5 - s.
+  const graces: TabGraceMark[] = [];
+  for (let k = 0; k < diagrams.length; k++) {
+    const g = diagrams[k].graceBefore;
+    if (!g || g.length === 0) continue;
+    const col = columnOfDiagram[k];
+    if (col < 0) continue;
+    const pos = result.positions[col] ?? [];
+    for (const grace of g) {
+      const p = pos.find((pp) => pp.s === 5 - grace.string);
+      if (p) graces.push({ m: p.m, s: p.s, slot: p.slot, fret: grace.fret });
+    }
+  }
   return {
     tab: result.tab,
     cells,
@@ -208,5 +234,6 @@ export function diagramsToTabWithPositions(
     grid: result.grid,
     measureOffset: result.measureOffset,
     slides,
+    graces,
   };
 }

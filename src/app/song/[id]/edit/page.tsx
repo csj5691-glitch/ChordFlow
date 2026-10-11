@@ -349,6 +349,13 @@ function EditSongView({ id }: { id: string }) {
     return map;
   }, [sequenceTab.slides]);
 
+  // Notes d'agrément : case de grâce en petit avant l'attaque.
+  const gracesMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const g of sequenceTab.graces) map.set(`${g.m}|${g.s}|${g.slot}`, g.fret);
+    return map;
+  }, [sequenceTab.graces]);
+
   // Riffs : passages de notes seules (séquences d'« arpèges »), éditables
   // individuellement dans l'éditeur de notes.
   const riffs = useMemo(
@@ -2663,6 +2670,7 @@ body: JSON.stringify({ videoId, stem }),
                         tab={sequenceTab.tab}
                         rests={sequenceTab.rests}
                         slides={slidesMap}
+                        graces={gracesMap}
                         measures={sequenceTab.grid.length}
                       />
                     ) : (

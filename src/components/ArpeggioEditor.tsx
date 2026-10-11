@@ -186,6 +186,21 @@ export default function ArpeggioEditor({
     return map;
   }, [noteSteps, cells, lead]);
 
+  // Notes d'agrément : case de grâce en petit avant l'attaque. Corde du
+  // diagramme (0 = mi grave) → case (0 = mi aigu) = 5 - string.
+  const graces = useMemo(() => {
+    const map = new Map<string, number>();
+    for (let i = 0; i < noteSteps.length; i++) {
+      for (const g of noteSteps[i].graceBefore ?? []) {
+        const tabString = 5 - g.string;
+        for (const c of cells[lead + i] ?? []) {
+          if (c.s === tabString) map.set(`${c.m}|${c.s}|${c.slot}`, g.fret);
+        }
+      }
+    }
+    return map;
+  }, [noteSteps, cells, lead]);
+
   // Hammer-on (H) / pull-off (P) : arcs au-dessus des deux notes liées.
   const legatos = useMemo(() => {
     const pairs: {
@@ -373,7 +388,7 @@ export default function ArpeggioEditor({
       <div className="p-4 flex flex-col gap-5">
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
               {tab ? (
-                <TabStaffView title={title} bpm={bpm} tab={tab} showMutes={false} highlight={highlight} rests={rests} ghosts={ghosts} legatos={legatos} slides={slides} beats={grid} measureOffset={measureOffset} measures={grid.length} />
+                <TabStaffView title={title} bpm={bpm} tab={tab} showMutes={false} highlight={highlight} rests={rests} ghosts={ghosts} legatos={legatos} slides={slides} graces={graces} beats={grid} measureOffset={measureOffset} measures={grid.length} />
               ) : (
                 <p className="text-[11px] text-zinc-600">
                   Aucune note à afficher en tablature.

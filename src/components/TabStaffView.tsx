@@ -198,6 +198,7 @@ export default function TabStaffView({
   ghosts,
   legatos,
   slides,
+  graces,
   beats,
   measureOffset = 0,
   measures,
@@ -217,6 +218,8 @@ export default function TabStaffView({
   legatos?: LegatoArc[];
   // Clés de cellules → direction du slide (« / » ou « \ ») dessinée à côté.
   slides?: Map<string, "/" | "\\">;
+  // Notes d'agrément : clés de cellules → case de grâce, dessinée en petit avant l'attaque.
+  graces?: Map<string, number>;
   // Réglette des temps + valeurs de notes : grille rythmique par mesure.
   beats?: { unit: number; slots: number; notes: { slot: number; beats: number }[] }[];
   // N° (0-based) de la première mesure affichée dans la chanson : décale les
@@ -434,6 +437,7 @@ export default function TabStaffView({
                     ghosts={ghosts}
                     legatos={legatos ? legatos.filter((l) => l.from.m === m) : undefined}
                     slides={slides}
+                    graces={graces}
                     beats={beats ? beats[m] : undefined}
                     sel={sel && sel.m === m ? sel : null}
                     onSelect={select}
@@ -468,6 +472,7 @@ function MeasureBox({
   ghosts,
   legatos,
   slides,
+  graces,
   beats,
   sel,
   onSelect,
@@ -486,6 +491,7 @@ function MeasureBox({
   ghosts?: Set<string>;
   legatos?: LegatoArc[];
   slides?: Map<string, "/" | "\\">;
+  graces?: Map<string, number>;
   beats?: { unit: number; slots: number; notes: { slot: number; beats: number }[] };
   sel: Cell | null;
   onSelect: (cell: Cell, dir?: "left" | "right" | "up" | "down") => void;
@@ -664,6 +670,7 @@ function MeasureBox({
           const isHit = highlight?.has(cellKey(cell)) ?? false;
           const isGhost = ghosts?.has(cellKey(cell)) ?? false;
           const slideDir = slides?.get(cellKey(cell));
+          const graceFret = graces?.get(cellKey(cell));
           const fretted = k === "note";
           const label = fretted
             ? isGhost
@@ -683,6 +690,23 @@ function MeasureBox({
                   className="absolute inset-0 rounded pointer-events-none"
                   style={{ background: "rgba(34,211,238,0.28)", boxShadow: "0 0 0 1px rgba(103,232,249,0.9), 0 0 8px rgba(34,211,238,0.7)" }}
                 />
+              )}
+              {graceFret !== undefined && (
+                <span
+                  className="absolute pointer-events-none select-none"
+                  style={{
+                    left: -7,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    fontSize: 8,
+                    fontWeight: 700,
+                    color: isHit ? "#ffffff" : STRING_COLORS[s],
+                    opacity: 0.85,
+                    zIndex: 5,
+                  }}
+                >
+                  {graceFret}
+                </span>
               )}
               <button
                 type="button"
