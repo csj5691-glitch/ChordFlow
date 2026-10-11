@@ -498,12 +498,22 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
               continue;
             }
             if (note.fret < 0) continue;
+            // Note fantôme (non jouée, sans durée sonore propre dans le fichier
+            // Guitar Pro) : écartée pour ne pas encombrer la tablature — SAUF si
+            // elle porte un slide, le tracé du slide doit rester visible.
+            if (note.isGhost && !note.slideOutType) continue;
             fingers.push({ string: s, fret: note.fret, finger: 0, ghost: note.isGhost });
             if (note.isHammerPullOrigin) legatoTo.push(s);
             if (note.slideOutType) slides.push({ string: s });
           }
 
           if (fingers.length === 0 && !mutedOn.some(Boolean)) {
+            // Le beat n'a produit ni note audible ni étouffement : c'était un
+            // beat de notes fantômes (non jouées). Rappel : leur TEMPS existe
+            // toujours dans le fichier — on garde un silence pour ne pas
+            // raccourcir la mesure.
+            barChords.push(restShape(duration));
+            lastAttacked = barChords[barChords.length - 1];
             continue;
           }
 
