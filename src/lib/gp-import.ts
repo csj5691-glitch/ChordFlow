@@ -339,12 +339,7 @@ export async function analyzeGuitarProFile(file: File): Promise<GpTrackInfo[]> {
   return tracks;
 }
 
-export async function importGuitarProTrack(
-  file: File,
-  trackIndex: number,
-  options: { dropGhostNotes?: boolean } = {}
-): Promise<GpImportResult> {
-  const { dropGhostNotes = false } = options;
+export async function importGuitarProTrack(file: File, trackIndex: number): Promise<GpImportResult> {
   const score = await loadScore(file);
   const warnings: string[] = [];
   const title = score.title || file.name.replace(/\.(gp\d?|gpx|gtp)$/i, "");
@@ -460,9 +455,6 @@ export async function importGuitarProTrack(
               continue;
             }
             if (note.fret < 0) continue;
-            // Option « ignorer les notes fantômes » : la note en parenthèses du
-            // fichier Guitar Pro est écartée (elle ne sonne pas vraiment).
-            if (dropGhostNotes && note.isGhost) continue;
             fingers.push({ string: s, fret: note.fret, finger: 0, ghost: note.isGhost });
             if (note.isHammerPullOrigin) legatoTo.push(s);
           }
