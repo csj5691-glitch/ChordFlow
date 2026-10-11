@@ -91,28 +91,46 @@ function restGlyph(beats: number): { char: string; dot: boolean } {
   return { char: best.char, dot: false };
 }
 
-// Glyphes de valeur de note (Unicode « Musical Symbols ») selon la durée en temps.
-// 4 = ronde, 2 = blanche, 1 = noire, 0,5 = croche, 0,25 = double-croche, etc.
-const NOTES: { beats: number; char: string }[] = [
-  { beats: 4, char: "\u{1D15D}" },
-  { beats: 2, char: "\u{1D15E}" },
-  { beats: 1, char: "\u{1D15F}" },
-  { beats: 0.5, char: "\u{1D160}" },
-  { beats: 0.25, char: "\u{1D161}" },
-  { beats: 0.125, char: "\u{1D162}" },
-  { beats: 0.0625, char: "\u{1D163}" },
-];
+function noteGlyph(beats: number): { beats: number; dot: boolean } {
+  const NOTES = [4, 2, 1, 0.5, 0.25, 0.125, 0.0625];
+  for (const n of NOTES) {
+    if (Math.abs(beats - n) < 0.001) return { beats: n, dot: false };
+    if (Math.abs(beats - n * 1.5) < 0.001) return { beats: n, dot: true };
+  }
+  let best = 1;
+  for (const n of NOTES) {
+    if (Math.abs(beats - n) < Math.abs(beats - best)) best = n;
+  }
+  return { beats: best, dot: false };
+}
 
-function noteGlyph(beats: number): { char: string; dot: boolean } {
-  for (const n of NOTES) {
-    if (Math.abs(beats - n.beats) < 0.001) return { char: n.char, dot: false };
-    if (Math.abs(beats - n.beats * 1.5) < 0.001) return { char: n.char, dot: true };
-  }
-  let best = NOTES[2];
-  for (const n of NOTES) {
-    if (Math.abs(beats - n.beats) < Math.abs(beats - best.beats)) best = n;
-  }
-  return { char: best.char, dot: false };
+function NoteFigure({ beats, dot, color }: { beats: number; dot: boolean; color: string }) {
+  const filled = beats <= 1;
+  const stemH = 22;
+  const flags = beats <= 0.5 ? (beats <= 0.125 ? (beats <= 0.0625 ? 3 : 2) : 1) : 0;
+  const w = 26;
+  const h = 30;
+  const cx = 8;
+  const cy = 14;
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: "block" }}>
+      <line x1={2} y1={h - 3} x2={w - 2} y2={h - 3} stroke={color} strokeWidth={1.2} />
+      {flags > 0 && (
+        <line x1={cx + 5} y1={cy} x2={cx + 5} y2={cy - stemH} stroke={color} strokeWidth={1.6} />
+      )}
+      {flags >= 1 && (
+        <path d={`M ${cx + 5} ${cy - stemH} Q ${cx + 13} ${cy - stemH + 5} ${cx + 9} ${cy - stemH + 10}`} fill="none" stroke={color} strokeWidth={1.4} />
+      )}
+      {flags >= 2 && (
+        <path d={`M ${cx + 5} ${cy - stemH + 7} Q ${cx + 13} ${cy - stemH + 12} ${cx + 9} ${cy - stemH + 17}`} fill="none" stroke={color} strokeWidth={1.4} />
+      )}
+      {flags >= 3 && (
+        <path d={`M ${cx + 5} ${cy - stemH + 14} Q ${cx + 13} ${cy - stemH + 19} ${cx + 9} ${cy - stemH + 24}`} fill="none" stroke={color} strokeWidth={1.4} />
+      )}
+      <ellipse cx={cx} cy={cy} rx={5.5} ry={4} fill={filled ? color : "none"} stroke={color} strokeWidth={1.6} />
+      {dot && <circle cx={cx + 9} cy={cy} r={1.6} fill={color} />}
+    </svg>
+  );
 }
 
 function ChordMini({ frets }: { frets: (number | null)[] }) {
@@ -742,7 +760,7 @@ function MeasureBox({
         })
       )}
 
-      {/* valeur de chaque note (glyphe de durée) sous sa colonne */}
+      {/* valeur de chaque note (figure de rythme SVG) sous sa colonne */}
       {valueMarks.length > 0 && (
         <div
           className="absolute inset-x-0 pointer-events-none"
@@ -751,18 +769,13 @@ function MeasureBox({
           {valueMarks.map((m, i) => (
             <span
               key={`val-${i}`}
-              className="absolute leading-none"
+              className="absolute"
               style={{
                 left: m.slot * COL_W + COL_W / 2,
                 transform: "translateX(-50%)",
-                fontSize: 13,
-                color: "#a1a1aa",
-                fontFamily:
-                  "'Bravura','Noto Music','Segoe UI Symbol','Symbola','DejaVu Sans',serif",
               }}
             >
-              {m.char}
-              {m.dot ? <span style={{ fontSize: 9, verticalAlign: "top" }}>·</span> : null}
+              <NoteFigure beats={m.beats} dot={m.dot} color="#a1a1aa" />
             </span>
           ))}
         </div>
