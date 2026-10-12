@@ -91,48 +91,58 @@ function restGlyph(beats: number): { char: string; dot: boolean } {
   return { char: best.char, dot: false };
 }
 
-function noteGlyph(beats: number): { beats: number; dot: boolean } {
-  const NOTES = [4, 2, 1, 0.5, 0.25, 0.125, 0.0625];
-  for (const n of NOTES) {
-    if (Math.abs(beats - n) < 0.001) return { beats: n, dot: false };
-    if (Math.abs(beats - n * 1.5) < 0.001) return { beats: n, dot: true };
+// Figure de rythme « Songsterr/GP » : une tige par attaque + des barres
+// horizontales reliant les attaques d'un même groupe de temps. En 4/4 on
+// groupe les croches par 2 (+2+2), les double-croches par 4, etc.
+//   blanche        : petite tige, sans barre
+//   noire          : tige plus longue, sans barre
+//   croche (1/8)   : tige longue + 1 barre horizontale
+//   double croche  : tige longue + 2 barres
+//   triple croche  : tige longue + 3 barres
+export function rhythmBeams(
+  notes: { slot: number; beats: number }[],
+  slots: number
+): { startSlot: number; endSlot: number; cols: number[]; barYs: number[]; stemTop: number }[] {
+  const colsPerTemps = slots / 4; // signature 4/4 : 4 temps par mesure
+  const sorted = notes
+    .filter((n) => n.slot >= 0 && n.slot < slots && n.beats > 0)
+    .sort((a, b) => a.slot - b.slot);
+  const out: { startSlot: number; endSlot: number; cols: number[]; barYs: number[]; stemTop: number }[] = [];
+  // y (haut->bas) de la base, puis barres empilées vers le haut.
+  const BAR_YS: Record<number, number[]> = { 1: [12], 2: [8, 12], 3: [4, 8, 12] };
+  let cum = 0;
+  for (const n of sorted) {
+    const b = n.beats;
+    // Nombre de barres selon la division du temps : noire+ (≥1) : 0 barre,
+    // croche (0,5) : 1, double croche (0,25) : 2, triple (0,125) : 3.
+    const beams = b >= 0.999 ? 0 : b >= 0.499 ? 1 : b >= 0.249 ? 2 : 3;
+    const slateTop = beams >= 1 ? Math.min(...BAR_YS[beams]) : b >= 2 ? 20 : 14;
+    const prev = out[out.length - 1];
+    // Largeur (en slots) d'une subdivision de même valeur que la précédente :
+    // croche=0.5 temps → pas de slots d'une attaque à la suivante.
+    const step =
+      beams >= 1 ? Math.max(1, Math.round((0.5 / Math.pow(2, beams - 1)) * colsPerTemps)) : 0;
+    if (
+      beams >= 1 &&
+      prev &&
+      prev.barYs.length > 0 &&
+      n.slot - prev.cols[prev.cols.length - 1] === step &&
+      cum + b <= 1.001
+    ) {
+      prev.cols.push(n.slot);
+      cum += b;
+    } else {
+      out.push({
+        startSlot: n.slot,
+        endSlot: n.slot,
+        cols: [n.slot],
+        barYs: beams >= 1 ? BAR_YS[beams] : [],
+        stemTop: slateTop,
+      });
+      cum = b;
+    }
   }
-  let best = 1;
-  for (const n of NOTES) {
-    if (Math.abs(beats - n) < Math.abs(beats - best)) best = n;
-  }
-  return { beats: best, dot: false };
-}
-
-function NoteFigure({ beats, dot, color }: { beats: number; dot: boolean; color: string }) {
-  const filled = beats <= 1;
-  const stemH = 18;
-  const beams = beats <= 0.5 ? (beats <= 0.125 ? (beats <= 0.0625 ? 3 : 2) : 1) : 0;
-  const w = 22;
-  const h = 34;
-  const cx = 8;
-  const cy = 16;
-  const beamH = 2.5;
-  const beamGap = 3.5;
-  return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: "block" }}>
-      {beams > 0 && (
-        <line x1={cx + 4} y1={cy} x2={cx + 4} y2={cy - stemH} stroke={color} strokeWidth={1.4} />
-      )}
-      {Array.from({ length: beams }, (_, i) => (
-        <rect
-          key={`b${i}`}
-          x={cx + 4}
-          y={cy - stemH + i * (beamH + beamGap)}
-          width={7}
-          height={beamH}
-          fill={color}
-        />
-      ))}
-      <ellipse cx={cx} cy={cy} rx={5} ry={3.5} fill={filled ? color : "none"} stroke={color} strokeWidth={1.4} />
-      {dot && <circle cx={cx + 8} cy={cy} r={1.4} fill={color} />}
-    </svg>
-  );
+  return out;
 }
 
 function ChordMini({ frets }: { frets: (number | null)[] }) {
@@ -521,15 +531,13 @@ function MeasureBox({
   const { slots, rows } = measure;
   const width = slots * COL_W;
   const height = PAD_TOP + 6 * LINE_H;
-  const VALUE_H = 16; // hauteur de la bande « valeur des notes » sous la portée
+  const VALUE_H = 30; // hauteur de la bande « figure de rythme » sous la portée
 
   // Riffs : passages de notes seules → bande teintée + étiquette « RIFF ».
   const riffRuns = detectRiffRuns(rows, slots);
 
-  // Valeur de chaque note (glyphe) sous sa colonne d'attaque.
-  const valueMarks = (beats?.notes ?? [])
-    .filter((n) => n.slot >= 0 && n.slot < slots && n.beats > 0)
-    .map((n) => ({ slot: n.slot, ...noteGlyph(n.beats) }));
+  // Valeur de chaque attaque (figure de rythme « Songsterr ») sous sa colonne.
+  const valueMarks = rhythmBeams(beats?.notes ?? [], slots);
 
   // Accords plaqués : chaque colonne avec ≥ 2 notes → nom au-dessus + diagramme
   // au survol (strumming).
@@ -762,24 +770,63 @@ function MeasureBox({
         })
       )}
 
-      {/* valeur de chaque note (figure de rythme SVG) sous sa colonne */}
+      {/* figure de rythme sous la portée : tiges + barres verticales groupées
+          par temps (2+2+2+2 en 4/4) */}
       {valueMarks.length > 0 && (
         <div
           className="absolute inset-x-0 pointer-events-none"
-          style={{ top: PAD_TOP + 6 * LINE_H + 1 }}
+          style={{ top: PAD_TOP + 6 * LINE_H + 1, height: VALUE_H }}
         >
-          {valueMarks.map((m, i) => (
-            <span
-              key={`val-${i}`}
-              className="absolute"
-              style={{
-                left: m.slot * COL_W + COL_W / 2,
-                transform: "translateX(-50%)",
-              }}
-            >
-              <NoteFigure beats={m.beats} dot={m.dot} color="#a1a1aa" />
-            </span>
-          ))}
+          {valueMarks.map((m, i) => {
+            const x0 = m.cols[0] * COL_W + COL_W / 2;
+            const x1 = m.cols[m.cols.length - 1] * COL_W + COL_W / 2;
+            const left = Math.min(x0, x1);
+            const right = Math.max(x0, x1);
+            const base = VALUE_H - 4; // ligne de base des tiges
+            const stemTop = m.stemTop; // haut de tige (blanche courte, noire longue, barres au sommet)
+            return (
+              <svg
+                key={`val-${i}`}
+                className="absolute"
+                style={{ left: left - 6, top: 0 }}
+                width={right - left + 14}
+                height={VALUE_H}
+                viewBox={`0 0 ${right - left + 14} ${VALUE_H}`}
+              >
+                {/* barres horizontales : 1=croche, 2=double, 3=triple */}
+                {m.barYs.map((y, bi) => (
+                  <rect
+                    key={`vb${bi}`}
+                    x={4}
+                    y={y - 2.5}
+                    width={right - left + 6}
+                    height={3}
+                    fill="#a1a1aa"
+                  />
+                ))}
+                {/* tiges verticales de chaque attaque */}
+                {m.cols.map((slot, ci) => (
+                  <line
+                    key={`vs${ci}`}
+                    x1={slot * COL_W + COL_W / 2 - left + 6}
+                    y1={base}
+                    x2={slot * COL_W + COL_W / 2 - left + 6}
+                    y2={stemTop}
+                    stroke="#a1a1aa"
+                    strokeWidth={1.4}
+                  />
+                ))}
+                {/* petite tête de note sur la ligne de base */}
+                <ellipse
+                  cx={m.cols[0] * COL_W + COL_W / 2 - left + 6}
+                  cy={base}
+                  rx={3}
+                  ry={2.2}
+                  fill="#a1a1aa"
+                />
+              </svg>
+            );
+          })}
         </div>
       )}
     </div>
