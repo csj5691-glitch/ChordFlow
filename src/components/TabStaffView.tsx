@@ -14,6 +14,7 @@ import {
   serializeTabModel,
   detectRiffRuns,
   TAB_STRING_NAMES,
+  parseTuningNotes,
   MAX_FRET,
 } from "@/lib/tab-view";
 
@@ -65,18 +66,6 @@ function buildEditedMeasures(model: AsciiTabModel, edits: Edits): (TabToken | un
 }
 
 const STRING_COLORS = ["#86efac", "#fbbf24", "#67e8f9", "#a78bfa", "#f472b6", "#f87171"];
-
-// Noms de cordes (aiguë en haut → grave en bas) déduits d'un libellé
-// d'accordage de type « D A F C G C ». Renvoie undefined si le libellé n'est
-// pas une liste de 6 notes (ex. « Standard (EADGBE) ») : on garde alors
-// l'affichage standard.
-function tuningStringNames(tuning?: string): string[] | undefined {
-  if (!tuning) return undefined;
-  const parts = tuning.trim().split(/\s+/);
-  if (parts.length !== 6) return undefined;
-  if (!parts.every((p) => /^[A-Ga-g][#b]?$/.test(p))) return undefined;
-  return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1));
-}
 
 // Symboles de silence (Unicode « Musical Symbols ») selon la durée en temps
 // (1 temps = noire). 4 = pause, 2 = demi-pause, 1 = soupir, 0,5 = demi-soupir,
@@ -324,7 +313,7 @@ export default function TabStaffView({
   const gridRef = useRef<HTMLDivElement | null>(null);
 
   const stringNames = useMemo(
-    () => tuningStringNames(tuning) ?? TAB_STRING_NAMES,
+    () => parseTuningNotes(tuning) ?? TAB_STRING_NAMES,
     [tuning]
   );
 

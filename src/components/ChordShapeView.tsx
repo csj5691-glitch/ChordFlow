@@ -4,6 +4,7 @@
 import type { SavedChordShape } from "@/lib/types";
 import { BarGlyph } from "@/components/BarGlyph";
 import { NavGlyph } from "@/components/NavGlyph";
+import { parseTuningNotes } from "@/lib/tab-view";
 
 const STRING_NAMES = ["E", "A", "D", "G", "B", "e"];
 const STRING_COUNT = 6;
@@ -22,14 +23,21 @@ interface ChordShapeViewProps {
   onNoteClick?: (stringIndex: number) => void;
   legatoStrings?: number[];
   showMutes?: boolean;
+  // Libellé d'accordage (ex. « D A F C G C », aigu → grave) : remplace les noms
+  // de cordes standard (E A D G B e) affichés au-dessus du diagramme.
+  tuning?: string;
 }
 
 function strIsMuted(shape: SavedChordShape, s: number): boolean {
   return shape.muted[s] === true;
 }
 
-export default function ChordShapeView({ shape, onNoteClick, legatoStrings, showMutes = true }: ChordShapeViewProps) {
+export default function ChordShapeView({ shape, onNoteClick, legatoStrings, showMutes = true, tuning }: ChordShapeViewProps) {
   const baseFret = shape.baseFret || 1;
+  // Le diagramme va de la corde grave (gauche) à l'aiguë (droite) : l'accordage
+  // étant listé aigu → grave, on l'inverse.
+  const tuned = parseTuningNotes(tuning);
+  const stringNames = tuned ? [...tuned].reverse() : STRING_NAMES;
 
   if (shape.silence) {
     const cx = SVG_WIDTH / 2;
@@ -142,7 +150,7 @@ export default function ChordShapeView({ shape, onNoteClick, legatoStrings, show
         {shape.label}
       </text>
 
-      {STRING_NAMES.map((name, sIdx) => {
+      {stringNames.map((name, sIdx) => {
         const x = PADDING + sIdx * STRING_SPACING;
         const isMutedStr = strIsMuted(shape, sIdx);
         const isOpen = !isMutedStr && effectiveFret(sIdx) === 0;

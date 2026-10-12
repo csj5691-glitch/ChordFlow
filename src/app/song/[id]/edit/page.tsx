@@ -2743,6 +2743,7 @@ body: JSON.stringify({ videoId, stem }),
                     <div className="w-40 flex-shrink-0">
                       <ChordShapeView
                         shape={d}
+                        tuning={song?.tuning}
                         onNoteClick={
                           legatoEdit === i
                             ? (s) => {

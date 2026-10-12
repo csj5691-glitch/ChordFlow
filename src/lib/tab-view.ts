@@ -12,6 +12,18 @@ export const TAB_STRING_NAMES = ["e", "B", "G", "D", "A", "E"];
 export const MAX_FRET = 24;
 const DEFAULT_BPM = 120;
 
+// Noms de cordes déduits d'un libellé d'accordage de type « D A F C G C »,
+// listé de l'aiguë (haut) vers la grave (bas). Renvoie undefined si le libellé
+// n'est pas une liste de 6 notes (ex. « Standard (EADGBE) ») : l'appelant garde
+// alors l'affichage standard.
+export function parseTuningNotes(tuning?: string): string[] | undefined {
+  if (!tuning) return undefined;
+  const parts = tuning.trim().split(/\s+/);
+  if (parts.length !== 6) return undefined;
+  if (!parts.every((p) => /^[A-Ga-g][#b]?$/.test(p))) return undefined;
+  return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1));
+}
+
 export function slotKind(token: TabToken | undefined): TabSlotKind {
   if (!token) return "rest";
   return token.fret === null ? "mute" : "note";

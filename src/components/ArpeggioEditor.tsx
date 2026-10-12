@@ -441,7 +441,7 @@ export default function ArpeggioEditor({
                     </div>
 
                     <div className="w-40">
-                      <ChordShapeView shape={step} showMutes={false} />
+                      <ChordShapeView shape={step} showMutes={false} tuning={tuning} />
                     </div>
 
                     {isSingle ? (
