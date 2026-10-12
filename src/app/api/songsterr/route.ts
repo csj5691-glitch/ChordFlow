@@ -36,13 +36,14 @@ function midiToNote(midi: number): string {
 }
 
 function tuningLabel(notes: string[]): string {
-  const joined = notes.join(" ");
-  const known = KNOWN_TUNINGS[joined];
+  // L'API Songsterr liste les cordes de l'aiguë (haut) vers la grave (bas) :
+  // c'est déjà l'ordre de l'en-tête de tablature (ex. « D A F C G C »).
+  const display = notes.join(" ");
+  // Les libellés connus sont répertoriés dans l'ordre grave → aigu (ex.
+  // « E A D G B E ») : on inverse pour la recherche, mais on affiche l'en-tête.
+  const known = KNOWN_TUNINGS[[...notes].reverse().join(" ")];
   if (known) return known;
-  // Une fois connu écarté, on affiche la gamme comme l'en-tête de la tablature :
-  // de la corde aiguë (haut) à la corde grave (bas). L'API Songsterr donne les
-  // cordes dans l'ordre grave → aigu, on le retourne.
-  return [...notes].reverse().join(" ");
+  return display;
 }
 
 export async function GET(req: NextRequest) {
