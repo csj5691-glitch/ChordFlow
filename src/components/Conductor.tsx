@@ -1070,6 +1070,22 @@ export default function Conductor({
     if (s < mEnd - 1e-6 && e > mStart + 1e-6) acc.push(i);
     return acc;
   }, []);
+  // Riff vs accord pour la mesure courante : « riff » quand tout se joue sur 1 à
+  // 2 cordes à la fois, « accord » dès qu'une attaque fait sonner 3 notes ou plus.
+  const measureKind = (() => {
+    let maxSim = 0;
+    for (const evIdx of measureIdxs) {
+      const mEv = bandEvents[evIdx];
+      if (!mEv || !mEv.shape) continue;
+      const mSilence =
+        mEv.silence ||
+        ((mEv.notes.length === 0 || mEv.notes[0] === 0) &&
+          !(mEv.mutedNotes && mEv.mutedNotes.length > 0));
+      if (mSilence || (mEv.shape.drumHits ?? 0) > 0) continue;
+      maxSim = Math.max(maxSim, mEv.notes.length);
+    }
+    return maxSim === 0 ? null : maxSim >= 3 ? "accord" : "riff";
+  })();
   const dur2 = totalMs / 1000;
   const elapsedPct = totalMs > 0 ? Math.min(100, (elapsedMs / totalMs) * 100) : 0;
   const pct = cur ? (cur.start / dur2) * 100 : elapsedPct;
@@ -1281,13 +1297,31 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
                   {cur.sectionLabel}
                 </span>
               )}
-              <span className="text-[11px] font-mono text-zinc-400 bg-zinc-800/60 border border-zinc-700/60 rounded-full px-2.5 py-0.5">
-                Mesure {measureForBeat((cur.start * bpm) / 60, measureInfo) + 1}
-                {" · temps "}
-                {Math.max(1, Math.round(beatInMeasure((cur.start * bpm) / 60, measureInfo)))}
-                <span className="text-zinc-600">/{measureInfo.top}</span>
-                <span className="text-zinc-600"> · {measureInfo.top}/{measureInfo.bottom}</span>
-              </span>
+              <div className="flex flex-col items-center gap-0.5">
+                <span className="text-[11px] font-mono text-zinc-400 bg-zinc-800/60 border border-zinc-700/60 rounded-full px-2.5 py-0.5">
+                  Mesure {measureForBeat((cur.start * bpm) / 60, measureInfo) + 1}
+                  {" · temps "}
+                  {Math.max(1, Math.round(beatInMeasure((cur.start * bpm) / 60, measureInfo)))}
+                  <span className="text-zinc-600">/{measureInfo.top}</span>
+                  <span className="text-zinc-600"> · {measureInfo.top}/{measureInfo.bottom}</span>
+                </span>
+                {measureKind && (
+                  <span
+                    title={
+                      measureKind === "riff"
+                        ? "Mesure jouée en riffs (1 à 2 cordes à la fois)"
+                        : "Mesure en accords (plus de 2 notes simultanées)"
+                    }
+                    className={`text-[10px] font-mono font-bold border rounded-full px-2 py-0.5 ${
+                      measureKind === "riff"
+                        ? "text-cyan-300 bg-cyan-500/10 border-cyan-500/40"
+                        : "text-amber-300 bg-amber-400/10 border-amber-400/40"
+                    }`}
+                  >
+                    {measureKind === "riff" ? "Riff" : "Accord"}
+                  </span>
+                )}
+              </div>
               {curNv && (
                 <span
                   title={curNv.title}
