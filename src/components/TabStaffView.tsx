@@ -66,6 +66,18 @@ function buildEditedMeasures(model: AsciiTabModel, edits: Edits): (TabToken | un
 
 const STRING_COLORS = ["#86efac", "#fbbf24", "#67e8f9", "#a78bfa", "#f472b6", "#f87171"];
 
+// Noms de cordes (aiguë en haut → grave en bas) déduits d'un libellé
+// d'accordage de type « D A F C G C ». Renvoie undefined si le libellé n'est
+// pas une liste de 6 notes (ex. « Standard (EADGBE) ») : on garde alors
+// l'affichage standard.
+function tuningStringNames(tuning?: string): string[] | undefined {
+  if (!tuning) return undefined;
+  const parts = tuning.trim().split(/\s+/);
+  if (parts.length !== 6) return undefined;
+  if (!parts.every((p) => /^[A-Ga-g][#b]?$/.test(p))) return undefined;
+  return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1));
+}
+
 // Symboles de silence (Unicode « Musical Symbols ») selon la durée en temps
 // (1 temps = noire). 4 = pause, 2 = demi-pause, 1 = soupir, 0,5 = demi-soupir,
 // 0,25 = quart de soupir, 0,125 = huitième de soupir, 0,0625 = seizième.
@@ -274,6 +286,7 @@ export default function TabStaffView({
   beats,
   measureOffset = 0,
   measures,
+  tuning,
   onChange,
 }: {
   title?: string;
@@ -300,12 +313,20 @@ export default function TabStaffView({
   // Nombre de mesures RÉELLES (ignoré si strictement supérieur à celui du modèle) :
   // masque la mesure vide synthétique ajoutée pour le dernier barreau `|`.
   measures?: number;
+  // Libellé d'accordage (ex. « D A F C G C ») : remplace les noms de cordes
+  // standard affichés à gauche de la portée.
+  tuning?: string;
   onChange?: (ascii: string) => void;
 }) {
   const model = useMemo(() => parseAsciiTabModel(tab), [tab]);
   const [edits, setEdits] = useState<Edits>(new Map());
   const [sel, setSel] = useState<Cell | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
+
+  const stringNames = useMemo(
+    () => tuningStringNames(tuning) ?? TAB_STRING_NAMES,
+    [tuning]
+  );
 
   const currentMeasures = useMemo(
     () =>
@@ -484,9 +505,9 @@ export default function TabStaffView({
                   className="relative shrink-0 border-r-2 border-white/25"
                   style={{ width: GUTTER, height: PAD_TOP + 6 * LINE_H }}
                 >
-                  {TAB_STRING_NAMES.map((name, s) => (
+                  {stringNames.map((name, s) => (
                     <span
-                      key={name}
+                      key={s}
                       className="absolute right-1.5 text-[9px] font-mono text-zinc-500 leading-none"
                       style={{ top: PAD_TOP + s * LINE_H - 5 }}
                     >

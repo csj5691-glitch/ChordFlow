@@ -83,6 +83,8 @@ interface ArpeggioEditorProps {
   // Index (absolu dans `diagrams`) du diagramme en cours de lecture lors d'une
   // lecture globale (« Écouter tout »), pour surligner la note sur la portée.
   playingIndex?: number | null;
+  // Libellé d'accordage de la piste (ex. « D A F C G C »), affiché à gauche des portées.
+  tuning?: string;
 }
 
 export default function ArpeggioEditor({
@@ -96,6 +98,7 @@ export default function ArpeggioEditor({
   embedded = false,
   heading = "Éditeur d'arpège",
   playingIndex = null,
+  tuning,
 }: ArpeggioEditorProps) {
   const [endIdx, setEndIdx] = useState(end);
   const [playing, setPlaying] = useState(false);
@@ -388,7 +391,7 @@ export default function ArpeggioEditor({
       <div className="p-4 flex flex-col gap-5">
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
               {tab ? (
-                <TabStaffView title={title} bpm={bpm} tab={tab} showMutes={false} highlight={highlight} rests={rests} ghosts={ghosts} legatos={legatos} slides={slides} graces={graces} beats={grid} measureOffset={measureOffset} measures={grid.length} />
+                <TabStaffView title={title} bpm={bpm} tab={tab} showMutes={false} highlight={highlight} rests={rests} ghosts={ghosts} legatos={legatos} slides={slides} graces={graces} beats={grid} measureOffset={measureOffset} measures={grid.length} tuning={tuning} />
               ) : (
                 <p className="text-[11px] text-zinc-600">
                   Aucune note à afficher en tablature.

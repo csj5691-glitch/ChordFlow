@@ -159,11 +159,13 @@ function TabPreview({
   ascii,
   title,
   bpm,
+  tuning,
   onImportMidi,
 }: {
   ascii: string;
   title?: string;
   bpm?: number;
+  tuning?: string;
   onImportMidi: (ascii: string) => void;
 }) {
   const [mode, setMode] = useState<"text" | "tab">("tab");
@@ -201,7 +203,7 @@ function TabPreview({
           {currentAscii}
         </pre>
       ) : (
-        <TabStaffView title={title} bpm={bpm} tab={currentAscii} editable onChange={setAdapted} />
+        <TabStaffView title={title} bpm={bpm} tab={currentAscii} editable onChange={setAdapted} tuning={tuning} />
       )}
       <div className="flex items-center gap-2 flex-wrap">
         <button
@@ -1691,6 +1693,7 @@ body: JSON.stringify({ videoId, stem }),
                   end={diagrams.length - 1}
                   title={song?.title}
                   bpm={bpm}
+                  tuning={song?.tuning}
                   playingIndex={playingAll ? playingIndex : null}
                   onChange={(list) => upsert({ ...song, diagrams: list })}
                 />
@@ -1707,6 +1710,7 @@ body: JSON.stringify({ videoId, stem }),
                     end={riff.end}
                     title={song?.title}
                     bpm={bpm}
+                    tuning={song?.tuning}
                     playingIndex={playingAll ? playingIndex : null}
                     onChange={(list) => upsert({ ...song, diagrams: list })}
                   />
@@ -2412,6 +2416,7 @@ body: JSON.stringify({ videoId, stem }),
                         ascii={ntResult.result.tab}
                         title={ntResult.result.title || ntResult.trackName}
                         bpm={ntResult.result.bpm}
+                        tuning={song?.tuning}
                         onImportMidi={(t) => void handleNtImportMidi(t)}
                       />
                       <div className="flex items-center justify-end gap-2 flex-wrap">
@@ -2681,6 +2686,7 @@ body: JSON.stringify({ videoId, stem }),
                         slides={slidesMap}
                         graces={gracesMap}
                         measures={sequenceTab.grid.length}
+                        tuning={song?.tuning}
                       />
                     ) : (
                       <p className="text-[11px] text-zinc-600">
@@ -3131,6 +3137,7 @@ body: JSON.stringify({ videoId, stem }),
           end={arpEdit.end}
           title={song?.title}
           bpm={bpm}
+          tuning={song?.tuning}
           onClose={() => setArpEdit(null)}
           onChange={(list) => upsert({ ...song, diagrams: list })}
         />
