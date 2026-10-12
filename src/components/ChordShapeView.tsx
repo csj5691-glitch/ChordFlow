@@ -33,7 +33,19 @@ function strIsMuted(shape: SavedChordShape, s: number): boolean {
 }
 
 export default function ChordShapeView({ shape, onNoteClick, legatoStrings, showMutes = true, tuning }: ChordShapeViewProps) {
-  const baseFret = shape.baseFret || 1;
+  const shapeBaseFret = shape.baseFret || 1;
+  // Un accord joué dans les 4 premières cases est toujours représenté au sillet,
+  // avec les cases 1 à 5 visibles (même si la forme est enregistrée plus haut).
+  // Les formes avec capo ou barré conservent leur position d'origine.
+  const fingerFrets = shape.fingers
+    .map((f) => f.fret)
+    .filter((fret) => fret > 0);
+  const atNut =
+    !shape.capo &&
+    !shape.barreOn &&
+    fingerFrets.length > 0 &&
+    Math.max(...fingerFrets) <= 4;
+  const baseFret = atNut ? 1 : shapeBaseFret;
   // Le diagramme va de la corde grave (gauche) à l'aiguë (droite) : l'accordage
   // étant listé aigu → grave, on l'inverse.
   const tuned = parseTuningNotes(tuning);
