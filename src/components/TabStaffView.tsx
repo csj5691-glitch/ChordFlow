@@ -95,12 +95,16 @@ function restGlyph(beats: number): { char: string; dot: boolean } {
 // horizontales reliant les attaques d'un même temps. En 4/4 on groupe les
 // notes dont les débuts tombent dans la fenêtre d'un temps et dont la somme
 // des valeurs ≤ 1 temps (2 croches, ou 4 doubles, ou 1 croche + 2 doubles…).
-// Les barres sont empilées de bas en haut : croche = 1 barre (la plus basse),
-// double croche = 2, triple = 3, quadruple = 4… Peu importe la valeur, des
-// divisions différentes se combinent sur la même barre : une barre de niveau
-// n relie toutes les notes du groupe qui subdivisent au moins n fois.
+// Chaque tige part d'une barre horizontale et monte vers la tête (en haut) ;
+// la barre de niveau 1 est le socle tout en bas, les niveaux supérieurs sont
+// empilés au-dessus : croche = 1 barre (le socle), double croche = 2, triple
+// = 3, quadruple = 4… Peu importe la valeur, des divisions différentes se
+// combinent sur la même barre : une barre de niveau n relie toutes les notes
+// du groupe qui subdivisent au moins n fois.
 //   blanche : petite tige, sans barre   noire : tige longue, sans barre
-const BAR_Y_OF_LEVEL = (level: number): number => 18 - 4 * level; // 1 → 14 (bas), 2 → 10, 3 → 6, 4 → 2
+const HEAD_Y = 8; // ligne haute des têtes de notes
+const BAR_Y_OF_LEVEL = (level: number): number => 30 - 4 * level; // 1 → 26 (bas/socle), 2 → 22, 3 → 18, 4 → 14
+const SOCLE_Y = BAR_Y_OF_LEVEL(1); // barre la plus basse, d'où partent les tiges
 
 function divisionLevel(beats: number): number {
   if (beats >= 0.999) return 0;
@@ -163,10 +167,11 @@ export function rhythmBeams(
         y: BAR_Y_OF_LEVEL(lv),
       });
     }
-    // Tige de chaque attaque : montée jusqu'à la barre la plus haute qu'elle
-    // touche ; noire longue (14), blanche plus courte (20), sans barre.
+    // Tige de chaque attaque : elle part de la barre (socle, en bas) et monte
+    // jusqu'à la tête de note (en haut). Noire longue, blanche plus courte,
+    // sans barre.
     const tops = g.levels.map((l, i) =>
-      l >= 1 ? BAR_Y_OF_LEVEL(l) : g.beats[i] >= 2 ? 20 : 14
+      l >= 1 ? SOCLE_Y : g.beats[i] >= 2 ? HEAD_Y + 6 : HEAD_Y + 12
     );
     out.push({
       startSlot: g.cols[0],
@@ -818,7 +823,6 @@ function MeasureBox({
             const xs = m.cols.map((slot) => slot * COL_W + COL_W / 2);
             const left = Math.min(...xs) - 6;
             const right = Math.max(...xs) + 6;
-            const base = VALUE_H - 4; // ligne de base des tiges
             return (
               <svg
                 key={`val-${i}`}
@@ -845,22 +849,23 @@ function MeasureBox({
                     />
                   );
                 })}
-                {/* tiges verticales de chaque attaque */}
+                {/* tiges verticales de chaque attaque : de la barre (bas)
+                    jusqu'à la tête de note (haut) */}
                 {m.cols.map((slot, ci) => (
                   <line
                     key={`vs${ci}`}
                     x1={slot * COL_W + COL_W / 2 - left}
-                    y1={base}
+                    y1={m.tops[ci]}
                     x2={slot * COL_W + COL_W / 2 - left}
-                    y2={m.tops[ci]}
+                    y2={HEAD_Y}
                     stroke="#a1a1aa"
                     strokeWidth={1.4}
                   />
                 ))}
-                {/* petite tête de note sur la ligne de base */}
+                {/* petite tête de note sur la ligne haute */}
                 <ellipse
                   cx={m.cols[0] * COL_W + COL_W / 2 - left}
-                  cy={base}
+                  cy={HEAD_Y}
                   rx={3}
                   ry={2.2}
                   fill="#a1a1aa"
