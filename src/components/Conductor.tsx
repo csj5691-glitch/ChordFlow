@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import { ChevronLeft, ChevronRight, Pause, Square, Play, RotateCcw, X } from "lucide-react";
 import { renderSequence, beatsForShape, legatoStringName, measureInfoFromSignature, measureForBeat, beatInMeasure, type SynthEvent } from "@/lib/chord-synth";
+import { soundingNotes } from "@/lib/articulation";
 import { parseChordContent } from "@/lib/chord-parser";
 import { decodeHtmlEntities } from "@/lib/ug-scraper";
 import { loadStemShift, saveStemShift } from "@/lib/line-offsets";
@@ -12,7 +13,7 @@ import ChordShapeView from "@/components/ChordShapeView";
 import { BarGlyph } from "@/components/BarGlyph";
 import { freqToMidi } from "@/lib/sf2-bank";
 import { playGmEvent, gmProgramName, gmProgramFamily } from "@/lib/gm-voice";
-import { midiPlaybackEvents, midiChordTimeline, type MidiPlaybackEvent, type MidiChordEvent, type MidiTrackSummary } from "@/lib/midi-import";
+import { type MidiPlaybackEvent, type MidiChordEvent, type MidiTrackSummary } from "@/lib/midi-import";
 
 interface ConductorProps {
   diagrams: SavedChordShape[];
@@ -347,9 +348,10 @@ export default function Conductor({
       nodes.high.gain.setTargetAtTime(0, at, 0.02);
     }
   };
-  // Source jouée par le Chef : le fichier MIDI importé de Songsterr ou la
-  // séquence de diagrammes d'accords synthétisée (l'ancien comportement).
-  const [sourceMode, setSourceMode] = useState<"midi" | "chords">("midi");
+  // Le Studio joue toujours la séquence de diagrammes d'accords synthétisée :
+  // la source MIDI importée est désactivée (plus de sons MIDI ni de bouton).
+  // (cast volontaire pour conserver les branches MIDI inactives sans erreur TS)
+  const sourceMode = "chords" as "midi" | "chords";
   // Bande affichée : quand le MIDI importé est la source jouée, on affiche SES
   // accords (positionnés sur la tempo map du fichier) au lieu de la frise
   // recalculée depuis le BPM de la partition — sinon les diagrammes ne
@@ -574,57 +576,19 @@ export default function Conductor({
     if (songId && stemShiftRef.current > 0) saveStemShift(songId, stemShiftRef.current);
   }, [songId, sourceMode, midiChords, instrumentalUrl, vocalsUrl, stemStart]);
 
-  // MIDI Songsterr : fetch + parse une seule fois par fichier. L'octet brut
-  // est mémoisé (midiLoadRef) et les événements parsés vivent dans
-  // midiEventsRef — la même source que l'étiquette du header et play().
+  // Studio : la source MIDI est désactivée — on ne charge jamais le fichier
+  // importé (plus de sons MIDI ni de bouton de source). On remet seulement
+  // l'état MIDI à zéro pour que toute l'UI MIDI reste masquée.
   useEffect(() => {
-    let cancelled = false;
-    midiUrlRef.current = midiUrl;
+    midiUrlRef.current = null;
     midiEventsRef.current = null;
     midiLoadRef.current = null;
     midiDurRef.current = 0;
     void Promise.resolve().then(() => {
-      if (!cancelled) {
-        setMidiDurationMs(0);
-        setMidiTracks([]);
-        setMidiChords([]);
-      }
+      setMidiDurationMs(0);
+      setMidiTracks([]);
+      setMidiChords([]);
     });
-    if (!midiUrl) {
-      return () => {
-        cancelled = true;
-      };
-    }
-    const load = (async () => {
-      try {
-        const res = await fetch(midiUrl);
-        const buf = new Uint8Array(await res.arrayBuffer());
-        const { events: evs, tracks: trks, durationSec } = midiPlaybackEvents(buf);
-        const chords = midiChordTimeline(buf);
-        if (cancelled) return;
-        midiEventsRef.current = evs;
-        midiDurRef.current = durationSec * 1000;
-        setMidiDurationMs(durationSec * 1000);
-        setMidiTracks(trks);
-        setMidiChords(chords);
-        writeMix({});
-        console.info(
-          `[Chef] MIDI : ${evs.length} événements, ${durationSec.toFixed(1)}s, ${trks.length} pistes`
-        );
-      } catch (err) {
-        console.error("[Chef] échec de lecture du MIDI", err);
-        // On libère la promesse pour permettre une nouvelle tentative au
-        // prochain lancement (le fetch blob est instantané, risque quasi nul).
-        if (!cancelled) midiLoadRef.current = null;
-      }
-    })();
-    midiLoadRef.current = load;
-    return () => {
-      cancelled = true;
-      midiEventsRef.current = null;
-      midiLoadRef.current = null;
-      midiDurRef.current = 0;
-    };
   }, [midiUrl]);
 
   const playEvent = (
@@ -1072,17 +1036,14 @@ export default function Conductor({
   }, []);
   // Riff vs accord pour la mesure courante : « riff » quand tout se joue sur 1 à
   // 2 cordes à la fois, « accord » dès qu'une attaque fait sonner 3 notes ou plus.
+  // On compte depuis la FORME (soundingNotes) car en mode MIDI `notes` est vide.
   const measureKind = (() => {
     let maxSim = 0;
     for (const evIdx of measureIdxs) {
       const mEv = bandEvents[evIdx];
-      if (!mEv || !mEv.shape) continue;
-      const mSilence =
-        mEv.silence ||
-        ((mEv.notes.length === 0 || mEv.notes[0] === 0) &&
-          !(mEv.mutedNotes && mEv.mutedNotes.length > 0));
-      if (mSilence || (mEv.shape.drumHits ?? 0) > 0) continue;
-      maxSim = Math.max(maxSim, mEv.notes.length);
+      if (!mEv || !mEv.shape || mEv.shape.silence) continue;
+      if ((mEv.shape.drumHits ?? 0) > 0) continue;
+      maxSim = Math.max(maxSim, soundingNotes(mEv.shape));
     }
     return maxSim === 0 ? null : maxSim >= 3 ? "accord" : "riff";
   })();
@@ -1640,37 +1601,6 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
                 })}
                 </div>
               )}
-            </div>
-          )}
-          {midiDurationMs > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-zinc-500 w-20">Source</span>
-              <div className="flex overflow-hidden rounded-md border border-zinc-700 w-fit">
-                <button
-                  type="button"
-                  onClick={() => setSourceMode("midi")}
-                  className={`px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer ${
-                    sourceMode === "midi"
-                      ? "bg-sky-500/25 text-sky-200"
-                      : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-                  }`}
-                  title="Jouer le fichier MIDI importé depuis Songsterr, superposé au stem"
-                >
-                  MIDI
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSourceMode("chords")}
-                  className={`px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer ${
-                    sourceMode === "chords"
-                      ? "bg-sky-500/25 text-sky-200"
-                      : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-                  }`}
-                  title="Jouer la séquence de diagrammes d'accords synthétisée, comme auparavant"
-                >
-                  Accords
-                </button>
-              </div>
             </div>
           )}
         </div>
