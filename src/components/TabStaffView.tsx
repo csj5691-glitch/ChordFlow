@@ -92,55 +92,89 @@ function restGlyph(beats: number): { char: string; dot: boolean } {
 }
 
 // Figure de rythme « Songsterr/GP » : une tige par attaque + des barres
-// horizontales reliant les attaques d'un même groupe de temps. En 4/4 on
-// groupe les croches par 2 (+2+2), les double-croches par 4, etc.
-//   blanche        : petite tige, sans barre
-//   noire          : tige plus longue, sans barre
-//   croche (1/8)   : tige longue + 1 barre horizontale
-//   double croche  : tige longue + 2 barres
-//   triple croche  : tige longue + 3 barres
+// horizontales reliant les attaques d'un même temps. En 4/4 on groupe les
+// notes dont les débuts tombent dans la fenêtre d'un temps et dont la somme
+// des valeurs ≤ 1 temps (2 croches, ou 4 doubles, ou 1 croche + 2 doubles…).
+// Les barres sont empilées de bas en haut : croche = 1 barre (la plus basse),
+// double croche = 2, triple = 3, quadruple = 4… Peu importe la valeur, des
+// divisions différentes se combinent sur la même barre : une barre de niveau
+// n relie toutes les notes du groupe qui subdivisent au moins n fois.
+//   blanche : petite tige, sans barre   noire : tige longue, sans barre
+const BAR_Y_OF_LEVEL = (level: number): number => 18 - 4 * level; // 1 → 14 (bas), 2 → 10, 3 → 6, 4 → 2
+
+function divisionLevel(beats: number): number {
+  if (beats >= 0.999) return 0;
+  if (beats >= 0.499) return 1; // croche
+  if (beats >= 0.249) return 2; // double croche
+  if (beats >= 0.124) return 3; // triple croche
+  return 4; // quadruple et plus
+}
+
+export interface RhythmGroup {
+  startSlot: number;
+  endSlot: number;
+  cols: number[];
+  tops: number[];
+  bars: { y: number; x0: number; x1: number }[];
+}
+
 export function rhythmBeams(
   notes: { slot: number; beats: number }[],
   slots: number
-): { startSlot: number; endSlot: number; cols: number[]; barYs: number[]; stemTop: number }[] {
+): RhythmGroup[] {
   const colsPerTemps = slots / 4; // signature 4/4 : 4 temps par mesure
   const sorted = notes
     .filter((n) => n.slot >= 0 && n.slot < slots && n.beats > 0)
+    .map((n) => ({ slot: n.slot, beats: n.beats, level: divisionLevel(n.beats) }))
     .sort((a, b) => a.slot - b.slot);
-  const out: { startSlot: number; endSlot: number; cols: number[]; barYs: number[]; stemTop: number }[] = [];
-  // y (haut->bas) de la base, puis barres empilées vers le haut.
-  const BAR_YS: Record<number, number[]> = { 1: [12], 2: [8, 12], 3: [4, 8, 12] };
-  let cum = 0;
+  // Groupement par temps : débuts dans la même fenêtre d'un temps ET somme des
+  // durées ≤ 1 temps.
+  const groups: { cols: number[]; beats: number[]; levels: number[]; cum: number }[] = [];
   for (const n of sorted) {
-    const b = n.beats;
-    // Nombre de barres selon la division du temps : noire+ (≥1) : 0 barre,
-    // croche (0,5) : 1, double croche (0,25) : 2, triple (0,125) : 3.
-    const beams = b >= 0.999 ? 0 : b >= 0.499 ? 1 : b >= 0.249 ? 2 : 3;
-    const slateTop = beams >= 1 ? Math.min(...BAR_YS[beams]) : b >= 2 ? 20 : 14;
-    const prev = out[out.length - 1];
-    // Largeur (en slots) d'une subdivision de même valeur que la précédente :
-    // croche=0.5 temps → pas de slots d'une attaque à la suivante.
-    const step =
-      beams >= 1 ? Math.max(1, Math.round((0.5 / Math.pow(2, beams - 1)) * colsPerTemps)) : 0;
+    const g = groups[groups.length - 1];
     if (
-      beams >= 1 &&
-      prev &&
-      prev.barYs.length > 0 &&
-      n.slot - prev.cols[prev.cols.length - 1] === step &&
-      cum + b <= 1.001
+      g &&
+      n.slot - g.cols[0] < colsPerTemps &&
+      g.cum + n.beats <= 1.001
     ) {
-      prev.cols.push(n.slot);
-      cum += b;
+      g.cols.push(n.slot);
+      g.beats.push(n.beats);
+      g.levels.push(n.level);
+      g.cum += n.beats;
     } else {
-      out.push({
-        startSlot: n.slot,
-        endSlot: n.slot,
-        cols: [n.slot],
-        barYs: beams >= 1 ? BAR_YS[beams] : [],
-        stemTop: slateTop,
-      });
-      cum = b;
+      groups.push({ cols: [n.slot], beats: [n.beats], levels: [n.level], cum: n.beats });
     }
+  }
+  const out: RhythmGroup[] = [];
+  for (const g of groups) {
+    const maxLevel = Math.max(...g.levels);
+    // Barres de bas en haut : une barre de niveau `lv` relie la 1re à la
+    // dernière note du groupe qui subdivisent au moins `lv` fois. Une croche
+    // seule n'a que la barre 1 ; une croche + 2 doubles partagent la barre 1,
+    // et les 2 doubles la barre 2 par-dessus.
+    const bars: { y: number; x0: number; x1: number }[] = [];
+    for (let lv = 1; lv <= maxLevel; lv++) {
+      const idxs: number[] = [];
+      for (let i = 0; i < g.levels.length; i++) if (g.levels[i] >= lv) idxs.push(i);
+      if (idxs.length === 0) continue;
+      bars.push({
+        x0: g.cols[idxs[0]],
+        x1: g.cols[idxs[idxs.length - 1]],
+        y: BAR_Y_OF_LEVEL(lv),
+      });
+    }
+    // Tige de chaque attaque : montée jusqu'à la barre la plus haute qu'elle
+    // touche ; noire longue (14), blanche plus courte (20), sans barre.
+    const tops = g.levels.map((l, i) =>
+      l >= 1 ? BAR_Y_OF_LEVEL(l) : g.beats[i] >= 2 ? 20 : 14
+    );
+    out.push({
+      startSlot: g.cols[0],
+      endSlot: g.cols[g.cols.length - 1],
+      cols: g.cols,
+      tops,
+      bars,
+    });
   }
   return out;
 }
@@ -778,47 +812,51 @@ function MeasureBox({
           style={{ top: PAD_TOP + 6 * LINE_H + 1, height: VALUE_H }}
         >
           {valueMarks.map((m, i) => {
-            const x0 = m.cols[0] * COL_W + COL_W / 2;
-            const x1 = m.cols[m.cols.length - 1] * COL_W + COL_W / 2;
-            const left = Math.min(x0, x1);
-            const right = Math.max(x0, x1);
+            const xs = m.cols.map((slot) => slot * COL_W + COL_W / 2);
+            const left = Math.min(...xs) - 6;
+            const right = Math.max(...xs) + 6;
             const base = VALUE_H - 4; // ligne de base des tiges
-            const stemTop = m.stemTop; // haut de tige (blanche courte, noire longue, barres au sommet)
             return (
               <svg
                 key={`val-${i}`}
                 className="absolute"
-                style={{ left: left - 6, top: 0 }}
-                width={right - left + 14}
+                style={{ left, top: 0 }}
+                width={right - left}
                 height={VALUE_H}
-                viewBox={`0 0 ${right - left + 14} ${VALUE_H}`}
+                viewBox={`0 0 ${right - left} ${VALUE_H}`}
               >
-                {/* barres horizontales : 1=croche, 2=double, 3=triple */}
-                {m.barYs.map((y, bi) => (
-                  <rect
-                    key={`vb${bi}`}
-                    x={4}
-                    y={y - 2.5}
-                    width={right - left + 6}
-                    height={3}
-                    fill="#a1a1aa"
-                  />
-                ))}
+                {/* barres horizontales de bas en haut : 1=croche basse,
+                    2=double au-dessus, etc. — la barre de niveau n relie les
+                    notes du groupe qui subdivisent au moins n fois */}
+                {m.bars.map((bar, bi) => {
+                  const bx0 = bar.x0 * COL_W + COL_W / 2 - left;
+                  const bx1 = bar.x1 * COL_W + COL_W / 2 - left;
+                  return (
+                    <rect
+                      key={`vb${bi}`}
+                      x={bx0 - 3}
+                      y={bar.y - 2.5}
+                      width={bx1 - bx0 + 6}
+                      height={3}
+                      fill="#a1a1aa"
+                    />
+                  );
+                })}
                 {/* tiges verticales de chaque attaque */}
                 {m.cols.map((slot, ci) => (
                   <line
                     key={`vs${ci}`}
-                    x1={slot * COL_W + COL_W / 2 - left + 6}
+                    x1={slot * COL_W + COL_W / 2 - left}
                     y1={base}
-                    x2={slot * COL_W + COL_W / 2 - left + 6}
-                    y2={stemTop}
+                    x2={slot * COL_W + COL_W / 2 - left}
+                    y2={m.tops[ci]}
                     stroke="#a1a1aa"
                     strokeWidth={1.4}
                   />
                 ))}
                 {/* petite tête de note sur la ligne de base */}
                 <ellipse
-                  cx={m.cols[0] * COL_W + COL_W / 2 - left + 6}
+                  cx={m.cols[0] * COL_W + COL_W / 2 - left}
                   cy={base}
                   rx={3}
                   ry={2.2}
