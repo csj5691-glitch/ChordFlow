@@ -76,6 +76,14 @@ export function playSoftSequence(
   let stopped = false;
   const cueTimers = new Set<number>();
 
+  // Compensation du démarrage : à la création du contexte il est encore
+  // `suspended`, donc `currentTime` reste à 0 pendant que le navigateur lance
+  // le moteur audio (parfois 100 à 300 ms). Avec une marge de seulement 0,1 s,
+  // les premières notes étaient programmées dans le passé et jouées en rafale
+  // dès l'éveil du contexte — « ça bloque ». Un pré-roll de 0,3 s décale le
+  // premier événement assez loin pour qu'il sonne à l'heure, la lecture coule.
+  const PRE_ROLL = 0.3;
+
   // Bus doux : gain bas + passe-haut (coupe les graves) + passe-bas (adoucit).
   const master = ctx.createGain();
   master.gain.value = 0.22;
@@ -91,7 +99,7 @@ export function playSoftSequence(
   hp.connect(lp);
   lp.connect(ctx.destination);
 
-  const t0 = ctx.currentTime + 0.1;
+  const t0 = ctx.currentTime + PRE_ROLL;
   let ptr = 0;
   let interval: number | null = null;
   let timer: number | null = null;
