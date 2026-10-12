@@ -27,6 +27,8 @@ export interface GpTrackData {
   name: string;
   program: number | null;
   isPercussion: boolean;
+  // Libellé d'accordage de la piste (ex. « Drop D »), issu de l'import GP.
+  tuning?: string;
   diagrams: SavedChordShape[];
 }
 

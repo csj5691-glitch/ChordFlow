@@ -100,6 +100,24 @@ function durationToBeats(duration: model.Duration, dots: number, tupletNumerator
   return +beats.toFixed(4);
 }
 
+// Libellé d'accordage de la portée, tel qu'affiché dans l'en-tête de la
+// tablature : la liste des cordes de l'aigu (haut) vers le grave (bas), ex.
+// « D A F C G C » pour un Drop C (alphaTab liste déjà les cordes dans cet
+// ordre : le 1er élément est la ligne du haut).
+function tuningLabel(staff: model.Staff): string | undefined {
+  if (staff.tuning.length === 0) return undefined;
+  try {
+    return staff.tuning.map((v) => model.Tuning.getTextForTuning(v, false)).join(" ");
+  } catch {
+    try {
+      const name = staff.tuningName;
+      return name && name.trim().length > 0 ? name.trim() : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+}
+
 async function loadScore(file: File): Promise<model.Score> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   return importer.ScoreLoader.loadScoreFromBytes(bytes);
@@ -585,6 +603,7 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
     content: "",
     bpm: score.tempo || 90,
     timeSignature,
+    tuning: tuningLabel(staff),
     diagrams: merged,
   };
 

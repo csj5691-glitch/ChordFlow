@@ -39,7 +39,10 @@ function tuningLabel(notes: string[]): string {
   const joined = notes.join(" ");
   const known = KNOWN_TUNINGS[joined];
   if (known) return known;
-  return joined;
+  // Une fois connu écarté, on affiche la gamme comme l'en-tête de la tablature :
+  // de la corde aiguë (haut) à la corde grave (bas). L'API Songsterr donne les
+  // cordes dans l'ordre grave → aigu, on le retourne.
+  return [...notes].reverse().join(" ");
 }
 
 export async function GET(req: NextRequest) {

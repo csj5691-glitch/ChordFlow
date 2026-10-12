@@ -1240,9 +1240,10 @@ body: JSON.stringify({ videoId, stem }),
           artist: next.artist || result.song.artist,
           bpm: next.bpm ?? result.song.bpm ?? 90,
           timeSignature: next.timeSignature ?? result.song.timeSignature,
+          tuning: next.tuning ?? result.song.tuning,
           gpTracks: [
             ...(next.gpTracks ?? []).filter((x) => x.index !== t.index),
-            { index: t.index, name: t.name, program: result.program, isPercussion: t.isPercussion, diagrams: result.diagrams },
+            { index: t.index, name: t.name, program: result.program, isPercussion: t.isPercussion, tuning: result.song.tuning, diagrams: result.diagrams },
           ],
           officialPlain: next.officialPlain || result.song.officialPlain,
           officialSynced: next.officialSynced || result.song.officialSynced,
@@ -1750,6 +1751,14 @@ body: JSON.stringify({ videoId, stem }),
                     <option value="6/8">6/8</option>
                   </select>
                 </div>
+                {song.tuning && (
+                  <span
+                    className="text-[11px] text-zinc-500"
+                    title="Accordage de la piste (issu de l'import Guitar Pro)"
+                  >
+                    Accordage : <span className="text-zinc-300 font-medium">{song.tuning}</span>
+                  </span>
+                )}
                 <div className="flex items-center gap-1.5">
                   <div className="flex items-center gap-1">
                     <input
