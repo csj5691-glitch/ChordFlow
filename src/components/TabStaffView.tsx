@@ -180,7 +180,10 @@ export function rhythmBeams(
 }
 
 function ChordMini({ frets }: { frets: (number | null)[] }) {
-  const strings = frets.length;
+  // La tablature ordonne les rangées du mi aigu vers le mi grave ; un diagramme
+  // standard montre le mi grave à gauche. On retourne donc l'ordre des cordes.
+  const ordered = [...frets].reverse();
+  const strings = ordered.length;
   const spacingX = 9;
   const spacingY = 10;
   const pad = 6;
@@ -220,7 +223,7 @@ function ChordMini({ frets }: { frets: (number | null)[] }) {
           {base}
         </text>
       )}
-      {frets.map((f, i) => {
+      {ordered.map((f, i) => {
         const x = pad + i * spacingX;
         if (f === null) {
           return (
