@@ -208,7 +208,6 @@ export default function Conductor({
   const [index, setIndex] = useState(0);
   const [lyricIndex, setLyricIndex] = useState(-1);
   const [anchorDisplay, setAnchorDisplay] = useState(0);
-  const [chordVolume, setChordVolume] = useState(1);
   const [strumming, setStrumming] = useState<"down" | "up" | "off">("down");
   const [instVolume, setInstVolume] = useState(1);
   const [vocalsVolume, setVocalsVolume] = useState(0.9);
@@ -263,7 +262,7 @@ export default function Conductor({
   // le ref — pas le curseur, et aucune action de l'utilisateur requise.
   const stemShiftRef = useRef(songId ? loadStemShift(songId) : 0);
   const [savedStemShift] = useState(() => (songId ? loadStemShift(songId) : 0));
-  const chordVolRef = useRef(chordVolume);
+  const chordVolRef = useRef(1);
   const chordMasterRef = useRef<GainNode | null>(null);
   const [midiDurationMs, setMidiDurationMs] = useState(0);
   const midiDurRef = useRef(0);
@@ -280,7 +279,6 @@ export default function Conductor({
   const [paused, setPaused] = useState(false);
   const seekRef = useRef(0);
   const t0Ref = useRef<number | null>(null);
-  const [midiLevel, setMidiLevel] = useState(0);
   // Pistes du MIDI importé et mixage par piste (volume + EQ), comme une table
   // de mixage : chaque piste a son propre strip.
   const [midiTracks, setMidiTracks] = useState<MidiTrackSummary[]>([]);
@@ -369,13 +367,6 @@ export default function Conductor({
       shape: c.shape,
     }));
   }, [events, useMidiBand, midiChords]);
-  const changeChordVolume = (v: number) => {
-    setChordVolume(v);
-    chordVolRef.current = v;
-    if (chordMasterRef.current) {
-      chordMasterRef.current.gain.setTargetAtTime(v, chordMasterRef.current.context.currentTime, 0.02);
-    }
-  };
   const instVolRef = useRef(instVolume);
   const changeInstVolume = (v: number) => {
     setInstVolume(v);
@@ -460,7 +451,6 @@ export default function Conductor({
       probeRef.current = null;
     }
     t0Ref.current = null;
-    setMidiLevel(0);
     setPaused(false);
     seekRef.current = 0;
     if (ctxRef.current && ctxRef.current.state === "running") {
@@ -826,27 +816,6 @@ export default function Conductor({
       } catch (err) {
         console.error("[Chef] échec de planification de la lecture", err);
       }
-      // Sonde de niveau : mesure la sortie réelle du bus MIDI (peak 0 = aucun
-      // signal bien que planifié). Elle alimente le vumètre affiché à côté du
-      // curseur « MIDI » — visible sans ouvrir la console.
-      const analyser = ctxSafe.createAnalyser();
-      analyser.fftSize = 1024;
-      master.connect(analyser);
-      const samples = new Uint8Array(analyser.fftSize);
-      let peakSeen = 0;
-      probeRef.current = window.setInterval(() => {
-        analyser.getByteTimeDomainData(samples);
-        let peak = 0;
-        for (let i = 0; i < samples.length; i++) {
-          const d = Math.abs(samples[i] - 128);
-          if (d > peak) peak = d;
-        }
-        if (peak > peakSeen) peakSeen = peak;
-        setMidiLevel(Math.min(1, peak / 90));
-      }, 100);
-      window.setTimeout(() => {
-        console.info(`[Chef] niveau de sortie MIDI (3 s) : peak=${peakSeen}/128`);
-      }, 3000);
     }
 
     let startedAt = 0;
@@ -1403,7 +1372,7 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
                 value={instVolume}
                 onChange={(e) => changeInstVolume(parseFloat(e.target.value))}
                 className="w-32 h-1 accent-amber-500 cursor-pointer"
-                title="Volume du stem instrumental — à équilibrer avec le curseur de la source (MIDI ou Accords)"
+                title="Volume du stem instrumental — à équilibrer avec les diagrammes joués"
               />
               <span className="text-[10px] text-zinc-500 font-mono w-9">
                 {Math.round(instVolume * 100)}%
@@ -1428,44 +1397,13 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
               </span>
             </div>
           )}
-          <div className="flex items-center gap-2">
-            <span className="text-sky-400 w-20">
-              {sourceMode === "chords" ? "Accords" : "MIDI"}
-            </span>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={chordVolume}
-              onChange={(e) => changeChordVolume(parseFloat(e.target.value))}
-              className="w-32 h-1 accent-sky-500 cursor-pointer"
-              title={
-                sourceMode === "chords"
-                  ? "Volume des accords synthétisés par-dessus le stem"
-                  : "Volume de la source MIDI importée depuis Songsterr, superposée au stem — réglage immédiat pendant la lecture"
-              }
-            />
-            <span className="text-[10px] text-sky-400 font-mono w-9">
-              {Math.round(chordVolume * 100)}%
-            </span>
-            <span
-              className="h-1.5 w-14 bg-zinc-800 rounded-full overflow-hidden"
-              title="Niveau du signal de la source jouée (MIDI ou accords) : la barre bouge-t-elle ?"
-            >
-              <span
-                className="block h-full bg-emerald-500 transition-[width] duration-100"
-                style={{ width: `${Math.round(midiLevel * 100)}%` }}
-              />
-            </span>
-          </div>
           {bandEvents.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
               <span className="text-zinc-500 w-20">Synchro</span>
               <button
                 onClick={() => changeBandOffset(-1)}
                 className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
-                title="Avancer les sons MIDI et les diagrammes de 1 s par rapport à l'audio"
+                title="Avancer les diagrammes de 1 s par rapport à l'audio"
               >
                 -1
               </button>
@@ -1490,7 +1428,7 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
               <button
                 onClick={() => changeBandOffset(1)}
                 className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
-                title="Retarder les sons MIDI et les diagrammes de 1 s par rapport à l'audio"
+                title="Retarder les diagrammes de 1 s par rapport à l'audio"
               >
                 +1
               </button>
@@ -1504,12 +1442,12 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
                 </button>
               )}
               <span className="text-[10px] text-zinc-600">
-                sons MIDI + diagrammes par rapport à l&apos;audio (sauvegardé par chanson)
+                diagrammes par rapport à l&apos;audio (sauvegardé par chanson)
               </span>
               {stemShift > 0 && (
                 <span
                   className="text-[10px] text-emerald-400/90"
-                  title="Le silence de tête des stems est sauté automatiquement au démarrage : MIDI, paroles et stems partent ensemble, sans réglage"
+                  title="Le silence de tête des stems est sauté automatiquement au démarrage : diagrammes, paroles et stems partent ensemble, sans réglage"
                 >
                   aligné auto +{stemShift.toFixed(1)}s
                 </span>
