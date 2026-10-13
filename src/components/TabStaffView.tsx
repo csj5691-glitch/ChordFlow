@@ -767,6 +767,7 @@ function MeasureBox({
             >
               {isHit && (
                 <span
+                  data-highlight="1"
                   className="absolute inset-0 rounded pointer-events-none"
                   style={{ background: "rgba(34,211,238,0.28)", boxShadow: "0 0 0 1px rgba(103,232,249,0.9), 0 0 8px rgba(34,211,238,0.7)" }}
                 />

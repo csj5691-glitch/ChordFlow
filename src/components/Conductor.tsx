@@ -233,6 +233,7 @@ export default function Conductor({
   const timerRef = useRef<number | null>(null);
   const stripRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const centerTabRef = useRef<HTMLDivElement | null>(null);
   const [stemStart, setStemStart] = useState<number | null>(null);
   const [stemDuration, setStemDuration] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -642,6 +643,16 @@ export default function Conductor({
     if (el && stripRef.current) {
       el.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
     }
+  }, [index]);
+
+  // Suit la note jouée dans la tablature de riff centrale : défile pour garder la
+  // colonne en cours visible, sans que l'utilisateur ait à scroller.
+  useEffect(() => {
+    const box = centerTabRef.current;
+    if (!box) return;
+    const hit = box.querySelector<HTMLElement>('[data-highlight="1"]');
+    if (!hit) return;
+    hit.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
   }, [index]);
 
   const totalBeat = diagrams.reduce((a, d) => a + (d.bar ? 0 : beatsForShape(d)), 0);
@@ -1086,7 +1097,7 @@ export default function Conductor({
               </div>
             )}
             {runOfIndex[index] >= 0 ? (
-              <div className="max-w-[min(92vw,52rem)] overflow-x-auto">
+              <div ref={centerTabRef} className="max-w-[min(92vw,52rem)] overflow-x-auto">
                 <TabStaffView
                   bpm={bpm}
                   tab={riffTabs[runOfIndex[index]].tab}
