@@ -13,7 +13,6 @@ import ChordShapeView from "@/components/ChordShapeView";
 import TabStaffView from "@/components/TabStaffView";
 import { BarGlyph } from "@/components/BarGlyph";
 import { diagramsToTabWithPositions } from "@/lib/diagrams-to-tab";
-import { playGmEvent } from "@/lib/gm-voice";
 
 interface ConductorProps {
   diagrams: SavedChordShape[];
@@ -24,8 +23,6 @@ interface ConductorProps {
   officialSynced?: string;
   instrumentalUrl?: string | null;
   vocalsUrl?: string | null;
-  program?: number | null;
-  percussion?: boolean;
   lyricOffset?: number;
   lyricAnchorDiagram?: number;
   /**.identifiant de la chanson (persistance de l'alignement automatique). */
@@ -126,8 +123,6 @@ export default function Conductor({
   officialSynced,
   instrumentalUrl,
   vocalsUrl,
-  program,
-  percussion,
   lyricOffset: externalLyricOffset,
   lyricAnchorDiagram,
   onLyricOffsetChange,
@@ -157,7 +152,6 @@ export default function Conductor({
   const [index, setIndex] = useState(0);
   const [lyricIndex, setLyricIndex] = useState(-1);
   const [anchorDisplay, setAnchorDisplay] = useState(0);
-  const [strumming, setStrumming] = useState<"down" | "up" | "off">("down");
   const [instVolume, setInstVolume] = useState(1);
   const [vocalsVolume, setVocalsVolume] = useState(0.9);
   const [localLyricOffset, setLocalLyricOffset] = useState(0);
@@ -211,8 +205,6 @@ export default function Conductor({
   // le ref — pas le curseur, et aucune action de l'utilisateur requise.
   const stemShiftRef = useRef(songId ? loadStemShift(songId) : 0);
   const [savedStemShift] = useState(() => (songId ? loadStemShift(songId) : 0));
-  const chordVolRef = useRef(1);
-  const chordMasterRef = useRef<GainNode | null>(null);
   const playTokenRef = useRef(0);
   // Pause/reprise : on mémorise la position dans le morceau, puis on rejoue
   // depuis cet instant (les événements déjà passés sont sautés).
@@ -304,7 +296,6 @@ export default function Conductor({
       ctxRef.current.close().catch(() => {});
     }
     ctxRef.current = null;
-    chordMasterRef.current = null;
     const srcs = stemSourcesRef.current;
     if (srcs.inst) {
       try {
@@ -408,21 +399,6 @@ export default function Conductor({
     if (songId && stemShiftRef.current > 0) saveStemShift(songId, stemShiftRef.current);
   }, [songId, instrumentalUrl, vocalsUrl, stemStart]);
 
-  const playEvent = (
-    ctx: AudioContext,
-    ev: SynthEvent,
-    master: GainNode,
-    when: number
-  ) => {
-    playGmEvent(ctx, ev, master, when, program, {
-      strum: strumming,
-      percussion,
-      // Tout passe par le bus du Chef (`master`), sans double mise à l'échelle
-      // (le gain par événement reste à 1).
-      gain: 1,
-    });
-  };
-
   /**`.fromSec` permet la reprise après pause et le saut vers un diagramme. */
   const play = useCallback(async (fromSec = 0) => {
     stop();
@@ -443,17 +419,13 @@ export default function Conductor({
     const primary = pickPrimary();
     const firstVocals = pickVocals();
 
-    // Stems et accords synthétisés se superposent : le stem audio
-    // (enregistrement) et les accords jouent ensemble, chacun avec son curseur
-    // de volume. Le pré-roll détecté (stemShift) est sauté pour caler la
-    // musique des stems. Les stems sont joués SUR le même contexte audio que
-    // les accords (échantillon-verrouillés) ; la piste <audio> ne sert plus que
-    // de repli si le décodage échoue.
-    const playChords = events.length > 0;
-    const needCtx = usesAudio || playChords;
+    // Les stems audio (enregistrements importés) sont joués SUR le même
+    // contexte audio (échantillon-verrouillés) ; la piste <audio> ne sert plus
+    // que de repli si le décodage échoue. Le Studio ne joue aucun son
+    // synthétisé (aucun son MIDI).
+    const needCtx = usesAudio;
     let ctx: AudioContext | null = null;
     let t0 = 0;
-    let pump: (() => void) | null = null;
     if (needCtx) {
       const Ctor =
         window.AudioContext ||
@@ -514,54 +486,6 @@ export default function Conductor({
           }
         }
       }
-
-      const master = ctxSafe.createGain();
-      master.gain.value = chordVolRef.current;
-      master.connect(ctxSafe.destination);
-      chordMasterRef.current = master;
-      // Planification progressive : on ne crée dans le moteur audio que la
-      // fenêtre des prochaines secondes, puis on répète à chaque tick. Tout
-      // planifier d'un coup saturait le graphe ; en plus, chaque note planifiée
-      // reçoit le volume en cours au moment où elle est créée.
-      // `t0` est déjà calé au-dessus : pas de redéclaration (variable `let`
-      // partagée avec le bloc des stems).
-      t0Ref.current = t0;
-      // Fenêtre courte : 0,3 s suffit (le tick revient toutes les 40 ms) et ne laisse
-      // que quelques notes vivantes à la fois — c'est ce qui plafonne la RAM.
-      const LOOKAHEAD = 0.3;
-      const horizonSec = () => ctxSafe.currentTime - t0 + LOOKAHEAD;
-      let chordPtr = 0;
-      // Reprise : on saute les événements déjà terminés avant la position.
-      const chordShift = bandOffsetRef.current;
-      while (
-        playChords &&
-        chordPtr < events.length &&
-        events[chordPtr].start + chordShift + events[chordPtr].duration <= seek
-      ) {
-        chordPtr++;
-      }
-      pump = () => {
-        const horizon = horizonSec();
-        // Reprise en cours de morceau : `t0` est calé pour que la position
-        // `seek` sonne maintenant, donc un événement déjà entamé donnerait un
-        // instant de programmation négatif (RangeError). On saute ce qui a
-        // commencé avant la reprise et on ne programme jamais dans le passé.
-        const now = ctxSafe.currentTime;
-        // Décalage relu à chaque passe : le réglage « Synchro » s'applique en
-        // direct pendant la lecture, pas seulement au lancement.
-        const shift = bandOffsetRef.current;
-        while (playChords && chordPtr < events.length && events[chordPtr].start <= horizon) {
-          const ev = events[chordPtr];
-          chordPtr++;
-          if (ev.start + chordShift < seek - 0.01) continue;
-          playEvent(ctxSafe, ev, master, Math.max(now, t0 + ev.start + shift));
-        }
-      };
-      try {
-        pump();
-      } catch (err) {
-        console.error("[Chef] échec de planification de la lecture", err);
-      }
     }
 
     let startedAt = 0;
@@ -569,14 +493,6 @@ export default function Conductor({
       // L'horloge d'interface démarre à la position de lecture (t = seek au
       // démarrage), pour que pause/reprise et sauts restent exacts.
       if (startedAt === 0) startedAt = performance.now() + 100 - seek * 1000;
-      if (pump) {
-        try {
-          pump();
-        } catch (err) {
-          console.error("[Chef] planification interrompue", err);
-          pump = null;
-        }
-      }
       const t = performance.now() - startedAt;
       // Le décalage de synchro peut repousser la fin : on ne doit pas arrêter
       // avant lui.
@@ -645,7 +561,6 @@ export default function Conductor({
     instrumentalUrl,
     vocalsUrl,
     decodeStemBuffer,
-    playEvent,
   ]);
 
   const playedRef = useRef(false);

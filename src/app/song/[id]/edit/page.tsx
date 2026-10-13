@@ -394,22 +394,6 @@ function EditSongView({ id }: { id: string }) {
     };
   }, []);
 
-  const activeProgram = useMemo(() => {
-    if (!song || activeSlot.kind !== "gp") return null;
-    return (
-      (song.gpTracks ?? []).find((t) => t.index === activeSlot.index)?.program ??
-      null
-    );
-  }, [song, activeSlot]);
-
-  const activePercussion = useMemo(() => {
-    if (!song || activeSlot.kind !== "gp") return false;
-    return (
-      (song.gpTracks ?? []).find((t) => t.index === activeSlot.index)
-        ?.isPercussion ?? false
-    );
-  }, [song, activeSlot]);
-
   useEffect(() => {
     if (song?.content !== undefined && !hydratedContent.current) {
       hydratedContent.current = true;
@@ -3075,8 +3059,6 @@ body: JSON.stringify({ videoId, stem }),
           officialSynced={song?.officialSynced}
           instrumentalUrl={instUrl}
           vocalsUrl={vocalsUrl}
-          program={activeProgram}
-          percussion={activePercussion}
           lyricOffset={lyricsOffset}
           lyricAnchorDiagram={lyricAnchorDiagram ?? song?.lyricAnchorDiagram ?? undefined}
           onLyricOffsetChange={(offset) => {
