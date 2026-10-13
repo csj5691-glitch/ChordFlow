@@ -924,7 +924,7 @@ export default function Conductor({
         <div className="absolute -bottom-2 left-0 right-0 h-48">
           <div
             ref={stripRef}
-            className="flex gap-2 px-4 overflow-x-auto pb-4 pt-3"
+            className="flex gap-2 px-[5px] overflow-x-auto pb-4 pt-3"
             style={{ scrollbarWidth: "none" }}
           >
             {bandEvents.map((ev, i) => {
