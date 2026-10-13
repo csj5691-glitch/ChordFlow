@@ -961,7 +961,7 @@ export default function Conductor({
                           beats={riffTabs[runIdx].grid}
                           measureChords={riffChords[runIdx]}
                           measureOffset={riffTabs[runIdx].measureOffset}
-                          maxMeasuresPerLine={16}
+                          maxMeasuresPerLine={9999}
                         />
                       </div>
                     </div>
