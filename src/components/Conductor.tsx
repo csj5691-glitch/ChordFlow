@@ -12,7 +12,8 @@ import type { SavedChordShape, SongTab } from "@/lib/types";
 import ChordShapeView from "@/components/ChordShapeView";
 import TabStaffView from "@/components/TabStaffView";
 import { BarGlyph } from "@/components/BarGlyph";
-import { diagramsToTabWithPositions } from "@/lib/diagrams-to-tab";
+import { diagramFrequencies, diagramsToTabWithPositions } from "@/lib/diagrams-to-tab";
+import { guessChordFromPitchClasses } from "@/lib/tab-view";
 
 interface ConductorProps {
   diagrams: SavedChordShape[];
@@ -726,6 +727,42 @@ export default function Conductor({
       }),
     [riffRuns, bandEvents, bpm]
   );
+  // Interprétation harmonique de chaque passage de riff : pour chaque mesure de
+  // la tablature, on rassemble les classes de hauteur de toutes les notes de la
+  // mesure puis on affiche l'accord (majeur/mineur/7/5/sus) le plus probable.
+  const riffChords = useMemo(
+    () =>
+      riffRuns.map((r, ri) => {
+        const shapes = bandEvents.slice(r.start, r.end + 1).map((e) => e.shape);
+        const cells = riffTabs[ri]?.cells ?? [];
+        const perMeasure = new Map<number, { pcs: Set<number>; lowest: number | null }>();
+        for (let i = 0; i < shapes.length; i++) {
+          const m = cells[i]?.[0]?.m;
+          if (m === undefined) continue;
+          let agg = perMeasure.get(m);
+          if (!agg) {
+            agg = { pcs: new Set(), lowest: null };
+            perMeasure.set(m, agg);
+          }
+          for (const f of diagramFrequencies(shapes[i])) {
+            if (!Number.isFinite(f) || f <= 0) continue;
+            const midi = Math.round(69 + 12 * Math.log2(f / 440));
+            agg.pcs.add(((midi % 12) + 12) % 12);
+            if (agg.lowest === null || midi < agg.lowest) agg.lowest = midi;
+          }
+        }
+        const out = new Map<number, string>();
+        for (const [m, agg] of perMeasure) {
+          const label = guessChordFromPitchClasses(
+            [...agg.pcs],
+            agg.lowest === null ? null : agg.lowest % 12
+          );
+          if (label) out.set(m, label);
+        }
+        return out;
+      }),
+    [riffRuns, bandEvents, riffTabs]
+  );
   // Note en cours dans le passage de riff affiché : surbrillance temps réel de la
   // colonne jouée, comme dans l'éditeur de riffs (ArpeggioEditor → TabStaffView).
   const activeRiffHighlight = useMemo<Set<string> | undefined>(() => {
@@ -866,6 +903,7 @@ export default function Conductor({
                           highlight={activeRiffHighlight}
                           rests={riffTabs[runIdx].rests}
                           beats={riffTabs[runIdx].grid}
+                          measureChords={riffChords[runIdx]}
                           measureOffset={riffTabs[runIdx].measureOffset}
                           maxMeasuresPerLine={16}
                         />
@@ -1105,6 +1143,7 @@ export default function Conductor({
                   highlight={activeRiffHighlight}
                   rests={riffTabs[runOfIndex[index]].rests}
                   beats={riffTabs[runOfIndex[index]].grid}
+                  measureChords={riffChords[runOfIndex[index]]}
                   measureOffset={riffTabs[runOfIndex[index]].measureOffset}
                   maxMeasuresPerLine={4}
                 />

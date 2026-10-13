@@ -106,6 +106,57 @@ export function guessChordLabel(frets: (number | null)[]): string | null {
   return formatChordName(NOTES[(best.root + 3) % 12], best.quality);
 }
 
+// Qualités acceptées pour l'interprétation harmonique d'une MESURE : triades
+// majeure/mineure, plus 7, 5 (quinte seule) et sus. (guessChordLabel, pour un
+// instant simultané, reste limité aux 11 qualités du modèle d'accords.)
+const MEASURE_CHORD_TEMPLATES: { pcs: number[]; suffix: string }[] = [
+  { pcs: [0, 4, 7], suffix: "" }, // majeur
+  { pcs: [0, 3, 7], suffix: "m" }, // mineur
+  { pcs: [0, 4, 7, 10], suffix: "7" }, // dominante 7
+  { pcs: [0, 3, 7, 10], suffix: "m7" },
+  { pcs: [0, 4, 7, 11], suffix: "maj7" },
+  { pcs: [0, 5, 7], suffix: "sus4" },
+  { pcs: [0, 2, 7], suffix: "sus2" },
+  { pcs: [0, 7], suffix: "5" },
+];
+
+// Interprète un ENSEMBLE de classes de hauteur (notes réparties sur toute une
+// mesure, pas forcément simultanées) comme un accord majeur/mineur/7/5/sus :
+// même barème que guessChordLabel (+2 note dans l'accord, -3 hors accord, -1
+// note d'accord absente, +2 si la basse est la racine ; plus petit accord en
+// secours d'égalité). `bass` = classe de hauteur de la note la plus grave.
+export function guessChordFromPitchClasses(
+  pitchClasses: number[],
+  bass: number | null = null
+): string | null {
+  const played: number[] = [];
+  for (const p of pitchClasses) {
+    const pc = ((p % 12) + 12) % 12;
+    if (!played.includes(pc)) played.push(pc);
+  }
+  if (played.length < 2) return null;
+  const bassPc = bass === null ? null : ((bass % 12) + 12) % 12;
+  let best: { root: number; pcs: number[]; suffix: string; score: number } | null =
+    null;
+  for (let r = 0; r < 12; r++) {
+    for (const tpl of MEASURE_CHORD_TEMPLATES) {
+      const chord = new Set(tpl.pcs.map((iv) => (r + iv) % 12));
+      let score = 0;
+      for (const p of played) score += chord.has(p) ? 2 : -3;
+      for (const c of chord) if (!played.includes(c)) score -= 1;
+      if (bassPc !== null && bassPc === r) score += 2;
+      const sameScore = best !== null && score === best.score;
+      const smaller = sameScore && tpl.pcs.length < best!.pcs.length;
+      if (best === null || score > best.score || smaller) {
+        best = { root: r, pcs: tpl.pcs, suffix: tpl.suffix, score };
+      }
+    }
+  }
+  if (best === null || best.score < 2) return null;
+  // NOTES (chord-data) est indexé sur la (A=0) : une classe C=0 → index 3.
+  return NOTES[(best.root + 3) % 12].split("/")[0] + best.suffix;
+}
+
 export function measureSlots(strings: (TabToken | undefined)[][]): number {
   let max = 0;
   for (const row of strings) max = Math.max(max, row.length);

@@ -267,6 +267,7 @@ export default function TabStaffView({
   maxMeasuresPerLine = 4,
   showMutes = true,
   highlight,
+  measureChords,
   rests,
   ghosts,
   legatos,
@@ -285,6 +286,9 @@ export default function TabStaffView({
   maxMeasuresPerLine?: number;
   showMutes?: boolean;
   highlight?: Set<string>;
+  // Accord interprété par mesure (index de mesure → libellé) : affiché au-dessus
+  // de chaque mesure (riffs du Studio).
+  measureChords?: Map<number, string>;
   rests?: TabRest[];
   // Clés de cellules (mesure|corde|colonne) des notes fantômes → entre parenthèses.
   ghosts?: Set<string>;
@@ -515,6 +519,7 @@ export default function TabStaffView({
                     editable={editable}
                     showMutes={showMutes}
                     highlight={highlight}
+                    measureChords={measureChords}
                     rests={rests ? rests.filter((r) => r.m === m) : undefined}
                     ghosts={ghosts}
                     legatos={legatos ? legatos.filter((l) => l.from.m === m) : undefined}
@@ -550,6 +555,7 @@ function MeasureBox({
   editable,
   showMutes,
   highlight,
+  measureChords,
   rests,
   ghosts,
   legatos,
@@ -569,6 +575,7 @@ function MeasureBox({
   editable: boolean;
   showMutes: boolean;
   highlight?: Set<string>;
+  measureChords?: Map<number, string>;
   rests?: TabRest[];
   ghosts?: Set<string>;
   legatos?: LegatoArc[];
@@ -584,6 +591,7 @@ function MeasureBox({
   const width = slots * COL_W;
   const height = PAD_TOP + 6 * LINE_H;
   const VALUE_H = 30; // hauteur de la bande « figure de rythme » sous la portée
+  const measureChord = measureChords?.get(index);
 
   // Riffs : passages de notes seules → bande teintée + étiquette « RIFF ».
   const riffRuns = detectRiffRuns(rows, slots);
@@ -649,6 +657,12 @@ function MeasureBox({
       <span className="absolute left-1/2 -translate-x-1/2 top-0.5 text-[9px] text-zinc-500 leading-none">
         {measureNumber}
       </span>
+      {/* accord interprété pour la mesure (riffs du Studio) */}
+      {measureChord && (
+        <span className="absolute left-1/2 -translate-x-1/2 top-[29px] text-[11px] font-bold text-amber-300 leading-none whitespace-nowrap">
+          {measureChord}
+        </span>
+      )}
       {/* étiquette de riff, sous la portée */}
       {riffRuns.map((r) => (
         <span
