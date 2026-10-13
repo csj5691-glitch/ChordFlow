@@ -287,9 +287,10 @@ export default function TabStaffView({
   maxMeasuresPerLine?: number;
   showMutes?: boolean;
   highlight?: Set<string>;
-  // Accord interprété par mesure (index de mesure → libellé) : affiché au-dessus
-  // de chaque mesure (riffs du Studio).
-  measureChords?: Map<number, string>;
+  // Accords interprétés par mesure (index de mesure → libellés) : affichés au-
+  // dessus de chaque mesure (riffs du Studio). Une mesure peut porter un accord
+  // (4 temps) ou deux (2 temps chacun quand l'harmonie change en cours de mesure).
+  measureChords?: Map<number, string[]>;
   rests?: TabRest[];
   // Clés de cellules (mesure|corde|colonne) des notes fantômes → entre parenthèses.
   ghosts?: Set<string>;
@@ -576,7 +577,7 @@ function MeasureBox({
   editable: boolean;
   showMutes: boolean;
   highlight?: Set<string>;
-  measureChords?: Map<number, string>;
+  measureChords?: Map<number, string[]>;
   rests?: TabRest[];
   ghosts?: Set<string>;
   legatos?: LegatoArc[];
@@ -592,8 +593,7 @@ function MeasureBox({
   const width = slots * COL_W;
   const height = PAD_TOP + 6 * LINE_H;
   const VALUE_H = 30; // hauteur de la bande « figure de rythme » sous la portée
-  const measureChord = measureChords?.get(index);
-  const measureChordFrets = measureChord ? chordFretsForLabel(measureChord) : null;
+  const measureChord = measureChords?.get(index) ?? [];
 
   // Riffs : passages de notes seules → bande teintée + étiquette « RIFF ».
   const riffRuns = detectRiffRuns(rows, slots);
@@ -659,22 +659,34 @@ function MeasureBox({
       <span className="absolute left-1/2 -translate-x-1/2 top-0.5 text-[9px] text-zinc-500 leading-none">
         {measureNumber}
       </span>
-      {/* accord interprété pour la mesure (riffs du Studio) : diagramme au survol */}
-      {measureChord && (
-        <div
-          className="absolute flex flex-col items-center"
-          style={{ left: "50%", transform: "translateX(-50%)", top: 25, width: 30 }}
-        >
-          <span className="group relative text-[11px] font-bold text-amber-300 leading-none whitespace-nowrap">
-            {measureChord}
-            {measureChordFrets && (
-              <span className="absolute left-1/2 -translate-x-1/2 top-full mt-1 z-20 hidden group-hover:block bg-zinc-900 border border-zinc-700 rounded-md p-1 shadow-xl">
-                <ChordMini frets={measureChordFrets} />
-              </span>
-            )}
-          </span>
-        </div>
-      )}
+      {/* accords interprétés pour la mesure (riffs du Studio) : un accord centré,
+          ou deux accords (un par tranche de 2 temps) si l'harmonie change en
+          cours de mesure ; diagramme au survol */}
+      {measureChord.map((label, li) => {
+        const frets = chordFretsForLabel(label);
+        const leftPct = measureChord.length === 1 ? 50 : li === 0 ? 25 : 75;
+        return (
+          <div
+            key={`mc-${li}`}
+            className="absolute flex flex-col items-center"
+            style={{
+              left: `${leftPct}%`,
+              transform: "translateX(-50%)",
+              top: 25,
+              width: 30,
+            }}
+          >
+            <span className="group relative text-[11px] font-bold text-amber-300 leading-none whitespace-nowrap">
+              {label}
+              {frets && (
+                <span className="absolute left-1/2 -translate-x-1/2 top-full mt-1 z-20 hidden group-hover:block bg-zinc-900 border border-zinc-700 rounded-md p-1 shadow-xl">
+                  <ChordMini frets={frets} />
+                </span>
+              )}
+            </span>
+          </div>
+        );
+      })}
       {/* étiquette de riff, sous la portée */}
       {riffRuns.map((r) => (
         <span

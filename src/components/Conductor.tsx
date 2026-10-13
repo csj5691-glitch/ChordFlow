@@ -778,34 +778,64 @@ export default function Conductor({
   // Interprétation harmonique de chaque passage de riff : pour chaque mesure de
   // la tablature, on rassemble les classes de hauteur de toutes les notes de la
   // mesure puis on affiche l'accord (majeur/mineur/7/5/sus) le plus probable.
+  // Quand l'harmonie change en cours de mesure, on scinde la mesure en deux
+  // tranches de 2 temps et on affiche les deux accords (ex. « G / A »).
   const riffChords = useMemo(
     () =>
       riffRuns.map((r, ri) => {
         const shapes = bandEvents.slice(r.start, r.end + 1).map((e) => e.shape);
         const cells = riffTabs[ri]?.cells ?? [];
-        const perMeasure = new Map<number, { pcs: Set<number>; lowest: number | null }>();
+        const grid = riffTabs[ri]?.grid ?? [];
+        type Agg = { pcs: Set<number>; lowest: number | null };
+        const entire = new Map<number, Agg>();
+        const halves = new Map<number, [Agg, Agg]>();
+        const makeAgg = (): Agg => ({ pcs: new Set(), lowest: null });
+        const addTo = (agg: Agg, midi: number) => {
+          agg.pcs.add(((midi % 12) + 12) % 12);
+          if (agg.lowest === null || midi < agg.lowest) agg.lowest = midi;
+        };
         for (let i = 0; i < shapes.length; i++) {
-          const m = cells[i]?.[0]?.m;
-          if (m === undefined) continue;
-          let agg = perMeasure.get(m);
-          if (!agg) {
-            agg = { pcs: new Set(), lowest: null };
-            perMeasure.set(m, agg);
+          const cell = cells[i]?.[0];
+          if (!cell) continue;
+          const m = cell.m;
+          // Colonne de la note dans la mesure (grille pleine largeur) : au-delà de
+          // la moitié des colonnes, la note appartient à la seconde moitié.
+          const slots = grid[m]?.slots ?? 0;
+          const half = slots > 0 && cell.slot >= slots / 2 ? 1 : 0;
+          let whole = entire.get(m);
+          if (!whole) {
+            whole = makeAgg();
+            entire.set(m, whole);
           }
+          let pair = halves.get(m);
+          if (!pair) {
+            pair = [makeAgg(), makeAgg()];
+            halves.set(m, pair);
+          }
+          const targets = [whole, pair[half]];
           for (const f of diagramFrequencies(shapes[i])) {
             if (!Number.isFinite(f) || f <= 0) continue;
             const midi = Math.round(69 + 12 * Math.log2(f / 440));
-            agg.pcs.add(((midi % 12) + 12) % 12);
-            if (agg.lowest === null || midi < agg.lowest) agg.lowest = midi;
+            for (const t of targets) addTo(t, midi);
           }
         }
-        const out = new Map<number, string>();
-        for (const [m, agg] of perMeasure) {
-          const label = guessChordFromPitchClasses(
-            [...agg.pcs],
-            agg.lowest === null ? null : agg.lowest % 12
-          );
-          if (label) out.set(m, label);
+        const label = (agg: Agg): string | null =>
+          agg.pcs.size > 0
+            ? guessChordFromPitchClasses(
+                [...agg.pcs],
+                agg.lowest === null ? null : agg.lowest % 12
+              )
+            : null;
+        const out = new Map<number, string[]>();
+        for (const [m, whole] of entire) {
+          const w = label(whole);
+          const pair = halves.get(m);
+          const a = pair && pair[0].pcs.size >= 3 ? label(pair[0]) : null;
+          const b = pair && pair[1].pcs.size >= 3 ? label(pair[1]) : null;
+          if (a && b && a !== b) out.set(m, [a, b]);
+          else if (w) out.set(m, [w]);
+          else if (a) out.set(m, [a]);
+          else if (b) out.set(m, [b]);
         }
         return out;
       }),

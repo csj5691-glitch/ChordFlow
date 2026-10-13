@@ -5,6 +5,7 @@
 // la progression d'accords interprétée mesure par mesure, avec un mini
 // diagramme par accord, et on met en évidence l'accord de la mesure en cours.
 
+import { Fragment } from "react";
 import { chordFretsForLabel } from "@/lib/tab-view";
 import { ChordMini } from "@/components/TabStaffView";
 
@@ -13,11 +14,11 @@ export default function RiffHarmonyView({
   currentMeasure,
   measureOffset,
 }: {
-  chords?: Map<number, string>;
+  chords?: Map<number, string[]>;
   currentMeasure: number;
   measureOffset?: number;
 }) {
-  const entries = [...(chords ?? new Map<number, string>()).entries()].sort(
+  const entries = [...(chords ?? new Map<number, string[]>()).entries()].sort(
     (a, b) => a[0] - b[0]
   );
 
@@ -36,8 +37,7 @@ export default function RiffHarmonyView({
         {entries.length > 1 ? "s" : ""} interprété{entries.length > 1 ? "s" : ""} à partir des notes
       </div>
       <div className="flex w-max gap-2 px-1">
-        {entries.map(([m, label]) => {
-          const frets = chordFretsForLabel(label);
+        {entries.map(([m, labels]) => {
           const active = m === currentMeasure;
           return (
             <div
@@ -52,10 +52,24 @@ export default function RiffHarmonyView({
               <span className="text-[9px] text-zinc-500">
                 Mesure {m + 1 + (measureOffset ?? 0)}
               </span>
-              <span className="text-lg font-black text-amber-300 leading-none">
-                {label}
-              </span>
-              {frets && <ChordMini frets={frets} />}
+              <div className="flex items-start gap-2">
+                {labels.map((label, li) => {
+                  const frets = chordFretsForLabel(label);
+                  return (
+                    <Fragment key={li}>
+                      {li > 0 && (
+                        <span className="self-center text-sm text-zinc-600">/</span>
+                      )}
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-lg font-black text-amber-300 leading-none">
+                          {label}
+                        </span>
+                        {frets && <ChordMini frets={frets} />}
+                      </div>
+                    </Fragment>
+                  );
+                })}
+              </div>
             </div>
           );
         })}
