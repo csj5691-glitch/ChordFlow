@@ -34,18 +34,25 @@ function strIsMuted(shape: SavedChordShape, s: number): boolean {
 
 export default function ChordShapeView({ shape, onNoteClick, legatoStrings, showMutes = true, tuning }: ChordShapeViewProps) {
   const shapeBaseFret = shape.baseFret || 1;
-  // Un accord joué dans les 4 premières cases est toujours représenté au sillet,
-  // avec les cases 1 à 5 visibles (même si la forme est enregistrée plus haut).
-  // Les formes avec capo ou barré conservent leur position d'origine.
+  // Tous les accords joués entre le sillet et la 5e case (aucune note au-dessus
+  // de la case 5, pas de capo) affichent les 5 premières cases, quelle que soit
+  // la position de base enregistrée (inversions, baseFret > 1…) ; une forme avec
+  // capo conserve sa position d'origine.
   const fingerFrets = shape.fingers
     .map((f) => f.fret)
     .filter((fret) => fret > 0);
   const atNut =
     !shape.capo &&
-    !shape.barreOn &&
     fingerFrets.length > 0 &&
-    Math.max(...fingerFrets) <= 4;
+    Math.max(...fingerFrets) <= 5;
   const baseFret = atNut ? 1 : shapeBaseFret;
+  // Case du barré : la plus basse des positions enregistrées (la barre, puis les
+  // doigtés), à dessiner dans la fenêtre affichée.
+  const barreFret = !shape.barreOn
+    ? 0
+    : fingerFrets.length > 0
+      ? Math.min(shapeBaseFret, Math.min(...fingerFrets))
+      : shapeBaseFret;
   // Le diagramme va de la corde grave (gauche) à l'aiguë (droite) : l'accordage
   // étant listé aigu → grave, on l'inverse.
   const tuned = parseTuningNotes(tuning);
@@ -280,12 +287,13 @@ export default function ChordShapeView({ shape, onNoteClick, legatoStrings, show
         const last = STRING_COUNT - 1;
         const x1 = PADDING + first * STRING_SPACING - 2;
         const x2 = PADDING + last * STRING_SPACING + 2;
-        const barreCy = NUT_Y + FRET_SPACING * 0.5;
+        const barreRow = Math.max(0, barreFret - baseFret);
+        const barreCy = NUT_Y + barreRow * FRET_SPACING + FRET_SPACING * 0.5;
         return (
           <g key="barre">
             <rect
               x={x1}
-              y={NUT_Y + FRET_SPACING * 0.22}
+              y={NUT_Y + barreRow * FRET_SPACING + FRET_SPACING * 0.22}
               width={x2 - x1}
               height={FRET_SPACING * 0.56}
               rx={7}
@@ -296,13 +304,13 @@ export default function ChordShapeView({ shape, onNoteClick, legatoStrings, show
             />
             <text
               x={x1 - 8}
-              y={NUT_Y + FRET_SPACING / 2 + 4}
+              y={NUT_Y + barreRow * FRET_SPACING + FRET_SPACING / 2 + 4}
               textAnchor="end"
               className="fill-black"
               fontSize="10"
               fontWeight="bold"
             >
-              1
+              {barreFret}
             </text>
             {Array.from({ length: last - first + 1 }, (_, i) => {
               const s = first + i;
