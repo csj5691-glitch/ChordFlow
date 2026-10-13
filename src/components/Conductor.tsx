@@ -208,6 +208,12 @@ export default function Conductor({
   const stemShiftRef = useRef(songId ? loadStemShift(songId) : 0);
   const [savedStemShift] = useState(() => (songId ? loadStemShift(songId) : 0));
   const playTokenRef = useRef(0);
+  // Rapport grille réelle/temps audio : quand la durée de la séquence d'accords
+  // (tracée au BPM stocké) ne rejoint pas la durée réelle des stems, on étire
+  // ou compresse l'horloge des diagrammes (voir tick) pour que le dernier
+  // diagramme tombe exactement sur la fin de la musique. = 1 : pas de
+  // correction (chansons dont le BPM colle, ou aucun stem décodé).
+  const tempoRatioRef = useRef(1);
   // Pause/reprise : on mémorise la position dans le morceau, puis on rejoue
   // depuis cet instant (les événements déjà passés sont sautés).
   const [paused, setPaused] = useState(false);
@@ -463,6 +469,16 @@ export default function Conductor({
         if (instBuf || vocBuf) {
           t0 = ctxSafe.currentTime + 0.15 - seek;
           t0Ref.current = t0;
+          // Étalonnage tempo : la grille s'étire sur la durée RÉELLE de la
+          // musique (durée du stem décodée à l'échantillon, moins le silence de
+          // tête déjà compensé), pas sur le BPM stocké qui peut diverger de la
+          // piste enregistrée (imports GP, versions, tempo libre…).
+          const gridSec = totalMs / 1000;
+          const audioSec = (instBuf?.duration ?? vocBuf?.duration ?? 0) - Math.max(0, shift);
+          tempoRatioRef.current =
+            audioSec > 2 && gridSec > 2 && Math.abs(gridSec - audioSec) > 1.5
+              ? gridSec / audioSec
+              : 1;
         }
         const startStem = (
           kind: "inst" | "vocals",
@@ -513,13 +529,28 @@ export default function Conductor({
         ctx && ctx.state === "running" && (stemSourcesRef.current.inst || stemSourcesRef.current.vocals)
           ? (ctx.currentTime - t0) * 1000
           : performance.now() - startedAt;
+      // Étalonnage temps réel → temps de grille. On ne compresse que la
+      // distance parcourue (pas l'ancre) pour que pause/reprise et sauts
+      // restent continus ; sans correction le rapport vaut 1 et l'horloge est
+      // inchangée.
+      const ratioTempo = tempoRatioRef.current;
+      const seekMs = seek * 1000;
+      const gridClock =
+        ratioTempo === 1 ? t : seekMs + (t - seekMs) * ratioTempo;
       // Le décalage de synchro peut repousser la fin : on ne doit pas arrêter
-      // avant lui.
-      const limit = Math.max(totalMs, Math.max(0, bandOffsetRef.current) * 1000);
+      // avant lui. Avec étalonnage, la fin de grille arrive à la fin réelle des
+      // stems (t = seek + (totalMs - seek) / rapport).
+      const limit =
+        ratioTempo === 1
+          ? Math.max(totalMs, Math.max(0, bandOffsetRef.current) * 1000)
+          : Math.max(
+              seekMs + (totalMs - seekMs) / ratioTempo,
+              Math.max(0, bandOffsetRef.current) * 1000
+            );
       if (bandEvents.length === 0) setElapsedMs(t);
       // Le décalage de bande rend la synchro malléable : un décalage positif
       // retarde l'affichage des diagrammes par rapport à la musique.
-      const tb = t + bandOffsetRef.current * 1000;
+      const tb = gridClock + bandOffsetRef.current * 1000;
       let i = bandEvents.findIndex(
         (e) => e.start * 1000 <= tb && tb < (e.start + e.duration) * 1000
       );
