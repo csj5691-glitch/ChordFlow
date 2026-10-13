@@ -218,7 +218,7 @@ export default function Conductor({
   // depuis cet instant (les événements déjà passés sont sautés).
   const [paused, setPaused] = useState(false);
   // Vue du passage de riff central : tablature ou progression d'accords.
-  const [riffView, setRiffView] = useState<"riff" | "harmonique">("riff");
+  const [riffView, setRiffView] = useState<"riff" | "harmonique">("harmonique");
   const seekRef = useRef(0);
   const t0Ref = useRef<number | null>(null);
   // Bande affichée : la séquence de diagrammes d'accords de la partition.
@@ -1224,16 +1224,6 @@ export default function Conductor({
               <div className="flex w-full flex-col items-center gap-2">
                 <div className="flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-900 p-0.5 text-[10px] font-bold">
                   <button
-                    onClick={() => setRiffView("riff")}
-                    className={`rounded-full px-3 py-0.5 transition-colors ${
-                      riffView === "riff"
-                        ? "bg-cyan-400/25 text-cyan-200 border border-cyan-400/50"
-                        : "text-zinc-400 hover:text-zinc-200 border border-transparent"
-                    }`}
-                  >
-                    Riff
-                  </button>
-                  <button
                     onClick={() => setRiffView("harmonique")}
                     className={`rounded-full px-3 py-0.5 transition-colors ${
                       riffView === "harmonique"
@@ -1242,6 +1232,16 @@ export default function Conductor({
                     }`}
                   >
                     Harmonique
+                  </button>
+                  <button
+                    onClick={() => setRiffView("riff")}
+                    className={`rounded-full px-3 py-0.5 transition-colors ${
+                      riffView === "riff"
+                        ? "bg-cyan-400/25 text-cyan-200 border border-cyan-400/50"
+                        : "text-zinc-400 hover:text-zinc-200 border border-transparent"
+                    }`}
+                  >
+                    Riff
                   </button>
                 </div>
                 {riffView === "riff" ? (
