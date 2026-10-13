@@ -11,6 +11,7 @@ import { loadStemShift, saveStemShift } from "@/lib/line-offsets";
 import type { SavedChordShape, SongTab } from "@/lib/types";
 import ChordShapeView from "@/components/ChordShapeView";
 import TabStaffView from "@/components/TabStaffView";
+import RiffHarmonyView from "@/components/RiffHarmonyView";
 import { BarGlyph } from "@/components/BarGlyph";
 import { diagramFrequencies, diagramsToTabWithPositions } from "@/lib/diagrams-to-tab";
 import { guessChordFromPitchClasses } from "@/lib/tab-view";
@@ -210,6 +211,8 @@ export default function Conductor({
   // Pause/reprise : on mémorise la position dans le morceau, puis on rejoue
   // depuis cet instant (les événements déjà passés sont sautés).
   const [paused, setPaused] = useState(false);
+  // Vue du passage de riff central : tablature ou progression d'accords.
+  const [riffView, setRiffView] = useState<"riff" | "harmonique">("riff");
   const seekRef = useRef(0);
   const t0Ref = useRef<number | null>(null);
   // Bande affichée : la séquence de diagrammes d'accords de la partition.
@@ -654,7 +657,7 @@ export default function Conductor({
     const hit = box.querySelector<HTMLElement>('[data-highlight="1"]');
     if (!hit) return;
     hit.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
-  }, [index]);
+  }, [index, riffView]);
 
   const totalBeat = diagrams.reduce((a, d) => a + (d.bar ? 0 : beatsForShape(d)), 0);
   const cur = bandEvents[index];
@@ -772,6 +775,14 @@ export default function Conductor({
     const cells = riffTabs[ri]?.cells[rel] ?? [];
     if (cells.length === 0) return undefined;
     return new Set(cells.map((c) => `${c.m}|${c.s}|${c.slot}`));
+  }, [index, runOfIndex, riffRuns, riffTabs]);
+  // Mesure en cours dans le passage de riff affiché : met en évidence l'accord
+  // correspondant en vue « Harmonique ».
+  const activeRiffMeasure = useMemo(() => {
+    const ri = runOfIndex[index];
+    if (ri < 0) return -1;
+    const rel = index - riffRuns[ri].start;
+    return riffTabs[ri]?.cells[rel]?.[0]?.m ?? -1;
   }, [index, runOfIndex, riffRuns, riffTabs]);
   const dur2 = totalMs / 1000;
   const elapsedPct = totalMs > 0 ? Math.min(100, (elapsedMs / totalMs) * 100) : 0;
@@ -1135,18 +1146,50 @@ export default function Conductor({
               </div>
             )}
             {runOfIndex[index] >= 0 ? (
-              <div ref={centerTabRef} className="max-w-[min(92vw,52rem)] overflow-x-auto">
-                <TabStaffView
-                  bpm={bpm}
-                  tab={riffTabs[runOfIndex[index]].tab}
-                  showMutes={false}
-                  highlight={activeRiffHighlight}
-                  rests={riffTabs[runOfIndex[index]].rests}
-                  beats={riffTabs[runOfIndex[index]].grid}
-                  measureChords={riffChords[runOfIndex[index]]}
-                  measureOffset={riffTabs[runOfIndex[index]].measureOffset}
-                  maxMeasuresPerLine={4}
-                />
+              <div className="flex flex-col items-center gap-2">
+                <div className="flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-900 p-0.5 text-[10px] font-bold">
+                  <button
+                    onClick={() => setRiffView("riff")}
+                    className={`rounded-full px-3 py-0.5 transition-colors ${
+                      riffView === "riff"
+                        ? "bg-cyan-400/25 text-cyan-200 border border-cyan-400/50"
+                        : "text-zinc-400 hover:text-zinc-200 border border-transparent"
+                    }`}
+                  >
+                    Riff
+                  </button>
+                  <button
+                    onClick={() => setRiffView("harmonique")}
+                    className={`rounded-full px-3 py-0.5 transition-colors ${
+                      riffView === "harmonique"
+                        ? "bg-amber-400/25 text-amber-200 border border-amber-400/50"
+                        : "text-zinc-400 hover:text-zinc-200 border border-transparent"
+                    }`}
+                  >
+                    Harmonique
+                  </button>
+                </div>
+                {riffView === "riff" ? (
+                  <div ref={centerTabRef} className="max-w-[min(92vw,52rem)] overflow-x-auto">
+                    <TabStaffView
+                      bpm={bpm}
+                      tab={riffTabs[runOfIndex[index]].tab}
+                      showMutes={false}
+                      highlight={activeRiffHighlight}
+                      rests={riffTabs[runOfIndex[index]].rests}
+                      beats={riffTabs[runOfIndex[index]].grid}
+                      measureChords={riffChords[runOfIndex[index]]}
+                      measureOffset={riffTabs[runOfIndex[index]].measureOffset}
+                      maxMeasuresPerLine={4}
+                    />
+                  </div>
+                ) : (
+                  <RiffHarmonyView
+                    chords={riffChords[runOfIndex[index]]}
+                    currentMeasure={activeRiffMeasure}
+                    measureOffset={riffTabs[runOfIndex[index]].measureOffset}
+                  />
+                )}
               </div>
             ) : (
               <div className="w-52 sm:w-80 md:w-96">

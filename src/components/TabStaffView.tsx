@@ -186,7 +186,7 @@ export function rhythmBeams(
   return out;
 }
 
-function ChordMini({ frets }: { frets: (number | null)[] }) {
+export function ChordMini({ frets }: { frets: (number | null)[] }) {
   // La tablature ordonne les rangées du mi aigu vers le mi grave ; un diagramme
   // standard montre le mi grave à gauche. On retourne donc l'ordre des cordes.
   const ordered = [...frets].reverse();
