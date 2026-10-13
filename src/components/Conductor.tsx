@@ -10,7 +10,9 @@ import { decodeHtmlEntities } from "@/lib/ug-scraper";
 import { loadStemShift, saveStemShift } from "@/lib/line-offsets";
 import type { SavedChordShape, SongTab } from "@/lib/types";
 import ChordShapeView from "@/components/ChordShapeView";
+import TabStaffView from "@/components/TabStaffView";
 import { BarGlyph } from "@/components/BarGlyph";
+import { diagramsToTabWithPositions } from "@/lib/diagrams-to-tab";
 import { freqToMidi } from "@/lib/sf2-bank";
 import { playGmEvent, gmProgramName, gmProgramFamily } from "@/lib/gm-voice";
 import { type MidiPlaybackEvent, type MidiChordEvent, type MidiTrackSummary } from "@/lib/midi-import";
@@ -1016,6 +1018,50 @@ export default function Conductor({
     }
     return maxSim === 0 ? null : maxSim >= 3 ? "accord" : "riff";
   })();
+  // Passages de riff : suites d'événements à 1 ou 2 cordes (jamais 3 notes
+  // simultanées ni percussion), avec au moins 2 attaques. Le Studio les affiche
+  // en tablature au lieu de diagrammes à une seule note.
+  const riffRuns = useMemo(() => {
+    const runs: { start: number; end: number }[] = [];
+    const cut = (ev: SynthEvent): boolean =>
+      !!ev.shape?.drumHits || (!ev.silence && soundingNotes(ev.shape) >= 3);
+    const isAttack = (ev: SynthEvent): boolean =>
+      !ev.silence && !ev.shape?.drumHits && soundingNotes(ev.shape) >= 1;
+    let start = -1;
+    let attacks = 0;
+    for (let i = 0; i <= bandEvents.length; i++) {
+      const ev = i < bandEvents.length ? bandEvents[i] : null;
+      if (!ev || cut(ev)) {
+        if (start !== -1 && attacks >= 2) runs.push({ start, end: i - 1 });
+        start = -1;
+        attacks = 0;
+        continue;
+      }
+      if (start === -1) start = i;
+      if (isAttack(ev)) attacks += 1;
+    }
+    return runs;
+  }, [bandEvents]);
+  // Indice du passage de riff auquel appartient chaque événement (-1 sinon).
+  const runOfIndex = useMemo(() => {
+    const arr = new Array<number>(bandEvents.length).fill(-1);
+    riffRuns.forEach((r, ri) => {
+      for (let i = r.start; i <= r.end; i++) arr[i] = ri;
+    });
+    return arr;
+  }, [riffRuns, bandEvents.length]);
+  // Tablature de chaque passage de riff : calcul partagé par la bande du bas et
+  // la vue centrale.
+  const riffTabs = useMemo(
+    () =>
+      riffRuns.map((r) => {
+        const shapes = bandEvents.slice(r.start, r.end + 1).map((e) => e.shape);
+        const first = bandEvents[r.start];
+        const originTick = Math.round(((first.start * bpm) / 60) * 480);
+        return diagramsToTabWithPositions(shapes, { bpm, originTick });
+      }),
+    [riffRuns, bandEvents, bpm]
+  );
   const dur2 = totalMs / 1000;
   const elapsedPct = totalMs > 0 ? Math.min(100, (elapsedMs / totalMs) * 100) : 0;
   const pct = cur ? (cur.start / dur2) * 100 : elapsedPct;
@@ -1123,8 +1169,45 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
             style={{ scrollbarWidth: "none" }}
           >
             {bandEvents.map((ev, i) => {
-              const active = i === index;
               if (!ev || !ev.shape) return null;
+              const runIdx = runOfIndex[i];
+              if (runIdx >= 0) {
+                const run = riffRuns[runIdx];
+                if (i !== run.start) return null;
+                const runActive = index >= run.start && index <= run.end;
+                return (
+                  <div
+                    key={`riff-${run.start}`}
+                    ref={(el) => {
+                      for (let k = run.start; k <= run.end; k++) itemRefs.current[k] = el;
+                    }}
+                    className={`flex-shrink-0 rounded-xl border transition-all duration-150 overflow-x-auto ${
+                      runActive
+                        ? "border-cyan-400 shadow-[0_0_24px_rgba(34,211,238,0.45)] bg-zinc-900"
+                        : "border-cyan-900/70 bg-zinc-900/50"
+                    }`}
+                  >
+                    <div className={runActive ? "" : "opacity-50"}>
+                      <div className="text-center text-[10px] font-bold py-1 truncate px-1 text-cyan-300">
+                        Riff · {run.end - run.start + 1} notes
+                      </div>
+                      <div className="px-1.5 pb-1">
+                        <TabStaffView
+                          title=""
+                          bpm={bpm}
+                          tab={riffTabs[runIdx].tab}
+                          showMutes={false}
+                          rests={riffTabs[runIdx].rests}
+                          beats={riffTabs[runIdx].grid}
+                          measureOffset={riffTabs[runIdx].measureOffset}
+                          maxMeasuresPerLine={16}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              const active = i === index;
               const isSilence =
                 ev.silence ||
                 ((ev.notes.length === 0 || ev.notes[0] === 0) &&
@@ -1346,9 +1429,23 @@ MIDI Songsterr · {(midiDurationMs / 1000).toFixed(1)} s
                 ))}
               </div>
             )}
-            <div className="w-52 sm:w-80 md:w-96">
-              <ChordShapeView shape={cur.shape} />
-            </div>
+            {runOfIndex[index] >= 0 ? (
+              <div className="max-w-[min(92vw,52rem)] overflow-x-auto">
+                <TabStaffView
+                  bpm={bpm}
+                  tab={riffTabs[runOfIndex[index]].tab}
+                  showMutes={false}
+                  rests={riffTabs[runOfIndex[index]].rests}
+                  beats={riffTabs[runOfIndex[index]].grid}
+                  measureOffset={riffTabs[runOfIndex[index]].measureOffset}
+                  maxMeasuresPerLine={4}
+                />
+              </div>
+            ) : (
+              <div className="w-52 sm:w-80 md:w-96">
+                <ChordShapeView shape={cur.shape} />
+              </div>
+            )}
             <p className="text-[11px] text-zinc-500 font-mono">{cur.duration.toFixed(2)} s</p>
           </div>
         )}
