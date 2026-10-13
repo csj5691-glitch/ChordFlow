@@ -157,6 +157,97 @@ export function guessChordFromPitchClasses(
   return NOTES[(best.root + 3) % 12].split("/")[0] + best.suffix;
 }
 
+// --- Diagramme d'un accord interprété (survol de l'harmonique, riffs) ---
+
+const NOTE_PCS: Record<string, number> = {};
+NOTES.forEach((n, i) => {
+  const pc = (i + 9) % 12; // NOTES est indexé sur la (A=0) ; A = classe 9
+  for (const t of n.split("/")) NOTE_PCS[t] = pc;
+});
+
+const MEASURE_SUFFIX_INTERVALS: Record<string, number[]> = {
+  "": [0, 4, 7],
+  m: [0, 3, 7],
+  "7": [0, 4, 7, 10],
+  m7: [0, 3, 7, 10],
+  maj7: [0, 4, 7, 11],
+  sus4: [0, 5, 7],
+  sus2: [0, 2, 7],
+  "5": [0, 7],
+};
+
+// Doigtés (aiguë → grave, comme la tablature) d'un libellé d'accord pour un
+// mini diagramme : la racine est posée sur la corde grave où elle est la plus
+// basse, les autres notes de l'accord sur les cordes supérieures dans un petit
+// intervalle ; les cordes inaccessibles restent muettes.
+export function chordFretsForLabel(label: string): (number | null)[] | null {
+  let root = -1;
+  let intervals: number[] | null = null;
+  const suffixes = Object.keys(MEASURE_SUFFIX_INTERVALS).sort(
+    (a, b) => b.length - a.length
+  );
+  for (const suffix of suffixes) {
+    if (label.slice(-suffix.length) !== suffix) continue;
+    const name = label.slice(0, label.length - suffix.length);
+    if (name && name in NOTE_PCS) {
+      root = NOTE_PCS[name];
+      intervals = MEASURE_SUFFIX_INTERVALS[suffix];
+      break;
+    }
+  }
+  if (root < 0 || !intervals) return null;
+  const chordPcs = new Set(intervals.map((iv) => (root + iv) % 12));
+
+  // Racine sur les 3 cordes graves (E, A, D) au case le plus bas ; si elle n'y
+  // est pas joignable, la note grave la plus proche de l'accord (accord inversé).
+  let bassIdx = -1;
+  let bassFret = -1;
+  for (let s = 5; s >= 3; s--) {
+    const openPc = OPEN_NOTES[s] % 12;
+    let rootAt: number | null = null;
+    for (let f = 0; f <= 12; f++) {
+      if ((openPc + f) % 12 === root) {
+        rootAt = f;
+        break;
+      }
+    }
+    if (rootAt !== null && (bassIdx === -1 || rootAt < bassFret)) {
+      bassIdx = s;
+      bassFret = rootAt;
+    }
+  }
+  if (bassIdx === -1) {
+    for (let s = 5; s >= 3; s--) {
+      const openPc = OPEN_NOTES[s] % 12;
+      for (let f = 0; f <= 12; f++) {
+        if (!chordPcs.has((openPc + f) % 12)) continue;
+        if (bassIdx === -1 || f < bassFret) {
+          bassIdx = s;
+          bassFret = f;
+        }
+        break;
+      }
+    }
+  }
+  if (bassIdx === -1) return null;
+
+  const cap = Math.min(15, bassFret + 5);
+  const frets: (number | null)[] = new Array(6).fill(null);
+  frets[bassIdx] = bassFret;
+  for (let s = bassIdx - 1; s >= 0; s--) {
+    const openPc = OPEN_NOTES[s] % 12;
+    let place: number | null = null;
+    for (let f = 0; f <= cap; f++) {
+      if (chordPcs.has((openPc + f) % 12)) {
+        place = f;
+        break;
+      }
+    }
+    frets[s] = place;
+  }
+  return frets;
+}
+
 export function measureSlots(strings: (TabToken | undefined)[][]): number {
   let max = 0;
   for (const row of strings) max = Math.max(max, row.length);

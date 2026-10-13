@@ -9,6 +9,7 @@ import {
   slotKind,
   slotFrets,
   guessChordLabel,
+  chordFretsForLabel,
   measureSlots,
   padRows,
   serializeTabModel,
@@ -592,6 +593,7 @@ function MeasureBox({
   const height = PAD_TOP + 6 * LINE_H;
   const VALUE_H = 30; // hauteur de la bande « figure de rythme » sous la portée
   const measureChord = measureChords?.get(index);
+  const measureChordFrets = measureChord ? chordFretsForLabel(measureChord) : null;
 
   // Riffs : passages de notes seules → bande teintée + étiquette « RIFF ».
   const riffRuns = detectRiffRuns(rows, slots);
@@ -657,11 +659,21 @@ function MeasureBox({
       <span className="absolute left-1/2 -translate-x-1/2 top-0.5 text-[9px] text-zinc-500 leading-none">
         {measureNumber}
       </span>
-      {/* accord interprété pour la mesure (riffs du Studio) */}
+      {/* accord interprété pour la mesure (riffs du Studio) : diagramme au survol */}
       {measureChord && (
-        <span className="absolute left-1/2 -translate-x-1/2 top-[29px] text-[11px] font-bold text-amber-300 leading-none whitespace-nowrap">
-          {measureChord}
-        </span>
+        <div
+          className="absolute flex flex-col items-center"
+          style={{ left: "50%", transform: "translateX(-50%)", top: 25, width: 30 }}
+        >
+          <span className="group relative text-[11px] font-bold text-amber-300 leading-none whitespace-nowrap">
+            {measureChord}
+            {measureChordFrets && (
+              <span className="absolute left-1/2 -translate-x-1/2 top-full mt-1 z-20 hidden group-hover:block bg-zinc-900 border border-zinc-700 rounded-md p-1 shadow-xl">
+                <ChordMini frets={measureChordFrets} />
+              </span>
+            )}
+          </span>
+        </div>
       )}
       {/* étiquette de riff, sous la portée */}
       {riffRuns.map((r) => (
