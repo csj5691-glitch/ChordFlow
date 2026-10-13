@@ -35,14 +35,15 @@ export default function RiffHarmonyView({
         {entries.length} mesure{entries.length > 1 ? "s" : ""} · accord
         {entries.length > 1 ? "s" : ""} interprété{entries.length > 1 ? "s" : ""} à partir des notes
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex w-max gap-2 px-1">
         {entries.map(([m, label]) => {
           const frets = chordFretsForLabel(label);
           const active = m === currentMeasure;
           return (
             <div
               key={m}
-              className={`flex flex-col items-center gap-1 rounded-xl border px-4 py-2 transition-all duration-150 ${
+              data-highlight={active ? "1" : undefined}
+              className={`flex flex-shrink-0 flex-col items-center gap-1 rounded-xl border px-4 py-2 transition-all duration-150 ${
                 active
                   ? "border-amber-400 bg-zinc-900 shadow-[0_0_22px_rgba(251,191,36,0.35)]"
                   : "border-zinc-800 bg-zinc-900/50 opacity-55"

@@ -1232,11 +1232,16 @@ export default function Conductor({
                     />
                   </div>
                 ) : (
-                  <RiffHarmonyView
-                    chords={riffChords[runOfIndex[index]]}
-                    currentMeasure={activeRiffMeasure}
-                    measureOffset={riffTabs[runOfIndex[index]].measureOffset}
-                  />
+                  <div
+                    ref={centerTabRef}
+                    className="w-screen max-w-[calc(100vw-10px)] overflow-x-auto"
+                  >
+                    <RiffHarmonyView
+                      chords={riffChords[runOfIndex[index]]}
+                      currentMeasure={activeRiffMeasure}
+                      measureOffset={riffTabs[runOfIndex[index]].measureOffset}
+                    />
+                  </div>
                 )}
               </div>
             ) : (
