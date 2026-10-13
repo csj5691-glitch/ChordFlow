@@ -449,22 +449,29 @@ export default function Conductor({
       ctxRef.current = ctx;
       // Alias non-null : les fermetures (pompe, bus) gardent un typage sûr.
       const ctxSafe = ctx;
-      // t0 est calé pour que la position `seek` du morceau sonne maintenant :
-      // la reprise après pause et les sauts vers un diagramme restent exacts.
-      t0 = ctx.currentTime + 0.15 - seek;
-      t0Ref.current = t0;
-      // Stems sur la même horloge que les accords : décode + planifie les buffers
-      // sur la timeline du contexte (t0 + position). zero dérive, zéro latence
-      // de démarrage de lecteur média et zéro curseur à régler.
+      // L'ancrage t0 (position `seek` du morceau) est posé APRÈS le décodage,
+      // juste avant de démarrer les sources : la planification sample-verrouillée
+      // (t0 + position) reste exacte quelle que soit la durée du décodage, et les
+      // diagrammes suivent la musique sans lag ni dérive.
       if (usesAudio) {
         let stemsOnCtx = false;
         const shift = stemShiftRef.current;
-        const scheduleStem = async (kind: "inst" | "vocals", url: string | null | undefined) => {
-          if (!url) return;
-          const buf = await decodeStemBuffer(ctxSafe, url);
-          if (!buf || buf.duration <= 0) return;
+        const [instBuf, vocBuf] = await Promise.all([
+          instrumentalUrl ? decodeStemBuffer(ctxSafe, instrumentalUrl) : Promise.resolve(null),
+          vocalsUrl ? decodeStemBuffer(ctxSafe, vocalsUrl) : Promise.resolve(null),
+        ]);
+        if (instBuf || vocBuf) {
+          t0 = ctxSafe.currentTime + 0.15 - seek;
+          t0Ref.current = t0;
+        }
+        const startStem = (
+          kind: "inst" | "vocals",
+          buf: AudioBuffer | null,
+          volume: number
+        ) => {
+          if (!buf || buf.duration <= 0 || !t0Ref.current) return;
           const gainNode = ctxSafe.createGain();
-          gainNode.gain.value = kind === "inst" ? instVolRef.current : vocalsVolRef.current;
+          gainNode.gain.value = volume;
           gainNode.connect(ctxSafe.destination);
           const src = ctxSafe.createBufferSource();
           src.buffer = buf;
@@ -478,9 +485,8 @@ export default function Conductor({
             setStemDuration((prev) => prev ?? buf.duration);
           }
         };
-        const instDone = scheduleStem("inst", instrumentalUrl);
-        const vocDone = scheduleStem("vocals", vocalsUrl);
-        await Promise.all([instDone, vocDone]);
+        startStem("inst", instBuf, instVolRef.current);
+        startStem("vocals", vocBuf, vocalsVolRef.current);
         // Repli <audio> (décodage impossible) : même saut de pré-roll.
         if (!stemsOnCtx && primary) {
           primary.currentTime = Math.max(0, seek + shift);
@@ -498,7 +504,15 @@ export default function Conductor({
       // L'horloge d'interface démarre à la position de lecture (t = seek au
       // démarrage), pour que pause/reprise et sauts restent exacts.
       if (startedAt === 0) startedAt = performance.now() + 100 - seek * 1000;
-      const t = performance.now() - startedAt;
+      // Avec des stems décodées sur le contexte audio, l'horloge VISUELLE est
+      // calée sur ctx.currentTime (échantillon-verrouillée) : la durée de
+      // décodage et la latence des timers ne peuvent plus décaler les
+      // diagrammes derrière la musique. Repli sur performance.now() quand aucun
+      // stem ne tourne sur le contexte (aucune piste, ou décodage échoué).
+      const t =
+        ctx && ctx.state === "running" && (stemSourcesRef.current.inst || stemSourcesRef.current.vocals)
+          ? (ctx.currentTime - t0) * 1000
+          : performance.now() - startedAt;
       // Le décalage de synchro peut repousser la fin : on ne doit pas arrêter
       // avant lui.
       const limit = Math.max(totalMs, Math.max(0, bandOffsetRef.current) * 1000);
