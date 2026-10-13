@@ -715,6 +715,16 @@ export default function Conductor({
       }),
     [riffRuns, bandEvents, bpm]
   );
+  // Note en cours dans le passage de riff affiché : surbrillance temps réel de la
+  // colonne jouée, comme dans l'éditeur de riffs (ArpeggioEditor → TabStaffView).
+  const activeRiffHighlight = useMemo<Set<string> | undefined>(() => {
+    const ri = runOfIndex[index];
+    if (ri < 0) return undefined;
+    const rel = index - riffRuns[ri].start;
+    const cells = riffTabs[ri]?.cells[rel] ?? [];
+    if (cells.length === 0) return undefined;
+    return new Set(cells.map((c) => `${c.m}|${c.s}|${c.slot}`));
+  }, [index, runOfIndex, riffRuns, riffTabs]);
   const dur2 = totalMs / 1000;
   const elapsedPct = totalMs > 0 ? Math.min(100, (elapsedMs / totalMs) * 100) : 0;
   const pct = cur ? (cur.start / dur2) * 100 : elapsedPct;
@@ -842,6 +852,7 @@ export default function Conductor({
                           bpm={bpm}
                           tab={riffTabs[runIdx].tab}
                           showMutes={false}
+                          highlight={activeRiffHighlight}
                           rests={riffTabs[runIdx].rests}
                           beats={riffTabs[runIdx].grid}
                           measureOffset={riffTabs[runIdx].measureOffset}
@@ -1080,6 +1091,7 @@ export default function Conductor({
                   bpm={bpm}
                   tab={riffTabs[runOfIndex[index]].tab}
                   showMutes={false}
+                  highlight={activeRiffHighlight}
                   rests={riffTabs[runOfIndex[index]].rests}
                   beats={riffTabs[runOfIndex[index]].grid}
                   measureOffset={riffTabs[runOfIndex[index]].measureOffset}
