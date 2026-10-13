@@ -1191,7 +1191,7 @@ export default function Conductor({
               </div>
             )}
             {runOfIndex[index] >= 0 ? (
-              <div className="flex flex-col items-center gap-2">
+              <div className="flex w-full flex-col items-center gap-2">
                 <div className="flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-900 p-0.5 text-[10px] font-bold">
                   <button
                     onClick={() => setRiffView("riff")}
@@ -1215,7 +1215,10 @@ export default function Conductor({
                   </button>
                 </div>
                 {riffView === "riff" ? (
-                  <div ref={centerTabRef} className="max-w-[min(92vw,52rem)] overflow-x-auto">
+                  <div
+                    ref={centerTabRef}
+                    className="w-screen max-w-[calc(100vw-10px)] overflow-x-auto"
+                  >
                     <TabStaffView
                       bpm={bpm}
                       tab={riffTabs[runOfIndex[index]].tab}
@@ -1225,7 +1228,7 @@ export default function Conductor({
                       beats={riffTabs[runOfIndex[index]].grid}
                       measureChords={riffChords[runOfIndex[index]]}
                       measureOffset={riffTabs[runOfIndex[index]].measureOffset}
-                      maxMeasuresPerLine={4}
+                      maxMeasuresPerLine={9999}
                     />
                   </div>
                 ) : (
