@@ -982,7 +982,13 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
         if (stem === "vocals") setStemPhase(2);
       }
     } catch (err) {
-      setExtractError(extractErrorText(err instanceof Error ? err.message : String(err)));
+      const msg = err instanceof Error ? err.message : String(err);
+      const low = msg.toLowerCase();
+      setExtractError(
+        low.includes("injoignable") || low.includes("404") || low.includes("not found")
+          ? "Service Demucs absent — lance start-stems.bat puis utilise l'app en local (localhost:3000)"
+          : extractErrorText(err instanceof Error ? err.message : String(err)),
+      );
     } finally {
       stopStemProgress();
       setStemPhase(-1);

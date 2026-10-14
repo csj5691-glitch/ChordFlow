@@ -759,8 +759,9 @@ const [extracting, setExtracting] = useState(false);
       setExtractDone(true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      const low = msg.toLowerCase();
       setExtractError(
-        msg.includes("injoignable")
+        low.includes("injoignable") || low.includes("404") || low.includes("not found")
           ? "Service Demucs absent — lance start-stems.bat (utilisation en local uniquement)"
           : msg.slice(0, 160),
       );
