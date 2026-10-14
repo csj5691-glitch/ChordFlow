@@ -155,7 +155,7 @@ def _captured_separate(src: str, out_dir: str, token: str | None) -> None:
             entry = PROGRESS.get(token)
             if entry is None or entry.get("state") in ("done", "error"):
                 entry = _new_progress(token)
-            entry.update(state="running", updated=time.time())
+            entry.update(state="running", line="chargement du modèle…", updated=time.time())
             orig = sys.stderr
             try:
                 sys.stderr = _ProgressWriter(orig, token)
@@ -285,6 +285,12 @@ async def separate_audio(
     entry = CACHE_ROOT / key
     stems_dir = entry / "stems"
 
+    # Le jeton est enregistré dès l'arrivée de la requête : un job mis en file
+    # derrière une séparation en cours reste ainsi visible sur /progress, au lieu
+    # de renvoyer 404 jusqu'à l'obtention du verrou (_separate_lock).
+    if progress_token:
+        _mark_progress(progress_token, state="running", percent=0, line="en file d'attente…")
+
     if not (stems_dir / "vocals.wav").is_file():
         _purge_cache()
         entry.mkdir(parents=True, exist_ok=True)
@@ -309,8 +315,7 @@ async def separate_audio(
     else:
         entry.touch()
         print(f"[stems] cache hit {key[:12]}", flush=True)
-        if progress_token and progress_token not in PROGRESS:
-            _mark_progress(progress_token, state="done", percent=100, line="déjà en cache")
+        _mark_progress(progress_token, state="done", percent=100, line="déjà en cache")
 
     if stem == "noVocals":
         try:
