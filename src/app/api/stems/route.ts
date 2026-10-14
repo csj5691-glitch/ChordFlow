@@ -37,6 +37,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "fichier trop gros (max 200 Mo)" }, { status: 413 });
   }
 
+  // Jeton de progression optionnel : transmis au service pour qu'il expose sa
+  // barre tqdm sur /progress?token=… (lu par /api/stems-progress).
+  const progressToken = req.nextUrl.searchParams.get("progress_token")?.trim() ?? "";
+  const tokenQuery =
+    progressToken && /^[A-Za-z0-9_-]{8,64}$/.test(progressToken)
+      ? `&progress_token=${encodeURIComponent(progressToken)}`
+      : "";
+
   // Deux essais : le stem demandé, puis son équivalent « other » si le modèle
   // ne sait pas le produire (le calcul est mis en cache, le 2e essai est gratuit).
   const candidates = [stem, STEM_FALLBACK[stem]].filter(
@@ -50,7 +58,7 @@ export async function POST(req: NextRequest) {
     const body = new FormData();
     body.set("file", file, file.name || "audio.mp3");
     try {
-      res = await fetch(`${STEMS_SERVICE}/separate?stem=${encodeURIComponent(candidate)}`, {
+      res = await fetch(`${STEMS_SERVICE}/separate?stem=${encodeURIComponent(candidate)}${tokenQuery}`, {
         method: "POST",
         body,
         signal: AbortSignal.timeout(SEPARATION_TIMEOUT_MS),
