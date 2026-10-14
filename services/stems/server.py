@@ -387,19 +387,4 @@ if __name__ == "__main__":
         "si CUDA est annonce mais absent (cuDNN), le service bascule seul sur le CPU.",
         flush=True,
     )
-    # Auto-reload : le processus enfant uvicorn est relancé à chaque
-    # modification d'un .py de services/stems. `app_dir` est inséré dans
-    # sys.path (le reloader passe aussi sys.path à l'enfant), pour que
-    # l'import « server:app » fonctionne quel que soit le répertoire courant.
-    # watchfiles s'il est installé, sinon uvicorn retombe sur son recharger
-    # par sondage (StatReload). Désactivation : STEMS_RELOAD=0.
-    here = str(Path(__file__).resolve().parent)
-    reload_on = os.environ.get("STEMS_RELOAD", "1") != "0"
-    uvicorn.run(
-        "server:app",
-        host="127.0.0.1",
-        port=port,
-        reload=reload_on,
-        reload_dirs=[here],
-        app_dir=here,
-    )
+    uvicorn.run(app, host="127.0.0.1", port=port)
