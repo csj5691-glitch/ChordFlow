@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getPipelineProgress } from "@/lib/stem-pipeline-progress";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,15 @@ export async function GET(req: NextRequest) {
   }
   if (!res.ok) {
     if (res.status === 404) {
+      // Séparation pas encore lancée côté service : on relaie la progression
+      // amont (téléchargement yt-dlp / conversion ffmpeg) si elle existe.
+      const up = getPipelineProgress(token);
+      if (up) {
+        return NextResponse.json(
+          { state: "downloading", line: up.line, percent: up.percent, current: 0, total: 0 },
+          { status: 200, headers: { "Cache-Control": "no-store" } }
+        );
+      }
       return NextResponse.json(
         { state: "waiting", line: "téléchargement de la vidéo…", percent: 0, current: 0, total: 0 },
         { status: 200 }

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ytdlpFailure } from "@/lib/yt-dlp-error";
+import { setPipelineProgress, clearPipelineProgress } from "@/lib/stem-pipeline-progress";
 
 const execFileP = promisify(execFile);
 
@@ -20,6 +21,71 @@ export const maxDuration = 300;
 
 const wavCache = new Map<string, Buffer>();
 const WAV_CACHE_MAX = 2;
+
+// Ligne de progression yt-dlp, ex. : « [download]  42.3% of 3.45MiB at 1.2MiB/s »
+const DOWNLOAD_RE = /\[download\]\s+([\d.]+)%/;
+
+// Lance yt-dlp en flux et remonte le pourcentage à /api/stems-progress via le
+// magasin partagé (le service stems ne répond encore qu'en 404 à ce stade).
+function runDownload(
+  videoId: string,
+  audioPath: string,
+  watchUrl: string,
+  token: string
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const report = (percent: number, line: string) =>
+      setPipelineProgress(token, { phase: "download", percent, line });
+    report(0, "téléchargement de la vidéo (yt-dlp)…");
+    const child = spawn(
+      "yt-dlp",
+      [
+        "--no-playlist",
+        "--no-warnings",
+        "--newline",
+        "--progress",
+        "--retries",
+        "3",
+        "--fragment-retries",
+        "3",
+        "-f",
+        "bestaudio",
+        "-o",
+        audioPath,
+        watchUrl,
+      ],
+      { windowsHide: true }
+    );
+    let stderr = "";
+    const onData = (buf: Buffer) => {
+      const text = buf.toString();
+      stderr = (stderr + text).slice(-200_000);
+      for (const line of text.split(/\r?\n/)) {
+        const m = DOWNLOAD_RE.exec(line);
+        if (m) {
+          report(Math.max(0, Math.min(100, parseFloat(m[1]))), "téléchargement de la vidéo (yt-dlp)…");
+        } else if (line.includes("[ExtractAudio]") || line.includes("[Merger]")) {
+          report(99, "traitement de la piste audio…");
+        }
+      }
+    };
+    child.stdout.on("data", onData);
+    child.stderr.on("data", onData);
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(Object.assign(new Error("téléchargement YouTube trop long (240 s)"), { stderr }));
+    }, 240_000);
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(Object.assign(err, { stderr }));
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(Object.assign(new Error(`yt-dlp: code ${code}`), { stderr }));
+    });
+  });
+}
 
 export async function POST(req: NextRequest) {
   let videoId = "";
@@ -56,24 +122,6 @@ export async function POST(req: NextRequest) {
     const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
     try {
-      const runDownload = () =>
-        execFileP(
-          "yt-dlp",
-          [
-            "--no-playlist",
-            "--no-warnings",
-            "--retries",
-            "3",
-            "--fragment-retries",
-            "3",
-            "-f",
-            "bestaudio",
-            "-o",
-            audioPath,
-            watchUrl,
-          ],
-          { timeout: 240_000, maxBuffer: 8 * 1024 * 1024 }
-        );
       // Un 403/429 de YouTube est le plus souvent transitoire (anti-bot / débit) :
       // on retente une fois après une courte pause avant d'abandonner.
       let ok = false;
@@ -81,7 +129,7 @@ export async function POST(req: NextRequest) {
       for (let attempt = 0; attempt < 2 && !ok; attempt++) {
         try {
           console.log(`[yt-stems] téléchargement de ${videoId}… (essai ${attempt + 1})`);
-          await runDownload();
+          await runDownload(videoId, audioPath, watchUrl, progressToken);
           ok = true;
         } catch (e) {
           lastErr = e;
@@ -116,6 +164,11 @@ export async function POST(req: NextRequest) {
 
       try {
         console.log(`[yt-stems] conversion de ${videoId}…`);
+        setPipelineProgress(progressToken, {
+          phase: "convert",
+          percent: 100,
+          line: "conversion audio (ffmpeg)…",
+        });
         await execFileP(
           "ffmpeg",
           ["-y", "-i", audioPath, "-ac", "1", "-ar", "44100", "-sample_fmt", "s16", "-f", "wav", wavPath],
@@ -137,6 +190,9 @@ export async function POST(req: NextRequest) {
       }
       wavCache.set(videoId, wav);
     } finally {
+      // La séparation (barre tqdm du service) prend le relais : on libère la
+      // progression amont pour ne pas la masquer.
+      clearPipelineProgress(progressToken);
       await rm(dir, { recursive: true, force: true }).catch(() => {});
     }
   }

@@ -223,6 +223,9 @@ const [extracting, setExtracting] = useState(false);
   >(null);
   const progressTimerRef = useRef<number | null>(null);
   const extractStartRef = useRef(0);
+  // Étapes de l'extraction YouTube : 0 = téléchargement, 1 = voix, 2 = instrumental.
+  const [stemPhase, setStemPhase] = useState(-1);
+  const currentStemRef = useRef<"vocals" | "noVocals" | null>(null);
   const [spotifyError, setSpotifyError] = useState<string | null>(null);
   const [showEdit, setShowEdit] = useState(false);
   const [spotifyTrackUrl, setSpotifyTrackUrl] = useState<string | null>(() =>
@@ -715,11 +718,18 @@ const [extracting, setExtracting] = useState(false);
     setExtractElapsed(0);
     setExtractProgress({ state: "waiting", percent: 0, current: 0, total: 0, line: "téléchargement de la vidéo…" });
     extractStartRef.current = Date.now();
+    currentStemRef.current = null;
+    setStemPhase(0);
     const poll = async () => {
       try {
         const r = await fetch(`/api/stems-progress?token=${encodeURIComponent(token)}`);
         const data = await r.json().catch(() => null);
-        if (data?.state) setExtractProgress(data);
+        if (data?.state) {
+          setExtractProgress(data);
+          if (data.state === "downloading") setStemPhase(0);
+          else if (data.state === "running")
+            setStemPhase((p) => (currentStemRef.current === "noVocals" ? 2 : Math.max(p, 1)));
+        }
       } catch {
         // Service en pause pendant le redémarrage — on continue de scruter.
       }
@@ -727,6 +737,7 @@ const [extracting, setExtracting] = useState(false);
     progressTimerRef.current = window.setInterval(() => void poll(), 500);
     try {
       for (const stem of ["vocals", "noVocals"] as const) {
+        currentStemRef.current = stem;
         const res = await fetch("/api/yt-stems", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -742,6 +753,8 @@ const [extracting, setExtracting] = useState(false);
         const blob = await res.blob();
         const wav = new File([blob], `${stem}.wav`, { type: "audio/wav" });
         await saveAudioStem(id, stem, wav);
+        // Voix enregistrée : l'instrumental (déjà en cache côté service) démarre.
+        if (stem === "vocals") setStemPhase(2);
       }
       setExtractDone(true);
     } catch (err) {
@@ -757,6 +770,7 @@ const [extracting, setExtracting] = useState(false);
         progressTimerRef.current = null;
       }
       setExtractProgress(null);
+      setStemPhase(-1);
       setExtracting(false);
     }
   };
@@ -1347,27 +1361,62 @@ const [extracting, setExtracting] = useState(false);
                 </span>
               )}
               {extracting && extractProgress && (
-                <div className="w-full max-w-md">
-                  {extractProgress.percent > 0 && (
-                    <div className="flex items-center gap-2 text-[11px] text-zinc-400 font-mono">
-                      <span>{Math.min(100, extractProgress.percent)}%</span>
-                      <div className="relative h-2 flex-1 rounded-full bg-zinc-800 overflow-hidden">
+                <div className="w-full max-w-md flex flex-col gap-1.5">
+                  {([
+                    { label: "Téléchargement de l'audio (YouTube)", icon: Upload },
+                    { label: "Séparation de la voix (Demucs)", icon: Mic2 },
+                    { label: "Séparation de l'instrumental (Demucs)", icon: Music },
+                  ] as const).map((s, i) => {
+                    const done = stemPhase > i;
+                    const active = stemPhase === i;
+                    const pct = done
+                      ? 100
+                      : active
+                        ? Math.min(100, Math.round(extractProgress.percent))
+                        : 0;
+                    const Icon = s.icon;
+                    return (
+                      <div key={i}>
                         <div
-                          className="absolute inset-y-0 left-0 rounded-full bg-amber-400/80 transition-[width] duration-300"
-                          style={{ width: `${Math.min(100, extractProgress.percent)}%` }}
-                        />
+                          className={`flex items-center gap-2 text-[11px] font-mono ${
+                            active
+                              ? "text-amber-300"
+                              : done
+                                ? "text-emerald-400"
+                                : "text-zinc-600"
+                          }`}
+                        >
+                          <span className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
+                            {done ? (
+                              <Check className="w-3.5 h-3.5" />
+                            ) : active ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Icon className="w-3.5 h-3.5" />
+                            )}
+                          </span>
+                          <span className="truncate">{`Étape ${i + 1} · ${s.label}`}</span>
+                          <span className="ml-auto tabular-nums">{pct}%</span>
+                        </div>
+                        <div className="ml-5 mt-0.5 relative h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                          <div
+                            className={`absolute inset-y-0 left-0 rounded-full transition-[width] duration-300 ${
+                              done ? "bg-emerald-400/80" : "bg-amber-400/80"
+                            }`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        {active && extractProgress.line && (
+                          <div
+                            className="ml-5 mt-0.5 text-[10px] font-mono text-zinc-500 truncate"
+                            title={extractProgress.line}
+                          >
+                            {extractProgress.line}
+                          </div>
+                        )}
                       </div>
-                      {extractProgress.total > 0 && (
-                        <span>
-                          {extractProgress.current}/{extractProgress.total} blocs
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  <div className="mt-1 flex items-center gap-1.5 text-[10px] font-mono text-zinc-500 truncate">
-                    <Loader2 className="w-3 h-3 animate-spin shrink-0 text-amber-300/80" />
-                    <span title={extractProgress.line}>{extractProgress.line || "séparation Demucs en cours…"}</span>
-                  </div>
+                    );
+                  })}
                 </div>
               )}
               {extractError && (
