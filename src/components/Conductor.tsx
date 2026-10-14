@@ -845,7 +845,7 @@ export default function Conductor({
   // colonne jouée, comme dans l'éditeur de riffs (ArpeggioEditor → TabStaffView).
   const activeRiffHighlight = useMemo<Set<string> | undefined>(() => {
     const ri = runOfIndex[index];
-    if (ri < 0) return undefined;
+    if (ri === undefined || ri < 0 || ri >= riffRuns.length) return undefined;
     const rel = index - riffRuns[ri].start;
     const cells = riffTabs[ri]?.cells[rel] ?? [];
     if (cells.length === 0) return undefined;
@@ -855,7 +855,7 @@ export default function Conductor({
   // correspondant en vue « Harmonique ».
   const activeRiffMeasure = useMemo(() => {
     const ri = runOfIndex[index];
-    if (ri < 0) return -1;
+    if (ri === undefined || ri < 0 || ri >= riffRuns.length) return -1;
     const rel = index - riffRuns[ri].start;
     return riffTabs[ri]?.cells[rel]?.[0]?.m ?? -1;
   }, [index, runOfIndex, riffRuns, riffTabs]);
