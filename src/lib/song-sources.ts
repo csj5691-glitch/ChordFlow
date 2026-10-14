@@ -5,6 +5,7 @@ import { SongTab } from "@/lib/types";
 import { loadYouTubeId } from "@/lib/youtube-store";
 import { loadSpotifyId } from "@/lib/spotify-store";
 import { loadAudioStems } from "@/lib/audio-store";
+import { loadStems } from "@/lib/stems-db";
 
 export function songHasYoutube(song: SongTab): boolean {
   return !!(song.youtubeId || loadYouTubeId(song.id));
@@ -22,7 +23,11 @@ export function usePersistedUploads(idList: string[]) {
       const withStems = new Set<string>();
       for (const id of idList) {
         try {
-          if (await loadAudioStems(id)) withStems.add(id);
+          if (await loadAudioStems(id)) {
+            withStems.add(id);
+            continue;
+          }
+          if ((await loadStems(id)).length > 0) withStems.add(id);
         } catch {
           // ignorer (IndexedDB indisponible)
         }

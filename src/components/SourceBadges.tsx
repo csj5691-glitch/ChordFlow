@@ -43,7 +43,7 @@ export function SourceBadges({
         </span>
       )}
       {file && (
-        <span title="Fichier audio importé">
+        <span title="Stems audio importés">
           <FileAudio className="w-3.5 h-3.5 text-amber-400" />
         </span>
       )}
