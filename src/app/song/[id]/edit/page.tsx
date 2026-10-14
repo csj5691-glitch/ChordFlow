@@ -1478,6 +1478,39 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
               {song.title} — {song.artist}
             </p>
           </div>
+          <span
+            className={`shrink-0 flex items-center gap-1.5 text-[11px] rounded-full px-2.5 py-1 border ${
+              stemStatus.status === "up"
+                ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+                : stemStatus.status === "checking"
+                ? "text-zinc-500 bg-zinc-800/60 border-zinc-700/60"
+                : "text-red-400 bg-red-500/10 border-red-500/30"
+            }`}
+            title={
+              stemStatus.status === "up"
+                ? `Service stems local actif (port 8765) — ${
+                    stemStatus.device === "cuda" ? "GPU (CUDA)" : "CPU (lent)"
+                  }${stemStatus.model ? ` — ${stemStatus.model}` : ""}`
+                : stemStatus.status === "checking"
+                ? "Vérification de l'état du service stems…"
+                : "Service stems local injoignable (port 8765) — lance start-stems.bat puis utilise localhost:3000"
+            }
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                stemStatus.status === "up"
+                  ? "bg-emerald-400"
+                  : stemStatus.status === "checking"
+                  ? "bg-zinc-500 animate-pulse"
+                  : "bg-red-500"
+              }`}
+            />
+            {stemStatus.status === "up"
+              ? `Stems actif${stemStatus.device === "cuda" ? " · GPU" : " · CPU"}`
+              : stemStatus.status === "checking"
+              ? "Stems…"
+              : "Stems absent"}
+          </span>
           <div className="w-full md:w-auto flex items-center gap-2 md:flex-shrink-0">
             {/* FUTURE DEV: Grille mode supprimé
             <button
