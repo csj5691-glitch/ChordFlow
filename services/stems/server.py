@@ -206,7 +206,10 @@ def _separate_with_fallback(src: str, out_dir: str) -> None:
             print(f"[stems] CUDA/CuDNN indisponible ({e}) — passage en CPU", flush=True)
             for f in Path(out_dir).glob("*"):
                 if f.is_file():
-                    f.unlink()
+                    try:
+                        f.unlink()
+                    except OSError:
+                        pass
     separate(str(src), str(out_dir), model=MODEL, providers=["CPUExecutionProvider"])
 
 
@@ -310,7 +313,14 @@ async def separate_audio(
             _mark_progress(progress_token, state="error", line=f"échec: {e}")
             raise HTTPException(500, f"separation failed: {e}") from e
         finally:
-            src.unlink(missing_ok=True)
+            # Windows : le fichier d'entrée peut rester verrouillé un court
+            # instant (demucs/antivirus) -> WinError 32. Le cache étant purgé
+            # par TTL, on ignore l'échec au lieu de transformer une séparation
+            # réussie en 500.
+            try:
+                src.unlink(missing_ok=True)
+            except OSError:
+                pass
         entry.touch()
     else:
         entry.touch()
