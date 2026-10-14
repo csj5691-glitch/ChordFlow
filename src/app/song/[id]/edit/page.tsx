@@ -71,6 +71,7 @@ import {
   Lock,
   Play,
   Square,
+  RefreshCw,
 } from "lucide-react";
 
 function getStaticSong(id: string): SongTab | null {
@@ -283,6 +284,10 @@ function EditSongView({ id }: { id: string }) {
   }>({ status: "checking" });
   const extractStartRef = useRef(0);
   const progressTimerRef = useRef<number | null>(null);
+  // Dernière extraction lancée, pour pouvoir la relancer via « Réessayer ».
+  const lastExtractRef = useRef<
+    { kind: "youtube" } | { kind: "file"; file: File } | null
+  >(null);
   const [gpImporting, setGpImporting] = useState(false);
   const [gpError, setGpError] = useState<string | null>(null);
   const [gpWarnings, setGpWarnings] = useState<string[]>([]);
@@ -893,6 +898,7 @@ function EditSongView({ id }: { id: string }) {
   };
 
   const handleExtractBothFromFile = async (file: File) => {
+    lastExtractRef.current = { kind: "file", file };
     const token = crypto.randomUUID();
     setExtracting(true);
     setExtractError(null);
@@ -934,6 +940,7 @@ function EditSongView({ id }: { id: string }) {
       setExtractError("Aucune vidéo YouTube liée à cette chanson");
       return;
     }
+    lastExtractRef.current = { kind: "youtube" };
     const token = crypto.randomUUID();
     setExtracting(true);
     setExtractError(null);
@@ -964,6 +971,13 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
       stopStemProgress();
       setExtracting(false);
     }
+  };
+
+  // Relance la dernière extraction (YouTube ou fichier) après une erreur.
+  const retryExtract = () => {
+    const last = lastExtractRef.current;
+    if (last?.kind === "file") void handleExtractBothFromFile(last.file);
+    else void handleExtractBothFromYouTube();
   };
 
   const handleGpPickFile = async (file: File) => {
@@ -2052,8 +2066,18 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                   </div>
                 </div>
                 {extractError && (
-                  <span className="text-[11px] text-red-400" title={extractError}>
+                  <span className="flex items-center gap-2 text-[11px] text-red-400" title={extractError}>
                     {extractError}
+                    <button
+                      type="button"
+                      onClick={retryExtract}
+                      disabled={extracting}
+                      className="flex items-center gap-1 font-semibold text-amber-300 bg-amber-500/15 border border-amber-500/30 hover:bg-amber-500/25 rounded-full px-2.5 py-1 transition-colors disabled:cursor-wait disabled:opacity-50"
+                      title="Relancer la dernière extraction (YouTube ou fichier)"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      Réessayer
+                    </button>
                   </span>
                 )}
                 {(instUrl || vocalsUrl) && (

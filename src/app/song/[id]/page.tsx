@@ -1371,8 +1371,18 @@ const [extracting, setExtracting] = useState(false);
                 </div>
               )}
               {extractError && (
-                <span className="text-[11px] text-red-400" title={extractError}>
+                <span className="flex items-center gap-2 text-[11px] text-red-400" title={extractError}>
                   {extractError}
+                  <button
+                    type="button"
+                    onClick={() => void handleExtractStemsYouTube()}
+                    disabled={extracting}
+                    className="flex items-center gap-1 font-semibold text-amber-300 bg-amber-500/15 border border-amber-500/30 hover:bg-amber-500/25 rounded-full px-2.5 py-1 transition-colors disabled:cursor-wait disabled:opacity-50"
+                    title="Relancer l'extraction de la voix + instrumental (YouTube)"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Réessayer
+                  </button>
                 </span>
               )}
             </div>
