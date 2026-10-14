@@ -56,9 +56,8 @@ export async function POST(req: NextRequest) {
     const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
     try {
-      try {
-        console.log(`[yt-stems] téléchargement de ${videoId}…`);
-        await execFileP(
+      const runDownload = () =>
+        execFileP(
           "yt-dlp",
           [
             "--no-playlist",
@@ -75,11 +74,36 @@ export async function POST(req: NextRequest) {
           ],
           { timeout: 240_000, maxBuffer: 8 * 1024 * 1024 }
         );
-      } catch (e) {
-        const err = e as { message?: string; stderr?: Buffer | string };
+      // Un 403/429 de YouTube est le plus souvent transitoire (anti-bot / débit) :
+      // on retente une fois après une courte pause avant d'abandonner.
+      let ok = false;
+      let lastErr: unknown = null;
+      for (let attempt = 0; attempt < 2 && !ok; attempt++) {
+        try {
+          console.log(`[yt-stems] téléchargement de ${videoId}… (essai ${attempt + 1})`);
+          await runDownload();
+          ok = true;
+        } catch (e) {
+          lastErr = e;
+          const stderr = (e as { stderr?: Buffer | string })?.stderr
+            ? String((e as { stderr?: Buffer | string }).stderr)
+            : "";
+          const transient = /HTTP Error (403|429)|Too Many Requests|not a bot|Sign in to confirm/i.test(
+            stderr
+          );
+          if (attempt === 0 && transient) {
+            console.warn(`[yt-stems] ${videoId} : échec transitoire, nouvel essai dans 2,5 s…`);
+            await new Promise((r) => setTimeout(r, 2500));
+            continue;
+          }
+          break;
+        }
+      }
+      if (!ok) {
+        const err = lastErr as { message?: string; stderr?: Buffer | string };
         const stderr = err?.stderr ? String(err.stderr) : "";
-        console.error(`[yt-stems] yt-dlp a échoué pour ${videoId}: ${err?.message ?? e}\n${stderr}`);
-        const msg = err?.message ?? String(e);
+        console.error(`[yt-stems] yt-dlp a échoué pour ${videoId}: ${err?.message ?? lastErr}\n${stderr}`);
+        const msg = err?.message ?? String(lastErr);
         return NextResponse.json(
           {
             error: msg.includes("ENOENT")
