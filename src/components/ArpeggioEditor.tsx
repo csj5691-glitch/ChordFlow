@@ -535,16 +535,6 @@ export default function ArpeggioEditor({
   const body = (
     <div className={embedded ? "" : "flex-1 overflow-y-auto"}>
       <div className="p-4 flex flex-col gap-5">
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
-              {tab ? (
-                <TabStaffView title={title} bpm={bpm} tab={tab} showMutes={false} highlight={highlight} rests={rests} ghosts={ghosts} legatos={legatos} slides={slides} graces={graces} beats={grid} measureOffset={measureOffset} measures={grid.length} tuning={tuning} />
-              ) : (
-                <p className="text-[11px] text-zinc-600">
-                  Aucune note à afficher en tablature.
-                </p>
-              )}
-            </div>
-
             <div className="flex items-center justify-between">
               <button
                 type="button"
@@ -819,6 +809,17 @@ export default function ArpeggioEditor({
                 enregistrées immédiatement dans la séquence.
               </p>
             )}
+
+            {/* Mesures & portée : rendu du riff édité, sous les notes. */}
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
+              {tab ? (
+                <TabStaffView title={title} bpm={bpm} tab={tab} showMutes={false} highlight={highlight} rests={rests} ghosts={ghosts} legatos={legatos} slides={slides} graces={graces} beats={grid} measureOffset={measureOffset} measures={grid.length} tuning={tuning} />
+              ) : (
+                <p className="text-[11px] text-zinc-600">
+                  Aucune note à afficher en tablature.
+                </p>
+              )}
+            </div>
           </div>
         </div>
   );
