@@ -21,8 +21,12 @@ import {
 
 const LINE_H = 15;
 const COL_W = 34;
-const PAD_TOP = 44; // étage : numéro de mesure + chips d'accords
+const PAD_TOP = 68; // étage : numéro de mesure + chips d'accords + liaisons/slides
 const GUTTER = 26;
+// Bande réservée au-dessus de la portée : les arcs de legato (H/P) et les
+// slides y sont dessinés, comme dans les tablatures imprimées.
+const ARC_Y = PAD_TOP - 22; // ligne de base des arcs (apex à ARC_Y - 8)
+const SLIDE_Y = PAD_TOP - 5; // glyphe de slide, juste au-dessus de la 1re corde
 
 type CellEdit = { fret: number | null; tie: boolean };
 type Edits = Map<string, CellEdit | null>; // null = repos (supprime la note)
@@ -601,6 +605,17 @@ function MeasureBox({
   // Valeur de chaque attaque (figure de rythme « Songsterr ») sous sa colonne.
   const valueMarks = rhythmBeams(beats?.notes ?? [], slots);
 
+  // Slides à dessiner au-dessus de la portée : une entrée par case marquée.
+  const slideMarks: { slot: number; dir: "/" | "\\" }[] = [];
+  if (slides) {
+    for (let s = 0; s < rows.length; s++) {
+      for (let t = 0; t < slots; t++) {
+        const dir = slides.get(cellKey({ m: index, s, slot: t }));
+        if (dir) slideMarks.push({ slot: t, dir });
+      }
+    }
+  }
+
   // Accords plaqués : chaque colonne avec ≥ 2 notes → nom au-dessus + diagramme
   // au survol (strumming).
   const chords: { slot: number; label: string; frets: (number | null)[] }[] = [];
@@ -714,7 +729,7 @@ function MeasureBox({
         </div>
       ))}
 
-      {/* liaisons hammer-on / pull-off */}
+      {/* liaisons hammer-on / pull-off + slides, au-dessus de la portée */}
       <svg
         className="absolute inset-0 pointer-events-none"
         width={width}
@@ -725,7 +740,7 @@ function MeasureBox({
           .map((leg, i) => {
             const x1 = leg.from.slot * COL_W + COL_W / 2;
             const x2 = leg.to.slot * COL_W + COL_W / 2;
-            const y = PAD_TOP + leg.from.s * LINE_H - 14;
+            const y = ARC_Y;
             const midX = (x1 + x2) / 2;
             return (
               <g key={`leg-${i}`}>
@@ -738,7 +753,7 @@ function MeasureBox({
                 />
                 <text
                   x={midX}
-                  y={y - 9}
+                  y={y + 7}
                   textAnchor="middle"
                   fontSize={9}
                   fontWeight={700}
@@ -749,6 +764,19 @@ function MeasureBox({
               </g>
             );
           })}
+        {slideMarks.map((sl, i) => (
+          <text
+            key={`slide-${i}`}
+            x={sl.slot * COL_W + COL_W / 2}
+            y={SLIDE_Y}
+            textAnchor="middle"
+            fontSize={11}
+            fontWeight={700}
+            fill="#6ee7b7"
+          >
+            {sl.dir}
+          </text>
+        ))}
       </svg>
 
       {/* silences (pause, demi-pause, soupir, demi-soupir, ...) */}
@@ -787,7 +815,6 @@ function MeasureBox({
           const isSel = sel !== null && sel.s === s && sel.slot === t;
           const isHit = highlight?.has(cellKey(cell)) ?? false;
           const isGhost = ghosts?.has(cellKey(cell)) ?? false;
-          const slideDir = slides?.get(cellKey(cell));
           const graceFret = graces?.get(cellKey(cell));
           const fretted = k === "note";
           const label = fretted
@@ -843,11 +870,6 @@ function MeasureBox({
                 style={fretted ? { color: isHit ? "#ffffff" : STRING_COLORS[s] } : undefined}
               >
                 {label}
-                {slideDir && (
-                  <span className="text-[8px] opacity-80" style={{ color: isHit ? "#d0fbf6" : "#f0fdf4" }}>
-                    {slideDir}
-                  </span>
-                )}
               </button>
               {editable && (
                 <div className="absolute left-1/2 -translate-x-1/2 top-full mt-0.5 z-10 hidden group-hover/cell:flex gap-0.5">

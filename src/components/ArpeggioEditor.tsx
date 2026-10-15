@@ -401,6 +401,50 @@ export default function ArpeggioEditor({
     onChange(list);
   };
 
+  // Cible du legato : première note suivante qui rejoue la MÊME corde.
+  // null = impossible (rien après sur cette corde).
+  const legatoTarget = (
+    k: number,
+    str: number
+  ): { fromFret: number; toFret: number; kind: "h" | "p" } | null => {
+    const fromFret = noteSteps[k].fingers.find((f) => f.string === str)?.fret;
+    if (fromFret === undefined) return null;
+    for (let j = k + 1; j < noteSteps.length; j++) {
+      const tf = noteSteps[j].fingers.find((f) => f.string === str);
+      if (!tf) continue;
+      return { fromFret, toFret: tf.fret, kind: tf.fret > fromFret ? "h" : "p" };
+    }
+    return null;
+  };
+
+  // Hammer-on / pull-off : ajoute ou retire la corde dans `legatoTo`. Le type
+  // (H ou P) est déduit de l'écart de cases entre les deux notes.
+  const toggleLegato = (k: number, str: number) => {
+    const idx = start + k;
+    const list = diagrams.slice();
+    const d = list[idx];
+    if (!d) return;
+    const current = d.legatoTo ?? [];
+    const on = current.includes(str);
+    const next = on ? current.filter((s) => s !== str) : [...current, str].sort((a, b) => a - b);
+    list[idx] = { ...d, legatoTo: next.length > 0 ? next : undefined };
+    onChange(list);
+  };
+
+  // Slide (glissé) : dir = "/" vers l'aigu, "\" vers le grave, null = aucun.
+  const setSlide = (k: number, str: number, dir: "/" | "\\" | null) => {
+    const idx = start + k;
+    const list = diagrams.slice();
+    const d = list[idx];
+    if (!d) return;
+    const others = (d.slides ?? []).filter((s) => s.string !== str);
+    list[idx] = {
+      ...d,
+      slides: dir ? [...others, { string: str, dir }] : others.length > 0 ? others : undefined,
+    };
+    onChange(list);
+  };
+
   const addStep = () => {
     const list = diagrams.slice();
     const last = list[endIdx];
@@ -525,6 +569,11 @@ export default function ArpeggioEditor({
                 const beats = step.duration ?? 1;
                 const p = isRest ? { string: 0, fret: 0 } : primaryNote(step);
                 const durationList = durationOptions(isRest ? REST_DURATIONS : NOTE_DURATIONS, beats);
+                const legTarget = isRest || !isSingle ? null : legatoTarget(k, p.string);
+                const legOn = !isRest && (step.legatoTo ?? []).includes(p.string);
+                const slideDir = !isRest && isSingle
+                  ? (step.slides ?? []).find((s) => s.string === p.string)?.dir
+                  : undefined;
                 return (
                   <div
                     key={step.id}
@@ -642,6 +691,52 @@ export default function ArpeggioEditor({
                       />
                       Pointée {DOTTED_ICON} (×1,5)
                     </label>
+
+                    {!isRest && isSingle && (
+                      <>
+                        <button
+                          type="button"
+                          disabled={!legTarget}
+                          onClick={() => toggleLegato(k, p.string)}
+                          className={`w-full text-[10px] px-2 py-1 rounded font-semibold transition-colors ${
+                            legOn
+                              ? legTarget?.kind === "p"
+                                ? "bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/40"
+                                : "bg-sky-500/20 text-sky-300 border border-sky-500/40"
+                              : legTarget
+                                ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                                : "bg-zinc-800/50 text-zinc-600 cursor-not-allowed"
+                          }`}
+                          title={
+                            legTarget
+                              ? legOn
+                                ? "Liaison active — cliquez pour la retirer"
+                                : `Lier ${legTarget.fromFret} → ${legTarget.toFret} sans rejouer la corde`
+                              : "Impossible : aucune note suivante sur cette corde"
+                          }
+                        >
+                          {legOn
+                            ? legTarget?.kind === "p"
+                              ? "Pull-off ✓"
+                              : "Hammer-on ✓"
+                            : legTarget
+                              ? `Hammer-on / Pull-off (${legTarget.fromFret}→${legTarget.toFret})`
+                              : "Pas de liaison possible"}
+                        </button>
+                        <select
+                          value={slideDir ?? ""}
+                          onChange={(e) =>
+                            setSlide(k, p.string, e.target.value === "" ? null : (e.target.value as "/" | "\\"))
+                          }
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-lg text-[11px] text-zinc-200 px-2 py-1 focus:outline-none focus:border-cyan-500/60 cursor-pointer"
+                          title="Slide (glissé) vers la note suivante sur la même corde"
+                        >
+                          <option value="">Pas de slide</option>
+                          <option value="/">Slide vers l&apos;aigu ( / )</option>
+                          <option value="\">Slide vers le grave ( \ )</option>
+                        </select>
+                      </>
+                    )}
 
                     {!isRest && !isSingle && (
                       <p className="text-[10px] text-zinc-500 italic text-center">
