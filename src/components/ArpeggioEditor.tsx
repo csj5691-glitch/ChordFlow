@@ -313,6 +313,22 @@ export default function ArpeggioEditor({
     setPlaying(true);
   }, [noteSteps, bpm, stopAudio]);
 
+  // Écoute d'UNE seule note (la carte « #n ») : même moteur que la lecture
+  // complète, mais une seule étape — permet de vérifier la composition note
+  // par note.
+  const playStep = useCallback(
+    (k: number) => {
+      stopAudio();
+      const step = noteSteps[k];
+      if (!step) return;
+      const player = playSoftSequence([step], bpm, () => setPlaying(false));
+      if (!player) return;
+      playerRef.current = player;
+      setPlaying(true);
+    },
+    [noteSteps, bpm, stopAudio]
+  );
+
   // Libère le contexte audio si l'éditeur est démonté en pleine lecture.
   useEffect(() => {
     return () => {
@@ -593,7 +609,15 @@ export default function ArpeggioEditor({
                     }`}
                   >
                     <div className="flex items-center justify-between w-full">
-                      <span className="text-[10px] text-zinc-500">#{k + 1}</span>
+                      <button
+                        type="button"
+                        onClick={() => playStep(k)}
+                        className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-cyan-300 transition-colors font-semibold"
+                        title={isRest ? "Écouter ce silence" : "Écouter cette note (#" + (k + 1) + ")"}
+                      >
+                        <Play className="w-3 h-3" />
+                        #{k + 1}
+                      </button>
                       {isRest ? (
                         <span className="text-[10px] font-bold text-amber-300">
                           {restLabel(beats)}
