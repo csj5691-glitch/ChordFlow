@@ -69,6 +69,49 @@ function stepId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
+// Durées notées, en temps (1 temps = noire, mesure 4/4). `duration` du
+// diagramme est cette valeur ; `dotted` la multiplie par 1,5.
+const NOTE_DURATIONS: { beats: number; label: string }[] = [
+  { beats: 8, label: "Carrée" },
+  { beats: 4, label: "Ronde" },
+  { beats: 2, label: "Blanche" },
+  { beats: 1, label: "Noire" },
+  { beats: 0.5, label: "Croche" },
+  { beats: 0.25, label: "Double croche" },
+  { beats: 0.125, label: "Triple croche" },
+  { beats: 0.0625, label: "Quadruple croche" },
+];
+
+// Symboles français de silence, alignés sur la table RESTS de TabStaffView.
+const REST_DURATIONS: { beats: number; label: string }[] = [
+  { beats: 4, label: "Pause (mesure entière)" },
+  { beats: 2, label: "Demi-pause" },
+  { beats: 1, label: "Soupir" },
+  { beats: 0.5, label: "Demi-soupir" },
+  { beats: 0.25, label: "Quart de soupir" },
+  { beats: 0.125, label: "Huitième de soupir" },
+  { beats: 0.0625, label: "Seizième de soupir" },
+];
+
+const DOTTED_ICON = "•"; // « pointée » : durée ×1,5
+
+function beatsLabel(beats: number): string {
+  return `${beats} temps`;
+}
+
+function restLabel(beats: number): string {
+  for (const d of REST_DURATIONS) if (Math.abs(d.beats - beats) < 1e-4) return d.label;
+  return `Silence (${beatsLabel(beats)})`;
+}
+
+// Options du sélecteur de durée, avec une valeur libre ajoutée si le diagramme
+// porte une durée hors table (ex. import GP).
+function durationOptions(table: { beats: number; label: string }[], beats: number) {
+  const list = table.slice();
+  if (!list.some((d) => Math.abs(d.beats - beats) < 1e-4)) list.unshift({ beats, label: beatsLabel(beats) });
+  return list;
+}
+
 interface ArpeggioEditorProps {
   diagrams: SavedChordShape[];
   start: number;
@@ -318,6 +361,46 @@ export default function ArpeggioEditor({
     onChange(list);
   };
 
+  // Durée notée (en temps) d'une note ou d'un silence.
+  const setDuration = (k: number, beats: number) => {
+    const idx = start + k;
+    const list = diagrams.slice();
+    if (!list[idx]) return;
+    list[idx] = { ...list[idx], duration: beats };
+    onChange(list);
+  };
+
+  // Pointée (•) : multiplie la durée par 1,5.
+  const setDotted = (k: number, dotted: boolean) => {
+    const idx = start + k;
+    const list = diagrams.slice();
+    if (!list[idx]) return;
+    list[idx] = { ...list[idx], dotted: dotted ? true : undefined };
+    onChange(list);
+  };
+
+  // Insère un silence (soupir par défaut) à la fin du riff : sa durée se change
+  // ensuite via le sélecteur de durée de sa carte.
+  const addRest = () => {
+    const rest: SavedChordShape = {
+      id: stepId("rest"),
+      label: "Soupir",
+      fingers: [],
+      barreOn: false,
+      barreCount: 6,
+      muted: [],
+      baseFret: 1,
+      capo: 0,
+      duration: 1,
+      silence: true,
+      sounding: 0,
+    };
+    const list = diagrams.slice();
+    list.splice(endIdx + 1, 0, rest);
+    setEndIdx((v) => v + 1);
+    onChange(list);
+  };
+
   const addStep = () => {
     const list = diagrams.slice();
     const last = list[endIdx];
@@ -412,39 +495,75 @@ export default function ArpeggioEditor({
                 Notes de l&apos;arpège
               </button>
               {showNotes && (
-                <button
-                  type="button"
-                  onClick={addStep}
-                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-colors"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Ajouter une note
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={addStep}
+                    className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Ajouter une note
+                  </button>
+                  <button
+                    type="button"
+                    onClick={addRest}
+                    className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 transition-colors"
+                    title="Insère un soupir (1 temps) — sa durée se change sur la carte"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Ajouter un silence
+                  </button>
+                </div>
               )}
             </div>
 
             {showNotes && (
               <div className="flex gap-3 overflow-x-auto pb-2">
               {noteSteps.map((step, k) => {
-                const isSingle = soundingNotes(step) <= 1;
-                const p = primaryNote(step);
+                const isRest = !!step.silence;
+                const isSingle = !isRest && soundingNotes(step) <= 1;
+                const beats = step.duration ?? 1;
+                const p = isRest ? { string: 0, fret: 0 } : primaryNote(step);
+                const durationList = durationOptions(isRest ? REST_DURATIONS : NOTE_DURATIONS, beats);
                 return (
                   <div
                     key={step.id}
-                    className="flex flex-col items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/60 p-2 w-44 flex-shrink-0"
+                    className={`flex flex-col items-center gap-2 rounded-xl border p-2 w-44 flex-shrink-0 ${
+                      isRest
+                        ? "border-amber-500/30 bg-amber-500/5"
+                        : "border-zinc-800 bg-zinc-900/60"
+                    }`}
                   >
                     <div className="flex items-center justify-between w-full">
                       <span className="text-[10px] text-zinc-500">#{k + 1}</span>
-                      <span className="text-[10px] font-bold text-cyan-300">
-                        {isSingle ? noteFull(p.string, p.fret) : `${pitchOf(p.string, p.fret)} (accord)`}
-                      </span>
+                      {isRest ? (
+                        <span className="text-[10px] font-bold text-amber-300">
+                          {restLabel(beats)}
+                          {step.dotted ? " •" : ""}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-cyan-300">
+                          {isSingle
+                            ? noteFull(p.string, p.fret)
+                            : `${pitchOf(p.string, p.fret)} (accord)`}
+                        </span>
+                      )}
                     </div>
 
-                    <div className="w-40">
-                      <ChordShapeView shape={step} showMutes={false} tuning={tuning} />
-                    </div>
+                    {isRest ? (
+                      <div className="w-40 h-28 rounded-lg border border-dashed border-amber-500/40 flex flex-col items-center justify-center gap-1 select-none">
+                        <span className="text-3xl text-amber-300 leading-none">{'\u{1D13D}'}</span>
+                        <span className="text-[10px] text-amber-200/70">
+                          {step.dotted ? "Silence pointé" : "Silence"}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="w-40">
+                        <ChordShapeView shape={step} showMutes={false} tuning={tuning} />
+                      </div>
+                    )}
 
-                    {isSingle ? (
+                    {isSingle && (
                       <>
                         <select
                           value={p.string}
@@ -496,7 +615,35 @@ export default function ArpeggioEditor({
                           </button>
                         </div>
                       </>
-                    ) : (
+                    )}
+
+                    <select
+                      value={String(beats)}
+                      onChange={(e) => setDuration(k, Number(e.target.value))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg text-[11px] text-zinc-200 px-2 py-1 focus:outline-none focus:border-cyan-500/60 cursor-pointer"
+                      title={isRest ? "Durée du silence" : "Durée de la note"}
+                    >
+                      {durationList.map((d) => (
+                        <option key={d.beats} value={String(d.beats)}>
+                          {d.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <label
+                      className="flex items-center gap-1.5 text-[10px] text-zinc-400 cursor-pointer select-none"
+                      title="Pointée (•) : multiplie la durée par 1,5"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!!step.dotted}
+                        onChange={(e) => setDotted(k, e.target.checked)}
+                        className="accent-cyan-400"
+                      />
+                      Pointée {DOTTED_ICON} (×1,5)
+                    </label>
+
+                    {!isRest && !isSingle && (
                       <p className="text-[10px] text-zinc-500 italic text-center">
                         Accord plaqué ({soundingNotes(step)} notes) — éditez-le depuis la liste.
                       </p>
