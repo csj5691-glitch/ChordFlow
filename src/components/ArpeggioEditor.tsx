@@ -811,6 +811,29 @@ export default function ArpeggioEditor({
             )}
 
             {/* Mesures & portée : rendu du riff édité, sous les notes. */}
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                Mesures &amp; portée
+              </span>
+              <button
+                type="button"
+                onClick={() => (playing ? stopAudio() : playRiff())}
+                disabled={noteSteps.length === 0}
+                className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                  playing
+                    ? "bg-amber-500 text-black hover:bg-amber-400"
+                    : "bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25"
+                }`}
+                title={playing ? "Arrêter la lecture" : "Écouter toutes les notes du riff, dans l'ordre"}
+              >
+                {playing ? (
+                  <Square className="w-3.5 h-3.5" />
+                ) : (
+                  <Play className="w-3.5 h-3.5" />
+                )}
+                {playing ? "Stop" : "Écouter le riff au complet"}
+              </button>
+            </div>
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
               {tab ? (
                 <TabStaffView title={title} bpm={bpm} tab={tab} showMutes={false} highlight={highlight} rests={rests} ghosts={ghosts} legatos={legatos} slides={slides} graces={graces} beats={grid} measureOffset={measureOffset} measures={grid.length} tuning={tuning} />
