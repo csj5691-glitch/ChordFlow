@@ -161,21 +161,52 @@ export function renderSequence(
 function shapeNotes(d: SavedChordShape): { notes: number[]; mutedNotes: number[] } {
   const notes: number[] = [];
   const mutedNotes: number[] = [];
-  for (let s = 0; s < STRING_COUNT; s++) {
+
+  // Position effective d'une corde (doigt + barre + capo).
+  const posOf = (s: number): number => {
     let pos = 0;
     const fp = d.fingers.find((f) => f.string === s);
     if (fp) pos = fp.fret;
     const inBarre =
       d.barreOn && s >= STRING_COUNT - (d.barreCount || STRING_COUNT);
     if (inBarre) pos = Math.max(d.baseFret || 1, pos);
-    pos = Math.max(d.capo || 0, pos);
+    return Math.max(d.capo || 0, pos);
+  };
+
+  const fingered: number[] = [];
+  for (let s = 0; s < STRING_COUNT; s++) {
+    const fp = d.fingers.find((f) => f.string === s);
+    const inBarre =
+      d.barreOn && s >= STRING_COUNT - (d.barreCount || STRING_COUNT);
     if (d.muted && d.muted[s] === true) {
-      if (fp || inBarre) {
-        mutedNotes.push(STRING_BASE_FREQ[s] * Math.pow(2, pos / 12));
-      }
+      if (fp || inBarre) mutedNotes.push(STRING_BASE_FREQ[s] * Math.pow(2, posOf(s) / 12));
       continue;
     }
-    notes.push(STRING_BASE_FREQ[s] * Math.pow(2, pos / 12));
+    if (fp || inBarre) fingered.push(s);
+  }
+
+  for (const s of fingered) {
+    notes.push(STRING_BASE_FREQ[s] * Math.pow(2, posOf(s) / 12));
+  }
+
+  if (typeof d.sounding === "number") {
+    // Le diagramme ne fait sonner que `sounding` cordes : on joue les doigtés,
+    // puis on complète avec des cordes à vide UNIQUEMENT si nécessaire. Sans
+    // ça, une note isolée d'un riff/import GP (`sounding = 1`) rejouait les 6
+    // cordes à vide et sonnait comme un accord.
+    let needed = Math.max(0, d.sounding - fingered.length);
+    for (let s = 0; s < STRING_COUNT && needed > 0; s++) {
+      if (fingered.includes(s) || d.muted?.[s]) continue;
+      notes.push(STRING_BASE_FREQ[s]);
+      needed -= 1;
+    }
+  } else {
+    // Pas d'info de nombre de cordes : toutes les cordes non étouffées sonnent
+    // (accords de la bibliothèque, dont les cordes à vide font partie).
+    for (let s = 0; s < STRING_COUNT; s++) {
+      if (fingered.includes(s) || (d.muted && d.muted[s] === true)) continue;
+      notes.push(STRING_BASE_FREQ[s]);
+    }
   }
   // Pitched non-fretted shapes (no fretboard) carry their own frequencies.
   if (d.pitchFrequencies && d.pitchFrequencies.length > 0) {
