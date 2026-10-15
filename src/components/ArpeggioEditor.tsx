@@ -347,6 +347,25 @@ export default function ArpeggioEditor({
     onChange(list);
   };
 
+  // Insère une note AU TEMPS SUIVANT (juste après celle-ci) : même hauteur,
+  // mais repart à une durée simple et sans liaison ni slide.
+  const insertAfter = (k: number) => {
+    const idx = start + k;
+    const list = diagrams.slice();
+    const src = list[idx];
+    if (!src) return;
+    const fresh: SavedChordShape = {
+      ...src,
+      id: stepId("arp"),
+      legatoTo: undefined,
+      slides: undefined,
+      dotted: undefined,
+    };
+    list.splice(idx + 1, 0, fresh);
+    setEndIdx((v) => v + 1);
+    onChange(list);
+  };
+
   const remove = (k: number) => {
     const idx = start + k;
     const list = diagrams.slice();
@@ -762,6 +781,14 @@ export default function ArpeggioEditor({
                         title="Déplacer après"
                       >
                         <ChevronRight className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => insertAfter(k)}
+                        className="w-8 h-8 rounded-md bg-zinc-800 text-emerald-300 hover:bg-zinc-700 transition-colors flex items-center justify-center"
+                        title="Insérer une note au temps suivant (après celle-ci)"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
                       </button>
                       <button
                         type="button"

@@ -21,12 +21,13 @@ import {
 
 const LINE_H = 15;
 const COL_W = 34;
-const PAD_TOP = 68; // étage : numéro de mesure + chips d'accords + liaisons/slides
+const PAD_TOP = 52; // étage : numéro de mesure + noms d'accords + slides
 const GUTTER = 26;
-// Bande réservée au-dessus de la portée : les arcs de legato (H/P) et les
-// slides y sont dessinés, comme dans les tablatures imprimées.
-const ARC_Y = PAD_TOP - 22; // ligne de base des arcs (apex à ARC_Y - 8)
-const SLIDE_Y = PAD_TOP - 5; // glyphe de slide, juste au-dessus de la 1re corde
+// Slides : glyphe juste au-dessus de la 1re corde. Arcs de legato (hammer-on /
+// pull-off) : tracés en dessous de la portée, dans la bande libre avant la
+// figure de rythme — ils lient 2 temps (la note et la suivante).
+const SLIDE_Y = PAD_TOP - 5;
+const ARC_Y = PAD_TOP + 6 * LINE_H - 8;
 
 type CellEdit = { fret: number | null; tie: boolean };
 type Edits = Map<string, CellEdit | null>; // null = repos (supprime la note)
@@ -729,7 +730,7 @@ function MeasureBox({
         </div>
       ))}
 
-      {/* liaisons hammer-on / pull-off + slides, au-dessus de la portée */}
+      {/* liaisons hammer-on / pull-off (arc sous la portée) + slides (dessus) */}
       <svg
         className="absolute inset-0 pointer-events-none"
         width={width}
@@ -745,7 +746,7 @@ function MeasureBox({
             return (
               <g key={`leg-${i}`}>
                 <path
-                  d={`M ${x1} ${y} Q ${midX} ${y - 8} ${x2} ${y}`}
+                  d={`M ${x1} ${y} Q ${midX} ${y + 8} ${x2} ${y}`}
                   fill="none"
                   stroke="#fbbf24"
                   strokeWidth={1.4}
@@ -753,7 +754,7 @@ function MeasureBox({
                 />
                 <text
                   x={midX}
-                  y={y + 7}
+                  y={y + 6}
                   textAnchor="middle"
                   fontSize={9}
                   fontWeight={700}
