@@ -370,13 +370,18 @@ export default function ArpeggioEditor({
     const list = diagrams.slice();
     const src = list[idx];
     if (!src) return;
-    const fresh: SavedChordShape = {
-      ...src,
-      id: stepId("arp"),
-      legatoTo: undefined,
-      slides: undefined,
-      dotted: undefined,
-    };
+    const fresh: SavedChordShape = withNote(
+      {
+        ...src,
+        id: stepId("arp"),
+        legatoTo: undefined,
+        slides: undefined,
+        dotted: undefined,
+        duration: 1,
+      },
+      0,
+      0
+    );
     list.splice(idx + 1, 0, fresh);
     setEndIdx((v) => v + 1);
     onChange(list);
@@ -482,25 +487,23 @@ export default function ArpeggioEditor({
 
   const addStep = () => {
     const list = diagrams.slice();
-    const last = list[endIdx];
-    const base = last ?? list[start];
-    const fresh: SavedChordShape = base
-      ? { ...base, id: stepId("arp") }
-      : withNote(
-          {
-            id: stepId("arp"),
-            label: "E",
-            fingers: [],
-            barreOn: false,
-            barreCount: 6,
-            muted: [],
-            baseFret: 1,
-            capo: 0,
-            duration: 1,
-          },
-          0,
-          0
-        );
+    // Crée une note simple sur la 1ère corde à vide, sans copier l'accord de la
+    // note précédente (sinon "Ajouter une note" ajoute un accord).
+    const fresh: SavedChordShape = withNote(
+      {
+        id: stepId("arp"),
+        label: "E",
+        fingers: [],
+        barreOn: false,
+        barreCount: 6,
+        muted: [],
+        baseFret: 1,
+        capo: 0,
+        duration: 1,
+      },
+      0,
+      0
+    );
     list.splice(endIdx + 1, 0, fresh);
     setEndIdx((v) => v + 1);
     onChange(list);
