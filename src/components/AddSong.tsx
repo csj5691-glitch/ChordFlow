@@ -33,13 +33,16 @@ interface AddSongProps {
   onClose: () => void;
 }
 
-function withGz2hCover(artist: string): string {
+function withCoverBy(artist: string, channel: string): string {
   const trimmed = artist.trim();
-  if (/\(cover by gz2h\)/i.test(trimmed)) return trimmed;
-  if (/\(cover from gz2h\)/i.test(trimmed)) {
-    return trimmed.replace(/\(cover from gz2h\)/i, "(Cover by GZ2H)");
+  const escaped = channel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const byRe = new RegExp(`\\(cover by ${escaped}\\)`, "i");
+  const fromRe = new RegExp(`\\(cover from ${escaped}\\)`, "i");
+  if (byRe.test(trimmed)) return trimmed;
+  if (fromRe.test(trimmed)) {
+    return trimmed.replace(fromRe, `(Cover by ${channel})`);
   }
-  return trimmed ? `${trimmed} (Cover by GZ2H)` : "(Cover by GZ2H)";
+  return trimmed ? `${trimmed} (Cover by ${channel})` : `(Cover by ${channel})`;
 }
 
 export default function AddSong({ initial, onAdd, onClose }: AddSongProps) {
@@ -220,16 +223,26 @@ export default function AddSong({ initial, onAdd, onClose }: AddSongProps) {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center justify-between gap-2 mb-1">
                 <label className="text-xs text-zinc-400">Artiste</label>
-                <button
-                  type="button"
-                  onClick={() => setArtist((a) => withGz2hCover(a))}
-                  className="text-[10px] text-zinc-500 hover:text-amber-400 transition-colors"
-                  title="Écrire (Cover by GZ2H) à droite de l'artiste (remplace (Cover from GZ2H) s'il existe)"
-                >
-                  + (Cover by GZ2H)
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setArtist((a) => withCoverBy(a, "GZ2H"))}
+                    className="text-[10px] text-zinc-500 hover:text-amber-400 transition-colors"
+                    title="Écrire (Cover by GZ2H) à droite de l'artiste (remplace (Cover from GZ2H) s'il existe)"
+                  >
+                    + (Cover by GZ2H)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setArtist((a) => withCoverBy(a, "Hits On Acoustic Guitar"))}
+                    className="text-[10px] text-zinc-500 hover:text-amber-400 transition-colors"
+                    title="Écrire (Cover by Hits On Acoustic Guitar) à droite de l'artiste (remplace (Cover from Hits On Acoustic Guitar) s'il existe)"
+                  >
+                    + Hits On Acoustic Guitar
+                  </button>
+                </div>
               </div>
               <input
                 type="text"
