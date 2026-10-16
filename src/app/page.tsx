@@ -21,8 +21,7 @@ import { SongTab } from "@/lib/types";
 import { songHasYoutube, songHasSpotify, usePersistedUploads } from "@/lib/song-sources";
 import { Plus, Trash2, Pencil, ArrowUpAZ, ArrowDownAZ, ListFilter, ArrowUp } from "lucide-react";
 import { SourceBadges } from "@/components/SourceBadges";
-
-const SCROLL_KEY = "chordflow-home-scroll";
+import { loadHomeScroll, saveHomeScroll } from "@/lib/home-scroll-store";
 
 function SearchResults({
   repertoire,
@@ -192,35 +191,35 @@ export default function Home() {
     const onScroll = () => {
       setShowScrollTop(window.scrollY > 400);
       if (!restoredRef.current) return;
-      try {
-        sessionStorage.setItem(SCROLL_KEY, String(window.scrollY));
-      } catch {
-        /* sessionStorage indisponible */
-      }
+      saveHomeScroll(window.scrollY);
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Replace l'accueil à la derniere position de defilement une fois le
-  // repertoire charge (sinon la page est trop courte et le scroll est borne).
+  // Replace l'accueil à la derniere position de defilement (Supabase, repli
+  // local) une fois le repertoire charge (sinon la page est bornee en hauteur).
   useEffect(() => {
     if (restoredRef.current || !hydrated || !loaded) return;
     restoredRef.current = true;
-    let saved = 0;
-    try {
-      saved = Number(sessionStorage.getItem(SCROLL_KEY) || "0");
-    } catch {
-      /* ignore */
-    }
-    if (!saved) return;
-    const timers = [0, 120, 350].map((delay) =>
-      window.setTimeout(() => {
-        if (Math.abs(window.scrollY - saved) > 2) window.scrollTo(0, saved);
-      }, delay)
-    );
-    return () => timers.forEach((t) => window.clearTimeout(t));
+    let cancelled = false;
+    const timers: number[] = [];
+    void (async () => {
+      const saved = await loadHomeScroll();
+      if (cancelled || !saved) return;
+      for (const delay of [0, 120, 350]) {
+        timers.push(
+          window.setTimeout(() => {
+            if (Math.abs(window.scrollY - saved) > 2) window.scrollTo(0, saved);
+          }, delay)
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+      timers.forEach((t) => window.clearTimeout(t));
+    };
   }, [hydrated, loaded]);
 
   const scrollToTop = useCallback(() => {
