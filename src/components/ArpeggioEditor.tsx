@@ -549,7 +549,7 @@ export default function ArpeggioEditor({
   );
 
   const body = (
-    <div className={embedded ? "" : "flex-1 overflow-y-auto"}>
+    <div className={embedded ? "flex-1 overflow-y-auto" : "flex-1 overflow-y-auto"}>
       <div className="p-4 flex flex-col gap-5">
             <div className="flex items-center justify-between">
               <button
