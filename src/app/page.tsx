@@ -3,7 +3,7 @@
 
 
 import { useSearchParams, useRouter } from "next/navigation";
-import { Suspense, useState, useCallback, useMemo, useSyncExternalStore, useEffect } from "react";
+import { Suspense, useState, useCallback, useMemo, useSyncExternalStore, useEffect, useRef } from "react";
 import SearchBar from "@/components/SearchBar";
 import SongCard from "@/components/SongCard";
 import AddSong from "@/components/AddSong";
@@ -21,6 +21,8 @@ import { SongTab } from "@/lib/types";
 import { songHasYoutube, songHasSpotify, usePersistedUploads } from "@/lib/song-sources";
 import { Plus, Trash2, Pencil, ArrowUpAZ, ArrowDownAZ, ListFilter, ArrowUp } from "lucide-react";
 import { SourceBadges } from "@/components/SourceBadges";
+
+const SCROLL_KEY = "chordflow-home-scroll";
 
 function SearchResults({
   repertoire,
@@ -177,20 +179,49 @@ function RepertoireRow({
 export default function Home() {
   const router = useRouter();
   const hydrated = useHydrated();
-  const { songs: customSongs, importing, importError, upsertSong, removeSong, importLocal } = useSharedSongs();
+  const { songs: customSongs, loaded, importing, importError, upsertSong, removeSong, importLocal } = useSharedSongs();
   const songIds = useMemo(() => customSongs.map((s) => s.id), [customSongs]);
   const uploads = usePersistedUploads(songIds);
   const [showAddSong, setShowAddSong] = useState(false);
   const [editingSong, setEditingSong] = useState<SongTab | null>(null);
   const [editedSort, setEditedSort] = useState<RepertoireSort | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const restoredRef = useRef(false);
 
   useEffect(() => {
-    const onScroll = () => setShowScrollTop(window.scrollY > 400);
+    const onScroll = () => {
+      setShowScrollTop(window.scrollY > 400);
+      if (!restoredRef.current) return;
+      try {
+        sessionStorage.setItem(SCROLL_KEY, String(window.scrollY));
+      } catch {
+        /* sessionStorage indisponible */
+      }
+    };
     window.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  // Replace l'accueil à la derniere position de defilement une fois le
+  // repertoire charge (sinon la page est trop courte et le scroll est borne).
+  useEffect(() => {
+    if (restoredRef.current || !hydrated || !loaded) return;
+    restoredRef.current = true;
+    let saved = 0;
+    try {
+      saved = Number(sessionStorage.getItem(SCROLL_KEY) || "0");
+    } catch {
+      /* ignore */
+    }
+    if (!saved) return;
+    const timers = [0, 120, 350].map((delay) =>
+      window.setTimeout(() => {
+        if (Math.abs(window.scrollY - saved) > 2) window.scrollTo(0, saved);
+      }, delay)
+    );
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [hydrated, loaded]);
 
   const scrollToTop = useCallback(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
