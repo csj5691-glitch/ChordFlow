@@ -33,6 +33,15 @@ interface AddSongProps {
   onClose: () => void;
 }
 
+function withGz2hCover(artist: string): string {
+  const trimmed = artist.trim();
+  if (/\(cover by gz2h\)/i.test(trimmed)) return trimmed;
+  if (/\(cover from gz2h\)/i.test(trimmed)) {
+    return trimmed.replace(/\(cover from gz2h\)/i, "(Cover by GZ2H)");
+  }
+  return trimmed ? `${trimmed} (Cover by GZ2H)` : "(Cover by GZ2H)";
+}
+
 export default function AddSong({ initial, onAdd, onClose }: AddSongProps) {
   const [mode, setMode] = useState<"auto" | "manual">("auto");
   const [artist, setArtist] = useState(initial?.artist ?? "");
@@ -211,7 +220,17 @@ export default function AddSong({ initial, onAdd, onClose }: AddSongProps) {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-zinc-400 mb-1 block">Artiste</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-zinc-400">Artiste</label>
+                <button
+                  type="button"
+                  onClick={() => setArtist((a) => withGz2hCover(a))}
+                  className="text-[10px] text-zinc-500 hover:text-amber-400 transition-colors"
+                  title="Écrire (Cover by GZ2H) à droite de l'artiste (remplace (Cover from GZ2H) s'il existe)"
+                >
+                  + (Cover by GZ2H)
+                </button>
+              </div>
               <input
                 type="text"
                 value={artist}
