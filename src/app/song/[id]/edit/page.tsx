@@ -1263,6 +1263,17 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
     // track's diagrams (import is idempotent) so a song can pick up import fixes.
     const targets = gpTracks.filter((t) => gpSelected.has(t.index));
     if (targets.length === 0) return;
+    // Ré-import d'une piste déjà présente : ses diagrammes (et les éventuelles
+    // modifications de riffs) seront remplacés par l'import frais. On demande
+    // confirmation pour ne pas écraser silencieusement le travail de l'utilisateur.
+    const reimporting = targets.filter((t) => isTrackImported(t.index));
+    if (reimporting.length > 0) {
+      const names = reimporting.map((t) => `« ${t.name} »`).join(", ");
+      const ok = window.confirm(
+        `Piste(s) déjà importée(s) : ${names}.\n\nRéimporter remplacera la séquence de diagrammes actuelle et vos modifications de riffs seront perdues. Continuer ?`
+      );
+      if (!ok) return;
+    }
     setGpError(null);
     setGpWarnings([]);
     let next: SongTab = song;
