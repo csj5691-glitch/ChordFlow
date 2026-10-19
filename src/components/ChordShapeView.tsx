@@ -1,6 +1,7 @@
 "use client";
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
+import { memo } from "react";
 import type { SavedChordShape } from "@/lib/types";
 import { BarGlyph } from "@/components/BarGlyph";
 import { NavGlyph } from "@/components/NavGlyph";
@@ -32,7 +33,7 @@ function strIsMuted(shape: SavedChordShape, s: number): boolean {
   return shape.muted[s] === true;
 }
 
-export default function ChordShapeView({ shape, onNoteClick, legatoStrings, showMutes = true, tuning }: ChordShapeViewProps) {
+function ChordShapeView({ shape, onNoteClick, legatoStrings, showMutes = true, tuning }: ChordShapeViewProps) {
   const shapeBaseFret = shape.baseFret || 1;
   // Tous les accords joués entre le sillet et la 5e case (aucune note au-dessus
   // de la case 5, pas de capo) affichent les 5 premières cases, quelle que soit
@@ -370,3 +371,7 @@ export default function ChordShapeView({ shape, onNoteClick, legatoStrings, show
     </div>
   );
 }
+
+// Mémoïsé : dans la bande du Studio, la même forme est re-rendue à chaque
+// tick de lecture — sans mémo, chaque SVG était re-diffé 25×/s (lag).
+export default memo(ChordShapeView);
