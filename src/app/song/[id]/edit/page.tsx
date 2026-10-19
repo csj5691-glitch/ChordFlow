@@ -701,7 +701,7 @@ function EditSongView({ id }: { id: string }) {
       bar: true,
       barKind: kind,
       repeats: 1,
-      sectionLabel: "Section",
+      sectionLabel: "Intro",
     };
     upsert({ ...song, diagrams: [...(song.diagrams ?? []), bar] });
   }, [song, upsert]);
@@ -868,9 +868,16 @@ function EditSongView({ id }: { id: string }) {
         if (data?.state) {
           setExtractProgress(data);
           if (trackPhases) {
-            if (data.state === "downloading") setStemPhase(0);
-            else if (data.state === "running")
-              setStemPhase((p) => (currentStemRef.current === "noVocals" ? 2 : Math.max(p, 1)));
+            // Étapes pilotées par l'état du service Demucs :
+            //  running -> Étape 1 (téléchargement) validée, Étape 2 active ;
+            //  done    -> séparation voix terminée : Étape 2 validée, Étape 3 active ;
+            //  done    -> séparation instrumental terminée : Étape 3 validée.
+            const stem = currentStemRef.current;
+            if (data.state === "running") {
+              setStemPhase((p) => Math.max(p, stem === "noVocals" ? 2 : 1));
+            } else if (data.state === "done") {
+              setStemPhase((p) => Math.max(p, stem === "noVocals" ? 3 : 2));
+            }
           }
         }
       } catch {
@@ -981,6 +988,10 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
         // Voix enregistrée : l'instrumental (déjà en cache côté service) démarre.
         if (stem === "vocals") setStemPhase(2);
       }
+      // Les trois étapes sont franchies : on laisse le check vert de l'Étape 3
+      // visible un court instant avant de refermer la fenêtre de progression.
+      setStemPhase(3);
+      await new Promise((resolve) => window.setTimeout(resolve, 800));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const low = msg.toLowerCase();
@@ -3002,12 +3013,15 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                                 ))}
                               </select>
                               <select
-                                value={d.sectionLabel ?? "Section"}
+                                value={
+                                  d.sectionLabel && d.sectionLabel !== "Section"
+                                    ? d.sectionLabel
+                                    : "Intro"
+                                }
                                 onChange={(e) => setSectionLabel(i, e.target.value)}
                                 className="bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-amber-500/60 cursor-pointer w-full"
                                 title="Type de section délimitée par cette barre"
                               >
-                                <option value="Section">Section</option>
                                 <option value="Intro">Intro</option>
                                 <option value="Couplet">Couplet</option>
                                 <option value="Pré-refrain">Pré-refrain</option>

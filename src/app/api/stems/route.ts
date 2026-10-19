@@ -2,6 +2,27 @@ import { NextRequest, NextResponse } from "next/server";
 
 const STEMS_SERVICE = process.env.STEMS_SERVICE_URL ?? "http://127.0.0.1:8765";
 const STEM_CHOICES = ["vocals", "noVocals", "drums", "bass", "guitar", "piano", "other"] as const;
+
+// Attend que le service Demucs réponde 200 avant de lancer la séparation.
+async function waitForStemsService(timeoutMs = 300_000, intervalMs = 1_000): Promise<void> {
+  const url = `${STEMS_SERVICE}/health`;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(2_500),
+        cache: "no-store",
+      });
+      if (res.ok) {
+        return;
+      }
+    } catch {
+      // Injoignable : on continue à attendre.
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error("service stems injoignable ou non prêt après attente");
+}
 // Le modèle par défaut (htdemucs, 4 pistes) ne produit ni piano ni guitar. On
 // répond avec la piste « other » plutôt qu'une erreur : l'utilisateur obtient
 // de l'audio exploitable, et l'en-tête X-Stem-Substituted prévient l'appelant.
@@ -54,6 +75,14 @@ export async function POST(req: NextRequest) {
   let used = stem;
   let lastBody = "";
   let lastStatus = 502;
+
+  // Attendre que le service Demucs soit prêt avant de lancer la séparation.
+  try {
+    await waitForStemsService();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "erreur inconnue";
+    return NextResponse.json({ error: msg }, { status: 502 });
+  }
   for (const candidate of candidates) {
     const body = new FormData();
     body.set("file", file, file.name || "audio.mp3");

@@ -726,9 +726,15 @@ const [extracting, setExtracting] = useState(false);
         const data = await r.json().catch(() => null);
         if (data?.state) {
           setExtractProgress(data);
-          if (data.state === "downloading") setStemPhase(0);
-          else if (data.state === "running")
-            setStemPhase((p) => (currentStemRef.current === "noVocals" ? 2 : Math.max(p, 1)));
+          // Étapes pilotées par l'état du service Demucs :
+          //  running -> Étape 1 (téléchargement) validée, Étape 2 active ;
+          //  done    -> séparation voix terminée : Étape 2 validée, Étape 3 active ;
+          //  done    -> séparation instrumental terminée : Étape 3 validée.
+          const stem = currentStemRef.current;
+          if (data.state === "running")
+            setStemPhase((p) => Math.max(p, stem === "noVocals" ? 2 : 1));
+          else if (data.state === "done")
+            setStemPhase((p) => Math.max(p, stem === "noVocals" ? 3 : 2));
         }
       } catch {
         // Service en pause pendant le redémarrage — on continue de scruter.
@@ -757,6 +763,10 @@ const [extracting, setExtracting] = useState(false);
         if (stem === "vocals") setStemPhase(2);
       }
       setExtractDone(true);
+      // On laisse le check vert de l'Étape 3 visible un court instant avant
+      // que la fenêtre de progression ne se referme.
+      setStemPhase(3);
+      await new Promise((resolve) => window.setTimeout(resolve, 800));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const low = msg.toLowerCase();

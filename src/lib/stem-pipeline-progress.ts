@@ -4,7 +4,7 @@
 // /api/stems-progress quand le service répond encore 404.
 
 export type PipelineProgress = {
-  phase: "download" | "convert";
+  phase: "download" | "convert" | "waiting";
   percent: number;
   line: string;
 };

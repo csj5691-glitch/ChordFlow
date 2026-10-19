@@ -22,6 +22,27 @@ export const maxDuration = 300;
 const wavCache = new Map<string, Buffer>();
 const WAV_CACHE_MAX = 2;
 
+// Attend que le service Demucs réponde 200 avant de lancer la séparation.
+async function waitForStemsService(timeoutMs = 300_000, intervalMs = 1_000): Promise<void> {
+  const url = `${STEMS_SERVICE}/health`;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(2_500),
+        cache: "no-store",
+      });
+      if (res.ok) {
+        return;
+      }
+    } catch {
+      // Injoignable : on continue à attendre.
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error("service stems injoignable ou non prêt après attente");
+}
+
 // Ligne de progression yt-dlp, ex. : « [download]  42.3% of 3.45MiB at 1.2MiB/s »
 const DOWNLOAD_RE = /\[download\]\s+([\d.]+)%/;
 
@@ -210,6 +231,29 @@ export async function POST(req: NextRequest) {
     progressToken && /^[A-Za-z0-9_-]{8,64}$/.test(progressToken)
       ? `&progress_token=${encodeURIComponent(progressToken)}`
       : "";
+
+  // Attendre que le service Demucs soit prêt avant de lancer la séparation.
+  if (progressToken) {
+    try {
+      setPipelineProgress(progressToken, {
+        phase: "waiting",
+        percent: 0,
+        line: "en attente du service Demucs…",
+      });
+    } catch {}
+  }
+  try {
+    await waitForStemsService();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "erreur inconnue";
+    return NextResponse.json({ error: msg }, { status: 502 });
+  }
+  if (progressToken) {
+    try {
+      clearPipelineProgress(progressToken);
+    } catch {}
+  }
+
   for (const candidate of candidates) {
     const upstream = new FormData();
     upstream.set("file", new File([new Uint8Array(wav)], "youtube.wav", { type: "audio/wav" }));
