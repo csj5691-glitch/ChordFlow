@@ -249,6 +249,8 @@ function EditSongView({ id }: { id: string }) {
   const [playingIndex, setPlayingIndex] = useState<number | null>(null);
   const allPlayerRef = useRef<SoftPlayer | null>(null);
   const [legatoEdit, setLegatoEdit] = useState<number | null>(null);
+  const legatoEditRef = useRef<number | null>(null);
+  legatoEditRef.current = legatoEdit;
   const [editableContent, setEditableContent] = useState<string | null>(null);
   const [showBuilder, setShowBuilder] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -666,6 +668,14 @@ function EditSongView({ id }: { id: string }) {
       upsert({ ...song, diagrams: list });
     },
     [song, upsert]
+  );
+
+  const handleNoteClick = useCallback(
+    (index: number, stringIndex: number) => {
+      setLegato(index, stringIndex);
+      setLegatoEdit(null);
+    },
+    [setLegato, setLegatoEdit]
   );
 
   const addSilence = useCallback(() => {
@@ -2933,11 +2943,8 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                         shape={d}
                         tuning={song?.tuning}
                         onNoteClick={
-                          legatoEdit === i
-                            ? (s) => {
-                                setLegato(i, s);
-                                setLegatoEdit(null);
-                              }
+                          legatoEditRef.current === i
+                            ? (s) => handleNoteClick(i, s)
                             : undefined
                         }
                         legatoStrings={d.legatoTo}

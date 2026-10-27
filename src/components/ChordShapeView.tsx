@@ -55,9 +55,9 @@ function ChordShapeView({ shape, onNoteClick, legatoStrings, showMutes = true, t
       ? Math.min(shapeBaseFret, Math.min(...fingerFrets))
       : shapeBaseFret;
   // Le diagramme va de la corde grave (gauche) à l'aiguë (droite) : l'accordage
-  // étant listé aigu → grave, on l'inverse.
+  // est listé grave → aigu, on l'affiche tel quel.
   const tuned = parseTuningNotes(tuning);
-  const stringNames = tuned ? [...tuned].reverse() : STRING_NAMES;
+  const stringNames = tuned ? tuned : STRING_NAMES;
 
   if (shape.silence) {
     const cx = SVG_WIDTH / 2;

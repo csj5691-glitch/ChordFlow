@@ -300,11 +300,12 @@ export default function AddSong({ initial, onAdd, onClose }: AddSongProps) {
                 <span>fret</span>
               </label>
               <label className="flex items-center gap-2 text-xs text-zinc-400">
-                <span>Accordage</span>
+                <span>Accordage (grave → aigu)</span>
                 <input
                   type="text"
                   value={tuning}
                   onChange={(e) => setTuning(e.target.value)}
+                  placeholder="ex: E A D G B e"
                   className="bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-amber-500/50"
                 />
               </label>

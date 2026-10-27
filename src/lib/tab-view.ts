@@ -12,16 +12,29 @@ export const TAB_STRING_NAMES = ["e", "B", "G", "D", "A", "E"];
 export const MAX_FRET = 24;
 const DEFAULT_BPM = 120;
 
-// Noms de cordes déduits d'un libellé d'accordage de type « D A F C G C »,
-// listé de l'aiguë (haut) vers la grave (bas). Renvoie undefined si le libellé
+// Noms de cordes déduits d'un libellé d'accordage. L'ordre attendu est grave →
+// aigu (de la corde la plus basse à la plus haute), ex. « E A D G B e ».
+// Les anciennes saisies aigu → grave (ex. « e B G D A E ») sont détectées et
+// inversées pour normaliser en grave → aigu. Renvoie undefined si le libellé
 // n'est pas une liste de 6 notes (ex. « Standard (EADGBE) ») : l'appelant garde
 // alors l'affichage standard.
+const NOTE_PITCH: Record<string, number> = {
+  C: 0, "C#": 1, Db: 1, D: 2, "D#": 3, Eb: 3, E: 4, F: 5, "F#": 6, Gb: 6,
+  G: 7, "G#": 8, Ab: 8, A: 9, "A#": 10, Bb: 10, B: 11,
+};
 export function parseTuningNotes(tuning?: string): string[] | undefined {
   if (!tuning) return undefined;
   const parts = tuning.trim().split(/\s+/);
   if (parts.length !== 6) return undefined;
   if (!parts.every((p) => /^[A-Ga-g][#b]?$/.test(p))) return undefined;
-  return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1));
+  const normalized = parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1));
+  const first = NOTE_PITCH[normalized[0]];
+  const last = NOTE_PITCH[normalized[5]];
+  if (first === undefined || last === undefined) return normalized;
+  // Si la première note est plus aiguë que la dernière, c'est l'ancien ordre
+  // aigu → grave : on inverse pour normaliser en grave → aigu.
+  if (first > last) return [...normalized].reverse();
+  return normalized;
 }
 
 export function slotKind(token: TabToken | undefined): TabSlotKind {
