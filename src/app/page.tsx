@@ -24,7 +24,7 @@ import { SourceBadges } from "@/components/SourceBadges";
 import { loadHomeScroll, saveHomeScroll } from "@/lib/home-scroll-store";
 import { saveYouTubeId, loadYouTubeId } from "@/lib/youtube-store";
 import { saveAudioStem } from "@/lib/audio-store";
-import { authorize, getValidToken, isLoggedIn } from "@/lib/spotify-auth";
+import { authorize, getValidToken, isLoggedIn, clearToken } from "@/lib/spotify-auth";
 
 function SearchResults({
   repertoire,
@@ -192,6 +192,7 @@ export default function Home() {
   const [bulkStatus, setBulkStatus] = useState<string | null>(null);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [playlistName, setPlaylistName] = useState("Self_Guit");
+  const [spotifyReauth, setSpotifyReauth] = useState(false);
 
   useEffect(() => {
     const onScroll = () => {
@@ -317,6 +318,13 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, name: playlistName }),
       });
+      if (res.status === 401 || res.status === 403) {
+        clearToken();
+        setSpotifyReauth(true);
+        throw new Error(
+          "Autorisation Spotify insuffisante : reconnectez votre compte (nouveaux droits playlist)."
+        );
+      }
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         throw new Error(`Spotify: ${res.status} ${text.slice(0, 200)}`);
@@ -586,6 +594,16 @@ export default function Home() {
             Rafale (playlist → stems)
           </h2>
           <div className="flex flex-wrap items-center gap-2">
+            {spotifyReauth && (
+              <button
+                type="button"
+                onClick={() => authorize(typeof window !== "undefined" ? window.location.pathname : "/")}
+                className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-green-600 text-white rounded-full hover:bg-green-500 transition-colors"
+              >
+                <Search className="w-3.5 h-3.5" />
+                Reconnecter Spotify (nouveaux droits)
+              </button>
+            )}
             <input
               type="text"
               value={playlistName}
