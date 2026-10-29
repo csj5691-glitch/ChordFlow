@@ -1,7 +1,7 @@
 "use client";
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import {
   decodeState,
   exchangeCode,
@@ -11,13 +11,27 @@ import {
 
 function CallbackBody() {
   const [status, setStatus] = useState<string>("Connexion à Spotify...");
+  const doneRef = useRef(false);
 
   useEffect(() => {
+    if (doneRef.current) return;
+    doneRef.current = true;
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
     const error = params.get("error");
     const decoded = decodeState(params.get("state"));
     const returnPath = decoded?.r ?? getReturnPath() ?? "/";
+
+    // Garde contre le double appel en mode Strict (dev) : le code OAuth
+    // ne peut être échangé qu'une fois, sinon Spotify renvoie 400.
+    if (code) {
+      const guardKey = `chordflow-cb-${code}`;
+      if (sessionStorage.getItem(guardKey)) {
+        window.location.assign(`${window.location.origin}${returnPath}`);
+        return;
+      }
+      sessionStorage.setItem(guardKey, "1");
+    }
 
     const finish = (ms: number) => {
       window.sessionStorage.removeItem("chordflow-spotify-return");
