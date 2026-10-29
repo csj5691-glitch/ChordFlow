@@ -594,16 +594,14 @@ export default function Home() {
             Rafale (playlist → stems)
           </h2>
           <div className="flex flex-wrap items-center gap-2">
-            {spotifyReauth && (
-              <button
-                type="button"
-                onClick={() => authorize(typeof window !== "undefined" ? window.location.pathname : "/")}
-                className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-green-600 text-white rounded-full hover:bg-green-500 transition-colors"
-              >
-                <Search className="w-3.5 h-3.5" />
-                Reconnecter Spotify (nouveaux droits)
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => authorize(typeof window !== "undefined" ? window.location.pathname : "/")}
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-green-700 text-white rounded-full hover:bg-green-600 transition-colors"
+            >
+              <Search className="w-3.5 h-3.5" />
+              Reconnecter Spotify (nouveaux droits)
+            </button>
             <input
               type="text"
               value={playlistName}
