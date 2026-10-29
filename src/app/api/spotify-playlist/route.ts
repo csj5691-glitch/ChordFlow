@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
 
   const headers = { Authorization: `Bearer ${token}`, "User-Agent": "ChordFlow/1.0" };
 
+  // 1. Trouver la playlist par nom (parcours paginé).
   let playlistId: string | null = null;
   let url = "https://api.spotify.com/v1/me/playlists?limit=50";
   while (url) {
@@ -60,67 +61,40 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 2. Récupérer toutes les pistes (parcours paginé).
-  // On tente d'abord le nouvel endpoint /items, puis /tracks en repli
-  // (Spotify a restreint /tracks sur certains comptes/playlists).
+  // 2. Récupérer toutes les pistes via /playlists/{id} (le champ `tracks`
+  //    est inclus dans la réponse). On pagine manuellement via offset sur
+  //    /playlists/{id} pour éviter l'URL `next` qui pointe vers /tracks
+  //    (403 sur certains comptes).
   const tracks: { id: string; title: string; artist: string; uri: string }[] = [];
-  const endpoints = [
-    (offset: number) =>
-      `https://api.spotify.com/v1/playlists/${playlistId}/items?limit=100&offset=${offset}`,
-    (offset: number) =>
-      `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100&offset=${offset}&fields=items(track(id,name,artists(name),uri)),next`,
-  ];
-  let useItems = true;
   let offset = 0;
   let hasMore = true;
   while (hasMore) {
-    const url = useItems
-      ? endpoints[0](offset)
-      : endpoints[1](offset);
-    const res = await fetch(url, { headers, cache: "no-store" });
+    const res = await fetch(
+      `https://api.spotify.com/v1/playlists/${playlistId}?fields=tracks.items(track(id,name,artists(name),uri)),tracks.total&limit=100&offset=${offset}`,
+      { headers, cache: "no-store" }
+    );
     if (!res.ok) {
-      // Si /items échoue en 403, basculer sur /tracks une seule fois.
-      if (useItems && res.status === 403) {
-        useItems = false;
-        offset = 0;
-        tracks.length = 0;
-        continue;
-      }
-      // Diagnostic : lire les détails de la playlist et le profil pour
-      // comprendre le 403 (propriétaire, marché, scopes effectifs).
       const text = await res.text().catch(() => "");
-      let diag = `tracks: ${res.status} ${text.slice(0, 200)}`;
-      try {
-        const detRes = await fetch(
-          `https://api.spotify.com/v1/playlists/${playlistId}`,
-          { headers, cache: "no-store" }
-        );
-        const detText = await detRes.text().catch(() => "");
-        diag += ` | playlist: ${detRes.status} ${detText.slice(0, 300)}`;
-      } catch (e) {
-        diag += ` | playlist err: ${e instanceof Error ? e.message : String(e)}`;
-      }
-      try {
-        const meRes = await fetch("https://api.spotify.com/v1/me", { headers, cache: "no-store" });
-        const meText = await meRes.text().catch(() => "");
-        diag += ` | me: ${meRes.status} ${meText.slice(0, 200)}`;
-      } catch (e) {
-        diag += ` | me err: ${e instanceof Error ? e.message : String(e)}`;
-      }
-      return NextResponse.json({ error: diag }, { status: res.status });
+      return NextResponse.json(
+        { error: `tracks: ${res.status} ${text.slice(0, 200)}` },
+        { status: res.status }
+      );
     }
     const data = (await res.json()) as {
-      items: { track?: SpotifyTrack | null; item?: SpotifyTrack | null }[];
-      next: string | null;
+      tracks?: {
+        items?: { track: SpotifyTrack | null }[];
+        total?: number;
+      };
     };
-    const items = data.items ?? [];
+    const items = data.tracks?.items ?? [];
     if (items.length === 0) {
       hasMore = false;
       break;
     }
     for (const it of items) {
-      const t = (it.track ?? it.item) as SpotifyTrack | null;
+      const t = it.track;
       if (!t || !t.id) continue;
+      if (tracks.some((x) => x.id === t.id && x.uri === t.uri)) continue;
       tracks.push({
         id: t.id,
         title: t.name,
@@ -128,8 +102,12 @@ export async function POST(req: NextRequest) {
         uri: t.uri,
       });
     }
-    offset += items.length;
-    hasMore = !!data.next && items.length > 0;
+    const total = data.tracks?.total ?? tracks.length;
+    if (tracks.length >= total || items.length < 100) {
+      hasMore = false;
+    } else {
+      offset += 100;
+    }
   }
 
   return NextResponse.json({ playlistId, name, count: tracks.length, tracks });
