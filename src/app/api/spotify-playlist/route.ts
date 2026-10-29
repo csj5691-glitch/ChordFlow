@@ -14,6 +14,16 @@ interface SpotifyPlaylistItem {
 }
 
 export async function POST(req: NextRequest) {
+  try {
+    return await handlePost(req);
+  } catch (e) {
+    const msg = e instanceof Error ? `${e.message}\n${e.stack ?? ""}` : String(e);
+    console.error("[spotify-playlist] erreur non gérée:", msg);
+    return NextResponse.json({ error: `erreur serveur: ${msg.slice(0, 500)}` }, { status: 500 });
+  }
+}
+
+async function handlePost(req: NextRequest): Promise<NextResponse> {
   let body: { token?: unknown; name?: unknown };
   try {
     body = await req.json();
