@@ -329,8 +329,9 @@ export default function Home() {
       if (res.status === 401 || res.status === 403) {
         clearToken();
         setSpotifyReauth(true);
+        const text = await res.text().catch(() => "");
         throw new Error(
-          "Autorisation Spotify insuffisante : reconnectez votre compte (nouveaux droits playlist)."
+          `Autorisation Spotify insuffisante (${res.status}) : reconnectez votre compte. Détail : ${text.slice(0, 200)}`
         );
       }
       if (!res.ok) {
