@@ -141,7 +141,7 @@ export function getReturnPath(): string | null {
   return window.sessionStorage.getItem(RETURN_KEY);
 }
 
-export async function authorize(returnPath?: string): Promise<void> {
+export async function authorize(returnPath?: string, forceConsent?: boolean): Promise<void> {
   const verifier = randomString(64);
   const challenge = await generateCodeChallenge(verifier);
   const path = returnPath || "/";
@@ -157,7 +157,7 @@ export async function authorize(returnPath?: string): Promise<void> {
     code_challenge_method: "S256",
     code_challenge: challenge,
     state: encodeState({ v: verifier, r: path }),
-    show_dialog: "false",
+    show_dialog: forceConsent ? "true" : "false",
   });
 
   window.location.href = `https://accounts.spotify.com/authorize?${params.toString()}`;

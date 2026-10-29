@@ -318,7 +318,7 @@ export default function Home() {
       if (!stored?.scope?.includes("playlist-read-private")) {
         clearToken();
         setSpotifyReauth(true);
-        authorize(typeof window !== "undefined" ? window.location.pathname : "/");
+        authorize(typeof window !== "undefined" ? window.location.pathname : "/", true);
         return;
       }
       const res = await fetch("/api/spotify-playlist", {
@@ -606,7 +606,7 @@ export default function Home() {
               type="button"
               onClick={() => {
                 clearToken();
-                authorize(typeof window !== "undefined" ? window.location.pathname : "/");
+                authorize(typeof window !== "undefined" ? window.location.pathname : "/", true);
               }}
               className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-green-700 text-white rounded-full hover:bg-green-600 transition-colors"
             >
