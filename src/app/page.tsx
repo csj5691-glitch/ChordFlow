@@ -341,7 +341,11 @@ export default function Home() {
       const data = (await res.json()) as {
         count: number;
         tracks: { id: string; title: string; artist: string; uri: string }[];
+        error?: string;
       };
+      if (data.error) {
+        throw new Error(data.error);
+      }
       const tracks = data.tracks ?? [];
       setBulkProgress({ current: 0, total: tracks.length, label: "Import des chansons…" });
       let added = 0;
