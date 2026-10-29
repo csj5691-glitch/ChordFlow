@@ -612,11 +612,11 @@ const [extracting, setExtracting] = useState(false);
       setStandardBpm("");
       setBpmError(null);
       if (id) saveYouTubeId(id, videoId);
-      if (id?.startsWith("custom-") && song) {
+      if (song && (isCustom || hydrated)) {
         upsert({ ...song, youtubeId: videoId });
       }
     },
-    [id, song, upsert]
+    [id, song, upsert, isCustom, hydrated]
   );
 
   const handleYoutubePlaybackError = useCallback(() => {

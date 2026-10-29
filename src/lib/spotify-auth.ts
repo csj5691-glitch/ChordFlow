@@ -13,6 +13,8 @@ export const SPOTIFY_SCOPES = [
   "user-read-private",
   "user-read-playback-state",
   "user-modify-playback-state",
+  "playlist-read-private",
+  "playlist-read-collaborative",
 ].join(" ");
 
 const TOKEN_KEY = "chordflow-spotify-token";

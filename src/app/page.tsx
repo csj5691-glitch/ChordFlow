@@ -19,9 +19,12 @@ import {
 } from "@/lib/repertoire-sort";
 import { SongTab } from "@/lib/types";
 import { songHasYoutube, songHasSpotify, usePersistedUploads } from "@/lib/song-sources";
-import { Plus, Trash2, Pencil, ArrowUpAZ, ArrowDownAZ, ListFilter, ArrowUp } from "lucide-react";
+import { Plus, Trash2, Pencil, ArrowUpAZ, ArrowDownAZ, ListFilter, ArrowUp, ListMusic, Search, Mic2 } from "lucide-react";
 import { SourceBadges } from "@/components/SourceBadges";
 import { loadHomeScroll, saveHomeScroll } from "@/lib/home-scroll-store";
+import { saveYouTubeId, loadYouTubeId } from "@/lib/youtube-store";
+import { saveAudioStem } from "@/lib/audio-store";
+import { authorize, getValidToken, isLoggedIn } from "@/lib/spotify-auth";
 
 function SearchResults({
   repertoire,
@@ -123,8 +126,6 @@ function RepertoireRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const hasYoutube = songHasYoutube(song);
-  const hasSpotify = songHasSpotify(song);
   return (
     <div
       className="flex items-center gap-3 p-3 bg-zinc-900/80 border border-zinc-800 rounded-xl hover:border-zinc-700 transition-colors group cursor-pointer"
@@ -186,6 +187,11 @@ export default function Home() {
   const [editedSort, setEditedSort] = useState<RepertoireSort | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const restoredRef = useRef(false);
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ current: number; total: number; label: string } | null>(null);
+  const [bulkStatus, setBulkStatus] = useState<string | null>(null);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [playlistName, setPlaylistName] = useState("Self_Guit");
 
   useEffect(() => {
     const onScroll = () => {
@@ -292,6 +298,151 @@ export default function Home() {
   const handleDeleteSong = useCallback((id: string) => {
     removeSong(id);
   }, [removeSong]);
+
+  // ---- Rafale : playlist Spotify → chansons + liens YouTube + stems ----
+  const handleImportPlaylist = useCallback(async () => {
+    if (!isLoggedIn()) {
+      authorize(typeof window !== "undefined" ? window.location.pathname : "/");
+      return;
+    }
+    setBulkRunning(true);
+    setBulkError(null);
+    setBulkStatus(null);
+    setBulkProgress({ current: 0, total: 1, label: "Connexion Spotify…" });
+    try {
+      const token = await getValidToken();
+      if (!token) throw new Error("Token Spotify indisponible. Reconnectez-vous.");
+      const res = await fetch("/api/spotify-playlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, name: playlistName }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Spotify: ${res.status} ${text.slice(0, 200)}`);
+      }
+      const data = (await res.json()) as {
+        count: number;
+        tracks: { id: string; title: string; artist: string; uri: string }[];
+      };
+      const tracks = data.tracks ?? [];
+      setBulkProgress({ current: 0, total: tracks.length, label: "Import des chansons…" });
+      let added = 0;
+      for (let i = 0; i < tracks.length; i++) {
+        const t = tracks[i];
+        setBulkProgress({ current: i + 1, total: tracks.length, label: `Import : ${t.title}` });
+        const exists = customSongs.some(
+          (s) =>
+            s.title.toLowerCase() === t.title.toLowerCase() &&
+            (s.artist || "").toLowerCase() === t.artist.toLowerCase()
+        );
+        if (exists) continue;
+        const song: SongTab = {
+          id: generateSongId(),
+          title: t.title,
+          artist: t.artist,
+          type: "Chords",
+          content: "",
+          officialPlain: "",
+          officialSynced: "",
+          spotifyId: t.uri,
+        };
+        await saveLocalSong(song);
+        await upsertSong(song);
+        added++;
+      }
+      setBulkStatus(`Playlist importée : ${added} nouvelle(s) chanson(s) sur ${tracks.length}.`);
+    } catch (e) {
+      setBulkError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBulkRunning(false);
+      setBulkProgress(null);
+    }
+  }, [customSongs, upsertSong, playlistName]);
+
+  const handleBulkYoutube = useCallback(async () => {
+    const targets = customSongs.filter((s) => {
+      const vid = s.youtubeId || loadYouTubeId(s.id);
+      return !vid;
+    });
+    if (targets.length === 0) {
+      setBulkStatus("Aucune chanson sans lien YouTube.");
+      return;
+    }
+    setBulkRunning(true);
+    setBulkError(null);
+    setBulkStatus(null);
+    setBulkProgress({ current: 0, total: targets.length, label: "Recherche YouTube…" });
+    let found = 0;
+    for (let i = 0; i < targets.length; i++) {
+      const s = targets[i];
+      setBulkProgress({ current: i + 1, total: targets.length, label: `YouTube : ${s.title}` });
+      try {
+        const res = await fetch("/api/yt-search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ q: `${s.artist} ${s.title}` }),
+        });
+        if (!res.ok) continue;
+        const data = (await res.json()) as { videoId?: string };
+        if (data.videoId) {
+          saveYouTubeId(s.id, data.videoId);
+          await upsertSong({ ...s, youtubeId: data.videoId });
+          found++;
+        }
+      } catch {
+        // on passe au suivant
+      }
+    }
+    setBulkStatus(`YouTube : ${found} lien(s) trouvé(s) sur ${targets.length}.`);
+    setBulkRunning(false);
+    setBulkProgress(null);
+  }, [customSongs, upsertSong]);
+
+  const handleBulkStems = useCallback(async () => {
+    const targets = customSongs.filter((s) => {
+      const vid = s.youtubeId || loadYouTubeId(s.id);
+      return !!vid;
+    });
+    if (targets.length === 0) {
+      setBulkStatus("Aucune chanson avec lien YouTube.");
+      return;
+    }
+    if (!window.confirm(
+      `Extraire les stems (voix + instrumental) pour ${targets.length} chanson(s) ? ` +
+        `Demucs tourne en CPU : ~9 min par chanson de 4 min. Laisser tourner.`
+    )) {
+      return;
+    }
+    setBulkRunning(true);
+    setBulkError(null);
+    setBulkStatus(null);
+    let done = 0;
+    for (let i = 0; i < targets.length; i++) {
+      const s = targets[i];
+      const videoId = (s.youtubeId || loadYouTubeId(s.id)) as string;
+      setBulkProgress({ current: i + 1, total: targets.length, label: `Stems : ${s.title}` });
+      try {
+        for (const stem of ["vocals", "noVocals"] as const) {
+          const token = crypto.randomUUID();
+          const res = await fetch("/api/yt-stems", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ videoId, stem, progressToken: token }),
+          });
+          if (!res.ok) break;
+          const blob = await res.blob();
+          await saveAudioStem(s.id, stem, blob);
+        }
+        done++;
+      } catch {
+        // on passe au suivant
+      }
+    }
+    setBulkStatus(`Stems : ${done} chanson(s) traitée(s) sur ${targets.length}.`);
+    setBulkRunning(false);
+    setBulkProgress(null);
+  }, [customSongs]);
 
   const sortedSongs = useMemo(() => {
     const copy = [...customSongs];
@@ -429,6 +580,77 @@ export default function Home() {
             onDelete={handleDeleteSong}
           />
         </Suspense>
+        <div className="w-full max-w-2xl mt-8 flex flex-col gap-3">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <ListMusic className="w-5 h-5 text-amber-400" />
+            Rafale (playlist → stems)
+          </h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              value={playlistName}
+              onChange={(e) => setPlaylistName(e.target.value)}
+              disabled={bulkRunning}
+              className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white w-40 focus:outline-none focus:border-amber-500/50"
+              title="Nom exact de la playlist Spotify"
+            />
+            <button
+              type="button"
+              onClick={handleImportPlaylist}
+              disabled={bulkRunning}
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-green-600 text-white rounded-full hover:bg-green-500 transition-colors disabled:opacity-50"
+            >
+              <ListMusic className="w-3.5 h-3.5" />
+              {bulkRunning && bulkProgress?.label?.startsWith("Import") ? "…" : "Importer playlist Spotify"}
+            </button>
+            <button
+              type="button"
+              onClick={handleBulkYoutube}
+              disabled={bulkRunning}
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-red-600/20 text-red-300 border border-red-500/30 rounded-full hover:bg-red-600/30 transition-colors disabled:opacity-50"
+            >
+              <Search className="w-3.5 h-3.5" />
+              Rechercher YouTube en rafale
+            </button>
+            <button
+              type="button"
+              onClick={handleBulkStems}
+              disabled={bulkRunning}
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full hover:bg-amber-500/30 transition-colors disabled:opacity-50"
+            >
+              <Mic2 className="w-3.5 h-3.5" />
+              Extraire stems en rafale
+            </button>
+          </div>
+          {bulkProgress && (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between text-xs text-zinc-400">
+                <span className="truncate">{bulkProgress.label}</span>
+                <span className="tabular-nums">
+                  {bulkProgress.current}/{bulkProgress.total}
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                <div
+                  className="h-full bg-amber-400 transition-[width] duration-200"
+                  style={{
+                    width: `${bulkProgress.total > 0 ? (bulkProgress.current / bulkProgress.total) * 100 : 0}%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+          {bulkStatus && (
+            <p className="text-xs text-emerald-400">{bulkStatus}</p>
+          )}
+          {bulkError && (
+            <p className="text-xs text-red-400">{bulkError}</p>
+          )}
+          <p className="text-[11px] text-zinc-600">
+            ⚠️ L&apos;extraction des stems tourne en CPU (~9 min par chanson de 4 min). Lance-la sur un sous-ensemble ou laisse tourner.
+            Reconnexion Spotify requise (nouveaux scopes playlist).
+          </p>
+        </div>
       </main>
 
       {(showAddSong || editingSong) && (
