@@ -61,8 +61,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 2. Récupérer les pistes via /playlists/{id} (champ `tracks` inclus).
-  //    Premier appel sans filtre fields pour voir la structure réelle.
+  // 2. Récupérer les pistes. Spotify a renommé `tracks` → `items` (fin 2024).
+  //    On lit les deux champs pour compatibilité.
+  const tracks: { id: string; title: string; artist: string; uri: string }[] = [];
+
+  // Premier appel : /playlists/{id} sans fields pour avoir la structure complète.
   const firstRes = await fetch(
     `https://api.spotify.com/v1/playlists/${playlistId}`,
     { headers, cache: "no-store" }
@@ -75,20 +78,26 @@ export async function POST(req: NextRequest) {
     );
   }
   const firstData = (await firstRes.json()) as {
+    items?: { track?: SpotifyTrack | null; item?: SpotifyTrack | null }[];
     tracks?: {
       items?: { track: SpotifyTrack | null }[];
       total?: number;
       next?: string | null;
     };
+    total?: number;
   };
-  const firstItems = firstData.tracks?.items ?? [];
-  const total = firstData.tracks?.total ?? 0;
+  // Nouveau format : items au top-level. Ancien : tracks.items.
+  const firstItems = (firstData.items ?? firstData.tracks?.items ?? []) as {
+    track?: SpotifyTrack | null;
+    item?: SpotifyTrack | null;
+  }[];
+  const total = firstData.tracks?.total ?? firstItems.length;
 
   // Debug si aucune piste détectée.
   if (firstItems.length === 0) {
     return NextResponse.json(
       {
-        error: `0 piste détectée. total=${total}, next=${firstData.tracks?.next ?? "null"}, keys=${Object.keys(firstData).join(",")}, trackKeys=${firstItems.length > 0 ? Object.keys(firstItems[0]).join(",") : "n/a"}`,
+        error: `0 piste détectée. total=${total}, keys=${Object.keys(firstData).join(",")}, itemsLen=${firstItems.length}`,
         playlistId,
         name,
         count: 0,
@@ -98,10 +107,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const tracks: { id: string; title: string; artist: string; uri: string }[] = [];
   for (const it of firstItems) {
-    const t = it.track;
-    if (!t || !t.id) continue;
+    const t = (it.track ?? it.item ?? (it as unknown as SpotifyTrack)) as SpotifyTrack | null;
+    if (!t || !t.id || !t.name) continue;
     if (tracks.some((x) => x.id === t.id && x.uri === t.uri)) continue;
     tracks.push({
       id: t.id,
@@ -111,27 +119,27 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Pagination : si next pointe vers /tracks (403), on ne le suit pas.
-  // On tente /playlists/{id} avec offset à la place.
+  // Pagination : on tente /playlists/{id} avec offset (peut ne pas marcher).
+  // Si ça échoue, on garde ce qu'on a.
   let offset = firstItems.length;
-  while (tracks.length < total && offset < total) {
+  while (tracks.length < total && offset < total && firstItems.length >= 100) {
     const res = await fetch(
-      `https://api.spotify.com/v1/playlists/${playlistId}?fields=tracks.items(track(id,name,artists(name),uri)),tracks.total&limit=100&offset=${offset}`,
+      `https://api.spotify.com/v1/playlists/${playlistId}?limit=100&offset=${offset}`,
       { headers, cache: "no-store" }
     );
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      // On garde ce qu'on a.
-      break;
-    }
+    if (!res.ok) break;
     const data = (await res.json()) as {
+      items?: { track?: SpotifyTrack | null; item?: SpotifyTrack | null }[];
       tracks?: { items?: { track: SpotifyTrack | null }[]; total?: number };
     };
-    const items = data.tracks?.items ?? [];
+    const items = (data.items ?? data.tracks?.items ?? []) as {
+      track?: SpotifyTrack | null;
+      item?: SpotifyTrack | null;
+    }[];
     if (items.length === 0) break;
     for (const it of items) {
-      const t = it.track;
-      if (!t || !t.id) continue;
+      const t = (it.track ?? it.item ?? (it as unknown as SpotifyTrack)) as SpotifyTrack | null;
+      if (!t || !t.id || !t.name) continue;
       if (tracks.some((x) => x.id === t.id && x.uri === t.uri)) continue;
       tracks.push({
         id: t.id,
