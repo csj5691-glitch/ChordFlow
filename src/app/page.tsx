@@ -24,7 +24,7 @@ import { SourceBadges } from "@/components/SourceBadges";
 import { loadHomeScroll, saveHomeScroll } from "@/lib/home-scroll-store";
 import { saveYouTubeId, loadYouTubeId } from "@/lib/youtube-store";
 import { saveAudioStem } from "@/lib/audio-store";
-import { authorize, getValidToken, isLoggedIn, clearToken } from "@/lib/spotify-auth";
+import { authorize, getValidToken, isLoggedIn, clearToken, loadToken } from "@/lib/spotify-auth";
 
 function SearchResults({
   repertoire,
@@ -313,6 +313,14 @@ export default function Home() {
     try {
       const token = await getValidToken();
       if (!token) throw new Error("Token Spotify indisponible. Reconnectez-vous.");
+      // Vérifier que le token possède le scope playlist (sinon 403).
+      const stored = loadToken();
+      if (!stored?.scope?.includes("playlist-read-private")) {
+        clearToken();
+        setSpotifyReauth(true);
+        authorize(typeof window !== "undefined" ? window.location.pathname : "/");
+        return;
+      }
       const res = await fetch("/api/spotify-playlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -596,7 +604,10 @@ export default function Home() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => authorize(typeof window !== "undefined" ? window.location.pathname : "/")}
+              onClick={() => {
+                clearToken();
+                authorize(typeof window !== "undefined" ? window.location.pathname : "/");
+              }}
               className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-green-700 text-white rounded-full hover:bg-green-600 transition-colors"
             >
               <Search className="w-3.5 h-3.5" />
