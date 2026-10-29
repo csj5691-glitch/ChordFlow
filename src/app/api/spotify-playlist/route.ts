@@ -88,7 +88,7 @@ async function handlePost(req: NextRequest): Promise<NextResponse> {
     );
   }
   const firstData = (await firstRes.json()) as {
-    items?: { track?: SpotifyTrack | null; item?: SpotifyTrack | null }[];
+    items?: { track?: SpotifyTrack | null; item?: SpotifyTrack | null }[] | { items?: { track?: SpotifyTrack | null; item?: SpotifyTrack | null }[]; total?: number; next?: string | null };
     tracks?: {
       items?: { track: SpotifyTrack | null }[];
       total?: number;
@@ -96,12 +96,23 @@ async function handlePost(req: NextRequest): Promise<NextResponse> {
     };
     total?: number;
   };
-  // Nouveau format : items au top-level. Ancien : tracks.items.
-  const firstItems = (firstData.items ?? firstData.tracks?.items ?? []) as {
-    track?: SpotifyTrack | null;
-    item?: SpotifyTrack | null;
-  }[];
-  const total = firstData.tracks?.total ?? firstItems.length;
+  // Spotify (fin 2024) a renommé `tracks` → `items`, et `items` est maintenant
+  // un objet paginé { items, total, next } (plus un tableau direct).
+  let rawItems: { track?: SpotifyTrack | null; item?: SpotifyTrack | null }[] = [];
+  if (Array.isArray(firstData.items)) {
+    rawItems = firstData.items;
+  } else if (firstData.items && Array.isArray((firstData.items as { items?: unknown[] }).items)) {
+    rawItems = (firstData.items as { items: { track?: SpotifyTrack | null; item?: SpotifyTrack | null }[] }).items;
+  } else if (Array.isArray(firstData.tracks?.items)) {
+    rawItems = firstData.tracks!.items as { track?: SpotifyTrack | null; item?: SpotifyTrack | null }[];
+  }
+  const firstItems = rawItems;
+  const total =
+    (firstData.items && !Array.isArray(firstData.items)
+      ? (firstData.items as { total?: number }).total
+      : undefined) ??
+    firstData.tracks?.total ??
+    firstItems.length;
 
   // Debug si aucune piste détectée.
   if (firstItems.length === 0) {
@@ -139,13 +150,17 @@ async function handlePost(req: NextRequest): Promise<NextResponse> {
     );
     if (!res.ok) break;
     const data = (await res.json()) as {
-      items?: { track?: SpotifyTrack | null; item?: SpotifyTrack | null }[];
+      items?: { track?: SpotifyTrack | null; item?: SpotifyTrack | null }[] | { items?: { track?: SpotifyTrack | null; item?: SpotifyTrack | null }[]; total?: number };
       tracks?: { items?: { track: SpotifyTrack | null }[]; total?: number };
     };
-    const items = (data.items ?? data.tracks?.items ?? []) as {
-      track?: SpotifyTrack | null;
-      item?: SpotifyTrack | null;
-    }[];
+    let items: { track?: SpotifyTrack | null; item?: SpotifyTrack | null }[] = [];
+    if (Array.isArray(data.items)) {
+      items = data.items;
+    } else if (data.items && Array.isArray((data.items as { items?: unknown[] }).items)) {
+      items = (data.items as { items: { track?: SpotifyTrack | null; item?: SpotifyTrack | null }[] }).items;
+    } else if (Array.isArray(data.tracks?.items)) {
+      items = data.tracks!.items as { track?: SpotifyTrack | null; item?: SpotifyTrack | null }[];
+    }
     if (items.length === 0) break;
     for (const it of items) {
       const t = (it.track ?? it.item ?? (it as unknown as SpotifyTrack)) as SpotifyTrack | null;
