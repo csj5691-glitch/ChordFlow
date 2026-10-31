@@ -192,7 +192,6 @@ export default function Home() {
   const [bulkStatus, setBulkStatus] = useState<string | null>(null);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [playlistName, setPlaylistName] = useState("Self_Guit");
-  const [spotifyReauth, setSpotifyReauth] = useState(false);
 
   useEffect(() => {
     const onScroll = () => {
@@ -300,6 +299,27 @@ export default function Home() {
     removeSong(id);
   }, [removeSong]);
 
+  const sortedSongs = useMemo(() => {
+    const copy = [...customSongs];
+    copy.sort((a, b) => {
+      const av = (a[sort.field] || "").toLowerCase();
+      const bv = (b[sort.field] || "").toLowerCase();
+      const cmp = av.localeCompare(bv, undefined, { sensitivity: "base" });
+      return sort.direction === "asc" ? cmp : -cmp;
+    });
+    return copy;
+  }, [customSongs, sort]);
+
+  // Chansons affichées dans « Mon répertoire » (Accueil) qui n'ont pas encore
+  // de lien YouTube. Seules celles-là sont visées par la recherche en rafale.
+  const youtubeTargets = useMemo(
+    () =>
+      sortedSongs.filter(
+        (s) => !songHasYoutube(s) && `${s.artist} ${s.title}`.trim().length > 0
+      ),
+    [sortedSongs]
+  );
+
   // ---- Rafale : playlist Spotify → chansons + liens YouTube + stems ----
   const handleImportPlaylist = useCallback(async () => {
     if (!isLoggedIn()) {
@@ -317,7 +337,6 @@ export default function Home() {
       const stored = loadToken();
       if (!stored?.scope?.includes("playlist-read-private")) {
         clearToken();
-        setSpotifyReauth(true);
         authorize(typeof window !== "undefined" ? window.location.pathname : "/", true);
         return;
       }
@@ -328,7 +347,6 @@ export default function Home() {
       });
       if (res.status === 401 || res.status === 403) {
         clearToken();
-        setSpotifyReauth(true);
         const text = await res.text().catch(() => "");
         throw new Error(
           `Autorisation Spotify insuffisante (${res.status}) : reconnectez votre compte. Détail : ${text.slice(0, 200)}`
@@ -382,12 +400,16 @@ export default function Home() {
   }, [customSongs, upsertSong, playlistName]);
 
   const handleBulkYoutube = useCallback(async () => {
-    const targets = customSongs.filter((s) => {
-      const vid = s.youtubeId || loadYouTubeId(s.id);
-      return !vid;
-    });
+    // Uniquement les chansons du répertoire affiché à l'accueil sans lien YT.
+    const targets = youtubeTargets;
     if (targets.length === 0) {
-      setBulkStatus("Aucune chanson sans lien YouTube.");
+      setBulkStatus("Aucune chanson du répertoire sans lien YouTube.");
+      return;
+    }
+    if (!window.confirm(
+      `Rechercher les liens YouTube pour ${targets.length} chanson(s) du répertoire ` +
+        `qui n'en ont pas encore ?`
+    )) {
       return;
     }
     setBulkRunning(true);
@@ -395,6 +417,8 @@ export default function Home() {
     setBulkStatus(null);
     setBulkProgress({ current: 0, total: targets.length, label: "Recherche YouTube…" });
     let found = 0;
+    let failed = 0;
+    let lastError = "";
     for (let i = 0; i < targets.length; i++) {
       const s = targets[i];
       setBulkProgress({ current: i + 1, total: targets.length, label: `YouTube : ${s.title}` });
@@ -402,23 +426,41 @@ export default function Home() {
         const res = await fetch("/api/yt-search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ q: `${s.artist} ${s.title}` }),
+          body: JSON.stringify({ q: `${s.artist} ${s.title}`.trim() }),
         });
-        if (!res.ok) continue;
-        const data = (await res.json()) as { videoId?: string };
-        if (data.videoId) {
-          saveYouTubeId(s.id, data.videoId);
-          await upsertSong({ ...s, youtubeId: data.videoId });
-          found++;
+        if (!res.ok) {
+          failed++;
+          const data = (await res.json().catch(() => null)) as { error?: string } | null;
+          lastError = data?.error ?? `HTTP ${res.status}`;
+        } else {
+          const data = (await res.json()) as { videoId?: string };
+          if (data.videoId) {
+            saveYouTubeId(s.id, data.videoId);
+            await upsertSong({ ...s, youtubeId: data.videoId });
+            found++;
+          } else {
+            failed++;
+            lastError = "aucune vidéo trouvée";
+          }
         }
-      } catch {
-        // on passe au suivant
+      } catch (e) {
+        failed++;
+        lastError = e instanceof Error ? e.message : String(e);
+      }
+      // Petite pause pour ne pas déclencher le blocage anti-robot de YouTube.
+      if (i < targets.length - 1) {
+        await new Promise((r) => window.setTimeout(r, 600));
       }
     }
-    setBulkStatus(`YouTube : ${found} lien(s) trouvé(s) sur ${targets.length}.`);
+    const detail = failed > 0 && lastError ? ` Dernière erreur : ${lastError.slice(0, 160)}` : "";
+    setBulkStatus(
+      `YouTube : ${found} lien(s) trouvé(s) sur ${targets.length}` +
+        (failed > 0 ? ` (${failed} échec(s)).` : ".") +
+        detail
+    );
     setBulkRunning(false);
     setBulkProgress(null);
-  }, [customSongs, upsertSong]);
+  }, [youtubeTargets, upsertSong]);
 
   const handleBulkStems = useCallback(async () => {
     const targets = customSongs.filter((s) => {
@@ -464,17 +506,6 @@ export default function Home() {
     setBulkRunning(false);
     setBulkProgress(null);
   }, [customSongs]);
-
-  const sortedSongs = useMemo(() => {
-    const copy = [...customSongs];
-    copy.sort((a, b) => {
-      const av = (a[sort.field] || "").toLowerCase();
-      const bv = (b[sort.field] || "").toLowerCase();
-      const cmp = av.localeCompare(bv, undefined, { sensitivity: "base" });
-      return sort.direction === "asc" ? cmp : -cmp;
-    });
-    return copy;
-  }, [customSongs, sort]);
 
   return (
     <div className="flex flex-col items-center min-h-screen">
@@ -639,10 +670,11 @@ export default function Home() {
               type="button"
               onClick={handleBulkYoutube}
               disabled={bulkRunning}
+              title={`Rechercher les liens YouTube des ${youtubeTargets.length} chanson(s) du répertoire qui n'en ont pas`}
               className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-red-600/20 text-red-300 border border-red-500/30 rounded-full hover:bg-red-600/30 transition-colors disabled:opacity-50"
             >
               <Search className="w-3.5 h-3.5" />
-              Rechercher YouTube en rafale
+              Rechercher YouTube en rafale ({youtubeTargets.length})
             </button>
             <button
               type="button"

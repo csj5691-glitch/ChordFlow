@@ -34,27 +34,45 @@ export interface SharedRow {
 export async function loadSharedSongs(): Promise<SongTab[]> {
   const sb = getSupabase();
   if (!sb) return loadLocalSongs();
-  const { data, error } = await sb.from("songs").select("data").order("updated_at", { ascending: false });
-  if (error) return loadLocalSongs();
-  const rows = (data as { data: unknown }[] | null) ?? [];
+  // Supabase plafonne une requête à 1000 lignes : paginer pour ne pas
+  // tronquer le répertoire (les chansons au-delà de 1000 disparaissaient).
+  const PAGE = 1000;
   const migrated: SongTab[] = [];
-  for (const r of rows) {
-    const s = r.data as SongTab;
-    if (typeof s !== "object" || s === null || !s.id) continue;
-    const m = migrateSong(s);
-    migrated.push(m);
-    if (m !== s) {
-      await sb.from("songs").upsert(
-        {
-          id: m.id,
-          title: m.title,
-          artist: m.artist,
-          data: m,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "id" }
-      );
+  const seen = new Set<string>();
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await sb
+      .from("songs")
+      .select("data")
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) {
+      if (from === 0) return loadLocalSongs();
+      break;
     }
+    const rows = (data as { data: unknown }[] | null) ?? [];
+    if (rows.length === 0) break;
+    for (const r of rows) {
+      const s = r.data as SongTab;
+      if (typeof s !== "object" || s === null || !s.id) continue;
+      if (seen.has(s.id)) continue;
+      seen.add(s.id);
+      const m = migrateSong(s);
+      migrated.push(m);
+      if (m !== s) {
+        await sb.from("songs").upsert(
+          {
+            id: m.id,
+            title: m.title,
+            artist: m.artist,
+            data: m,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "id" }
+        );
+      }
+    }
+    if (rows.length < PAGE) break;
   }
   return migrated;
 }
