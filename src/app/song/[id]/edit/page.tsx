@@ -1926,20 +1926,14 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                       />
                     </label>
                     {vocalsUrl && (
-                      <>
-                        <button
-                          onClick={() => void handleStemClear("vocals")}
-                          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-red-400 hover:bg-red-500/10 transition-colors w-fit cursor-pointer"
-                          title="Retirer le stem vocal"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          Retirer
-                        </button>
-                        <span className="flex items-center gap-1.5 text-[11px] text-purple-400 bg-purple-500/10 border border-purple-500/30 rounded-full px-2.5 py-1">
-                          <Music4 className="w-3 h-3" />
-                          {vocalsName || "Voix"} chargé
-                        </span>
-                      </>
+                      <button
+                        onClick={() => void handleStemClear("vocals")}
+                        className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-red-400 hover:bg-red-500/10 transition-colors w-fit cursor-pointer"
+                        title="Retirer le stem vocal"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Retirer
+                      </button>
                     )}
                     <label
                       className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors w-fit cursor-pointer select-none"
@@ -1963,20 +1957,14 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                       />
                     </label>
                     {instUrl && (
-                      <>
-                        <button
-                          onClick={() => void handleStemClear("noVocals")}
-                          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-red-400 hover:bg-red-500/10 transition-colors w-fit cursor-pointer"
-                          title="Retirer le stem instrumental"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          Retirer
-                        </button>
-                        <span className="flex items-center gap-1.5 text-[11px] text-purple-400 bg-purple-500/10 border border-purple-500/30 rounded-full px-2.5 py-1">
-                          <Music4 className="w-3 h-3" />
-                          {instName || "Instrumental"} chargé
-                        </span>
-                      </>
+                      <button
+                        onClick={() => void handleStemClear("noVocals")}
+                        className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 text-red-400 hover:bg-red-500/10 transition-colors w-fit cursor-pointer"
+                        title="Retirer le stem instrumental"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Retirer
+                      </button>
                     )}
                   </div>
                   </div>
@@ -2092,6 +2080,22 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                         />
                       </label>
                     </div>
+                    {(vocalsUrl || instUrl) && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {vocalsUrl && (
+                          <span className="flex items-center gap-1.5 text-[11px] text-purple-400 bg-purple-500/10 border border-purple-500/30 rounded-full px-2.5 py-1">
+                            <Music4 className="w-3 h-3" />
+                            {vocalsName || "Voix"} chargé
+                          </span>
+                        )}
+                        {instUrl && (
+                          <span className="flex items-center gap-1.5 text-[11px] text-purple-400 bg-purple-500/10 border border-purple-500/30 rounded-full px-2.5 py-1">
+                            <Music4 className="w-3 h-3" />
+                            {instName || "Instrumental"} chargé
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {extracting && extractProgress && (
                       stemPhase >= 0 ? (
                         <div className="w-full flex flex-col gap-1.5">
