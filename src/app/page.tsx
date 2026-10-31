@@ -19,11 +19,16 @@ import {
 } from "@/lib/repertoire-sort";
 import { SongTab } from "@/lib/types";
 import { songHasYoutube, songHasSpotify, usePersistedUploads } from "@/lib/song-sources";
-import { Plus, Trash2, Pencil, ArrowUpAZ, ArrowDownAZ, ListFilter, ArrowUp, ListMusic, Search, Mic2 } from "lucide-react";
+import { Plus, Trash2, Pencil, ArrowUpAZ, ArrowDownAZ, ListFilter, ArrowUp, ListMusic, Search, Mic2, Combine } from "lucide-react";
 import { SourceBadges } from "@/components/SourceBadges";
 import { loadHomeScroll, saveHomeScroll } from "@/lib/home-scroll-store";
 import { saveYouTubeId, loadYouTubeId } from "@/lib/youtube-store";
 import { saveAudioStem } from "@/lib/audio-store";
+import {
+  findDuplicateGroups,
+  mergeSongGroup,
+  migrateSongExtras,
+} from "@/lib/duplicate-songs";
 import { authorize, getValidToken, isLoggedIn, clearToken, loadToken } from "@/lib/spotify-auth";
 
 function SearchResults({
@@ -192,6 +197,8 @@ export default function Home() {
   const [bulkStatus, setBulkStatus] = useState<string | null>(null);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [playlistName, setPlaylistName] = useState("Self_Guit");
+  const [mergeRunning, setMergeRunning] = useState(false);
+  const [mergeStatus, setMergeStatus] = useState<string | null>(null);
 
   useEffect(() => {
     const onScroll = () => {
@@ -319,6 +326,59 @@ export default function Home() {
       ),
     [sortedSongs]
   );
+
+  // Groupes de doublons (même titre + même artiste) et nombre de chansons
+  // excédentaires qui seront supprimées par la fusion.
+  const duplicateGroups = useMemo(
+    () => findDuplicateGroups(sortedSongs),
+    [sortedSongs]
+  );
+  const duplicateExtra = useMemo(
+    () => duplicateGroups.reduce((n, g) => n + g.length - 1, 0),
+    [duplicateGroups]
+  );
+
+  const handleMergeDuplicates = useCallback(async () => {
+    if (duplicateGroups.length === 0) {
+      setMergeStatus("Aucun doublon (même titre + artiste) dans le répertoire.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Fusionner ${duplicateGroups.length} groupe(s) de doublons ?\n` +
+          `${duplicateExtra} chanson(s) en trop seront supprimées.\n` +
+          `La fiche la plus complète est conservée (contenu, diagrammes, liens).`
+      )
+    ) {
+      return;
+    }
+    setMergeRunning(true);
+    setMergeStatus(null);
+    let merged = 0;
+    let removed = 0;
+    for (let i = 0; i < duplicateGroups.length; i++) {
+      const group = duplicateGroups[i];
+      setMergeStatus(`Fusion ${i + 1}/${duplicateGroups.length} : ${group[0].title}`);
+      try {
+        const kept = mergeSongGroup(group);
+        const others = group.filter((s) => s.id !== kept.id);
+        await upsertSong(kept);
+        await saveLocalSong(kept).catch(() => []);
+        for (const dup of others) {
+          await migrateSongExtras(dup.id, kept.id);
+          await removeSong(dup.id);
+          removed++;
+        }
+        merged++;
+      } catch {
+        // on passe au groupe suivant
+      }
+    }
+    setMergeStatus(
+      `Fusion : ${merged} groupe(s) fusionné(s), ${removed} doublon(s) supprimé(s).`
+    );
+    setMergeRunning(false);
+  }, [duplicateGroups, duplicateExtra, upsertSong, removeSong]);
 
   // ---- Rafale : playlist Spotify → chansons + liens YouTube + stems ----
   const handleImportPlaylist = useCallback(async () => {
@@ -552,6 +612,19 @@ export default function Home() {
               >
                 {importing ? "Import..." : "Importer mon répertoire"}
               </button>
+              {duplicateExtra > 0 && (
+                <button
+                  onClick={() => void handleMergeDuplicates()}
+                  disabled={mergeRunning || bulkRunning}
+                  title={`Fusionner ${duplicateGroups.length} groupe(s) de chansons ayant le même titre et le même artiste`}
+                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-zinc-800 text-zinc-200 border border-zinc-700 rounded-full hover:bg-zinc-700 transition-colors disabled:opacity-50"
+                >
+                  <Combine className="w-3.5 h-3.5" />
+                  {mergeRunning
+                    ? "Fusion…"
+                    : `Fusionner les doublons (${duplicateExtra})`}
+                </button>
+              )}
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() =>
@@ -584,6 +657,9 @@ export default function Home() {
             </div>
             {importError && (
               <p className="text-red-400 text-xs mb-4">{importError}</p>
+            )}
+            {mergeStatus && (
+              <p className="text-xs text-zinc-400 mb-4">{mergeStatus}</p>
             )}
             <div className="flex flex-col gap-2">
               {sortedSongs.map((song) => (
