@@ -13,8 +13,13 @@ export interface StemRecord {
   createdAt: number;
 }
 
+// Une seule connexion réutilisée : ouvrir une base par appel (comme avant)
+// laissait des dizaines de connexions ouvertes pendant un parcours massif.
+let dbPromise: Promise<IDBDatabase> | null = null;
+
 function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
@@ -26,6 +31,7 @@ function openDB(): Promise<IDBDatabase> {
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+  return dbPromise;
 }
 
 export async function saveStem(record: StemRecord): Promise<void> {
@@ -49,12 +55,30 @@ export async function loadStems(songId: string): Promise<StemRecord[]> {
   });
 }
 
+// Présence de stems importés pour une chanson, sans lire les blobs.
+export async function hasStems(songId: string): Promise<boolean> {
+  try {
+    const db = await openDB();
+    return await new Promise<boolean>((resolve) => {
+      const tx = db.transaction(STORE_NAME, "readonly");
+      const index = tx.objectStore(STORE_NAME).index("songId");
+      const req = index.count(IDBKeyRange.only(songId));
+      req.onsuccess = () => resolve((req.result ?? 0) > 0);
+      req.onerror = () => resolve(false);
+    });
+  } catch {
+    return false;
+  }
+}
+
 export async function deleteStems(songId: string): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
     const index = tx.objectStore(STORE_NAME).index("songId");
-    const req = index.openCursor();
+    // Restreint la suppression à cette chanson (avant, le curseur parcourait
+    // tout le store et effaçait les stems de toutes les chansons).
+    const req = index.openCursor(IDBKeyRange.only(songId));
     req.onsuccess = () => {
       const cursor = req.result;
       if (cursor) {

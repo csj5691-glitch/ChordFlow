@@ -23,7 +23,8 @@ import { Plus, Trash2, Pencil, ArrowUpAZ, ArrowDownAZ, ListFilter, ArrowUp, List
 import { SourceBadges } from "@/components/SourceBadges";
 import { loadHomeScroll, saveHomeScroll } from "@/lib/home-scroll-store";
 import { saveYouTubeId, loadYouTubeId } from "@/lib/youtube-store";
-import { saveAudioStem } from "@/lib/audio-store";
+import { saveAudioStem, hasAudioStems } from "@/lib/audio-store";
+import { hasStems } from "@/lib/stems-db";
 import {
   findDuplicateGroups,
   mergeSongGroup,
@@ -199,6 +200,9 @@ export default function Home() {
   const [playlistName, setPlaylistName] = useState("Self_Guit");
   const [mergeRunning, setMergeRunning] = useState(false);
   const [mergeStatus, setMergeStatus] = useState<string | null>(null);
+  // Chansons à qui il manque des stems (calculé une fois le répertoire chargé).
+  const [stemsGap, setStemsGap] = useState<{ missing: number; noYoutube: number } | null>(null);
+  const stemsCountedRef = useRef(false);
 
   useEffect(() => {
     const onScroll = () => {
@@ -543,50 +547,160 @@ export default function Home() {
     setBulkProgress(null);
   }, [youtubeTargets, upsertSong]);
 
+  // Compte les chansons du répertoire qui ont un lien YouTube mais aucun stem
+  // local (audio-store ou stems importés). Les compteurs IDB évitent de lire
+  // les WAV : compter ne coûte presque rien.
+  const computeStemsGap = useCallback(
+    async (songs: SongTab[]): Promise<{ missing: number; noYoutube: number }> => {
+      let missing = 0;
+      let noYoutube = 0;
+      for (const s of songs) {
+        const videoId = s.youtubeId || loadYouTubeId(s.id);
+        if (!videoId) {
+          noYoutube++;
+          continue;
+        }
+        if (await hasAudioStems(s.id)) continue;
+        if (await hasStems(s.id)) continue;
+        missing++;
+      }
+      return { missing, noYoutube };
+    },
+    []
+  );
+
+  // Calcul unique après le chargement du répertoire, pour afficher le nombre
+  // dans le bouton sans relancer 1000 lectures à chaque modification.
+  useEffect(() => {
+    if (!loaded || customSongs.length === 0 || stemsCountedRef.current) return;
+    stemsCountedRef.current = true;
+    void computeStemsGap(customSongs).then(setStemsGap);
+  }, [loaded, customSongs, computeStemsGap]);
+
   const handleBulkStems = useCallback(async () => {
-    const targets = customSongs.filter((s) => {
-      const vid = s.youtubeId || loadYouTubeId(s.id);
-      return !!vid;
-    });
-    if (targets.length === 0) {
-      setBulkStatus("Aucune chanson avec lien YouTube.");
-      return;
-    }
-    if (!window.confirm(
-      `Extraire les stems (voix + instrumental) pour ${targets.length} chanson(s) ? ` +
-        `Demucs tourne en CPU : ~9 min par chanson de 4 min. Laisser tourner.`
-    )) {
-      return;
-    }
-    setBulkRunning(true);
+    // 1. Calcul frais des chansons sans stems (le répertoire a pu changer).
     setBulkError(null);
+    setBulkStatus("Calcul des chansons sans stems…");
+    const gap = await computeStemsGap(customSongs);
+    setStemsGap(gap);
+    const withYoutube = customSongs.filter((s) => !!(s.youtubeId || loadYouTubeId(s.id)));
+    const targets: SongTab[] = [];
+    for (const s of withYoutube) {
+      if (await hasAudioStems(s.id)) continue;
+      if (await hasStems(s.id)) continue;
+      targets.push(s);
+    }
+    if (targets.length === 0) {
+      setBulkStatus(
+        withYoutube.length === 0
+          ? "Aucune chanson avec lien YouTube : cherche d'abord les liens en rafale."
+          : `Aucune des ${withYoutube.length} chanson(s) avec lien YouTube n'a besoin de stems.`
+      );
+      return;
+    }
+
+    // 2. Confirmation avec le nombre exact.
+    const skipNote =
+      gap.noYoutube > 0 ? `\n${gap.noYoutube} chanson(s) sans lien YouTube seront ignorées.` : "";
+    if (
+      !window.confirm(
+        `Extraire les stems (voix + instrumental) pour ${targets.length} chanson(s) sans stems ?` +
+          `\n${withYoutube.length - targets.length} en ont déjà.${skipNote}` +
+          `\nDemucs tourne en CPU : ~9 min par chanson de 4 min. Laisse tourner.`
+      )
+    ) {
+      setBulkStatus(null);
+      return;
+    }
+
+    // 3. Le service local doit répondre, sinon inutile de lancer la boucle.
+    try {
+      const health = await fetch("/api/stems-health", { cache: "no-store" });
+      const data = (await health.json().catch(() => null)) as { ok?: boolean } | null;
+      if (!health.ok || !data?.ok) {
+        setBulkError(
+          "Service stems injoignable — lance start-stems.bat puis réessaie (localhost uniquement)."
+        );
+        setBulkStatus(null);
+        return;
+      }
+    } catch {
+      setBulkError(
+        "Service stems injoignable — lance start-stems.bat puis réessaie (localhost uniquement)."
+      );
+      setBulkStatus(null);
+      return;
+    }
+
+    setBulkRunning(true);
     setBulkStatus(null);
     let done = 0;
+    let failed = 0;
+    let lastError = "";
+    let consecutiveFails = 0;
     for (let i = 0; i < targets.length; i++) {
       const s = targets[i];
       const videoId = (s.youtubeId || loadYouTubeId(s.id)) as string;
-      setBulkProgress({ current: i + 1, total: targets.length, label: `Stems : ${s.title}` });
-      try {
-        for (const stem of ["vocals", "noVocals"] as const) {
-          const token = crypto.randomUUID();
+      setBulkProgress({
+        current: i + 1,
+        total: targets.length,
+        label: `Stems ${i + 1}/${targets.length} : ${s.title}`,
+      });
+      let ok = true;
+      for (const stem of ["vocals", "noVocals"] as const) {
+        const token = crypto.randomUUID();
+        try {
           const res = await fetch("/api/yt-stems", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ videoId, stem, progressToken: token }),
           });
-          if (!res.ok) break;
+          if (!res.ok) {
+            const data = (await res.json().catch(() => null)) as { error?: string } | null;
+            lastError = data?.error ?? `HTTP ${res.status}`;
+            ok = false;
+            break;
+          }
           const blob = await res.blob();
           await saveAudioStem(s.id, stem, blob);
+        } catch (e) {
+          lastError = e instanceof Error ? e.message : String(e);
+          ok = false;
+          break;
         }
+      }
+      if (ok) {
         done++;
-      } catch {
-        // on passe au suivant
+        consecutiveFails = 0;
+      } else {
+        failed++;
+        consecutiveFails++;
+        // Service mort ou réseau : inutile de boucler sur 900 échecs.
+        if (consecutiveFails >= 3) {
+          setBulkStatus(
+            `Stems : arrêt après 3 échecs consécutifs — ${done} chanson(s) traitée(s) sur ${targets.length}.` +
+              (lastError ? ` Dernière erreur : ${lastError.slice(0, 160)}` : "")
+          );
+          setBulkRunning(false);
+          setBulkProgress(null);
+          setStemsGap(await computeStemsGap(customSongs));
+          return;
+        }
+      }
+      if (i < targets.length - 1) {
+        await new Promise((r) => window.setTimeout(r, 1000));
       }
     }
-    setBulkStatus(`Stems : ${done} chanson(s) traitée(s) sur ${targets.length}.`);
+    setBulkStatus(
+      `Stems : ${done} chanson(s) traitée(s) sur ${targets.length}` +
+        (failed > 0
+          ? ` (${failed} échec(s)). Dernière erreur : ${lastError.slice(0, 160)}`
+          : ".")
+    );
     setBulkRunning(false);
     setBulkProgress(null);
-  }, [customSongs]);
+    setStemsGap(await computeStemsGap(customSongs));
+  }, [customSongs, computeStemsGap]);
 
   return (
     <div className="flex flex-col items-center min-h-screen">
@@ -776,11 +890,19 @@ export default function Home() {
             <button
               type="button"
               onClick={handleBulkStems}
-              disabled={bulkRunning}
+              disabled={bulkRunning || mergeRunning}
+              title={
+                stemsGap
+                  ? `${stemsGap.missing} chanson(s) du répertoire avec lien YouTube n'ont pas encore de stems` +
+                    (stemsGap.noYoutube > 0 ? ` — ${stemsGap.noYoutube} sans lien YouTube ignorée(s)` : "")
+                  : "Compter les chansons sans stems puis extraire"
+              }
               className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full hover:bg-amber-500/30 transition-colors disabled:opacity-50"
             >
               <Mic2 className="w-3.5 h-3.5" />
-              Extraire stems en rafale
+              {bulkProgress?.label?.startsWith("Stems")
+                ? "Extraction des stems…"
+                : `Extraire stems en rafale${stemsGap ? ` (${stemsGap.missing})` : ""}`}
             </button>
           </div>
           {bulkProgress && (

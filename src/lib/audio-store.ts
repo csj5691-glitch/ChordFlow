@@ -119,3 +119,21 @@ export function clearAudioStems(songId: string): Promise<void> {
       })
   );
 }
+
+// Présence de stems audio sans lire les blobs (compter 1000 chansons en
+// chargeant les WAV saturerait la mémoire).
+export function hasAudioStems(songId: string): Promise<boolean> {
+  return getDB().then(
+    (db) =>
+      new Promise((resolve) => {
+        try {
+          const tx = db.transaction(STORE, "readonly");
+          const req = tx.objectStore(STORE).count(songId);
+          req.onsuccess = () => resolve((req.result ?? 0) > 0);
+          req.onerror = () => resolve(false);
+        } catch {
+          resolve(false);
+        }
+      })
+  );
+}
