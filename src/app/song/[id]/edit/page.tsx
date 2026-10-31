@@ -1966,6 +1966,32 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                         Retirer
                       </button>
                     )}
+                    <label
+                      className={`basis-full flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer select-none disabled:cursor-wait ${
+                        extracting
+                          ? "bg-amber-500/20 text-amber-300"
+                          : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
+                      }`}
+                      title="Extraire la voix + l'instrumental du fichier audio choisi, via Demucs en local (start-stems.bat requis)"
+                    >
+                      {extracting ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Music4 className="w-3.5 h-3.5" />
+                      )}
+                      {extracting ? `Extraction voix + instrumental… ${extractElapsed}s` : "Extraire le stem"}
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        className="hidden"
+                        disabled={extracting}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) void handleExtractBothFromFile(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
                   </div>
                   </div>
                   <div className="flex-1 flex flex-col gap-2 rounded-lg border border-zinc-700/50 bg-zinc-900/40 p-2.5">
@@ -2053,32 +2079,6 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                           {extracting ? `Extraction voix + instrumental… ${extractElapsed}s` : "Extraire voix + instrumental (YouTube)"}
                         </button>
                       )}
-                      <label
-                        className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors w-fit cursor-pointer select-none disabled:cursor-wait ${
-                          extracting
-                            ? "bg-amber-500/20 text-amber-300"
-                            : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
-                        }`}
-                        title="Extraire la voix + l'instrumental du fichier audio choisi, via Demucs en local (start-stems.bat requis)"
-                      >
-                        {extracting ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Music4 className="w-3.5 h-3.5" />
-                        )}
-                        {extracting ? `Extraction voix + instrumental… ${extractElapsed}s` : "Extraire le stem"}
-                        <input
-                          type="file"
-                          accept="audio/*"
-                          className="hidden"
-                          disabled={extracting}
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) void handleExtractBothFromFile(file);
-                            e.target.value = "";
-                          }}
-                        />
-                      </label>
                     </div>
                     {(vocalsUrl || instUrl) && (
                       <div className="flex items-center gap-2 flex-wrap">
