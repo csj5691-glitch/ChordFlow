@@ -14,13 +14,42 @@ const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 let client: SupabaseClient | null = null;
 
+// Délai maximal d'une requête Supabase. Sans ça, une requête qui n'aboutit pas
+// (réseau, projet en veille) bloque indéfiniment l'appelant (ex. la fusion des
+// doublons restait figée sur une chanson).
+const REQUEST_TIMEOUT_MS = 20000;
+
+export const SUPABASE_TIMEOUT_ERROR = "SupabaseTimeout";
+
+const fetchWithTimeout: typeof fetch = (input, init) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const signal = init?.signal
+    ? AbortSignal.any([init.signal, controller.signal])
+    : controller.signal;
+  return fetch(input, { ...init, signal }).finally(() => clearTimeout(timer));
+};
+
 export function getSupabase(): SupabaseClient | null {
   if (client) return client;
   if (!url || !key) return null;
   client = createClient(url, key, {
     realtime: { params: { eventsPerSecond: 10 } },
+    global: { fetch: fetchWithTimeout },
   });
   return client;
+}
+
+// Vrai si l'erreur vient d'une requête restée sans réponse.
+export function isSupabaseTimeout(error: unknown): boolean {
+  if (!error) return false;
+  const message =
+    error instanceof Error ? error.message : String(error);
+  return (
+    /abort/i.test(message) ||
+    /timeout/i.test(message) ||
+    message === SUPABASE_TIMEOUT_ERROR
+  );
 }
 
 export interface SharedRow {
@@ -96,7 +125,8 @@ export async function saveSharedSong(song: SongTab): Promise<string[]> {
     data: song,
     updated_at: new Date().toISOString(),
   };
-  await sb.from("songs").upsert(row, { onConflict: "id" });
+  const { error } = await sb.from("songs").upsert(row, { onConflict: "id" });
+  if (error) throw new Error(error.message || "Echec de l'enregistrement Supabase");
   return drops;
 }
 
@@ -104,7 +134,8 @@ export async function deleteSharedSong(id: string): Promise<void> {
   const sb = getSupabase();
   await deleteLocalSong(id);
   if (!sb) return;
-  await sb.from("songs").delete().eq("id", id);
+  const { error } = await sb.from("songs").delete().eq("id", id);
+  if (error) throw new Error(error.message || "Echec de la suppression Supabase");
 }
 
 export async function importAllLocalSongs(): Promise<number> {

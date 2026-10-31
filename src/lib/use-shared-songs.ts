@@ -66,18 +66,30 @@ export function useSharedSongs() {
       });
 
     const sb = getSupabase();
+    // Les changements arrivent en rafale (fusion, import) : on regroupe les
+    // rechargements pour éviter des dizaines de listes complètes d'affilée.
+    let realtimeTimer: ReturnType<typeof setTimeout> | null = null;
     if (sb) {
       channel = sb
         .channel("shared-songs")
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "songs" },
-          async () => {
-            const list = await loadSharedSongs();
-            if (!active) return;
-            setSongs((prev) =>
-              JSON.stringify(prev) === JSON.stringify(list) ? prev : list
-            );
+          () => {
+            if (realtimeTimer) clearTimeout(realtimeTimer);
+            realtimeTimer = setTimeout(() => {
+              realtimeTimer = null;
+              void loadSharedSongs()
+                .then((list) => {
+                  if (!active) return;
+                  setSongs((prev) =>
+                    JSON.stringify(prev) === JSON.stringify(list) ? prev : list
+                  );
+                })
+                .catch(() => {
+                  /* réseau indisponible : on garde la liste affichée */
+                });
+            }, 2500);
           }
         )
         .subscribe();
@@ -85,6 +97,7 @@ export function useSharedSongs() {
 
     return () => {
       active = false;
+      if (realtimeTimer) clearTimeout(realtimeTimer);
       if (channel) {
         try {
           channel.unsubscribe();
@@ -96,7 +109,7 @@ export function useSharedSongs() {
   }, []);
 
   const upsertSong = useCallback(
-    async (song: SongTab) => {
+    async (song: SongTab): Promise<boolean> => {
       setSongs((prev) => {
         const idx = prev.findIndex((s) => s.id === song.id);
         if (idx >= 0) {
@@ -106,14 +119,26 @@ export function useSharedSongs() {
         }
         return [song, ...prev];
       });
-      await saveSharedSong(song);
+      try {
+        // Un enregistrement qui n'aboutit pas (réseau coupé, Supabase en
+        // veille) ne doit pas bloquer l'appelant indéfiniment.
+        await withTimeout(saveSharedSong(song), 25000);
+        return true;
+      } catch {
+        return false;
+      }
     },
     []
   );
 
-  const removeSong = useCallback(async (id: string) => {
+  const removeSong = useCallback(async (id: string): Promise<boolean> => {
     setSongs((prev) => prev.filter((s) => s.id !== id));
-    await deleteSharedSong(id);
+    try {
+      await withTimeout(deleteSharedSong(id), 20000);
+      return true;
+    } catch {
+      return false;
+    }
   }, []);
 
   const importLocal = useCallback(async () => {

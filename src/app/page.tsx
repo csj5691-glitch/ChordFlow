@@ -356,26 +356,47 @@ export default function Home() {
     setMergeStatus(null);
     let merged = 0;
     let removed = 0;
+    let consecutiveFails = 0;
+    const failed: string[] = [];
     for (let i = 0; i < duplicateGroups.length; i++) {
       const group = duplicateGroups[i];
-      setMergeStatus(`Fusion ${i + 1}/${duplicateGroups.length} : ${group[0].title}`);
-      try {
-        const kept = mergeSongGroup(group);
-        const others = group.filter((s) => s.id !== kept.id);
-        await upsertSong(kept);
-        await saveLocalSong(kept).catch(() => []);
-        for (const dup of others) {
-          await migrateSongExtras(dup.id, kept.id);
-          await removeSong(dup.id);
-          removed++;
+      const label = `${group[0].title} — ${group[0].artist}`;
+      setMergeStatus(`Fusion ${i + 1}/${duplicateGroups.length} : ${label}`);
+      const kept = mergeSongGroup(group);
+      const others = group.filter((s) => s.id !== kept.id);
+
+      // 1. Mise à jour de la fiche conservée (Supabase + copie locale).
+      const keptSaved = await upsertSong(kept);
+      if (!keptSaved) {
+        consecutiveFails++;
+        failed.push(label);
+        if (consecutiveFails >= 3) {
+          setMergeStatus(
+            `Fusion interrompue : le serveur ne répond pas (${failed.length} groupe(s) en échec, ` +
+              `${removed} doublon(s) supprimé(s)). Rien n'est perdu : relance la fusion plus tard, ` +
+              `elle reprend où elle s'est arrêtée.`
+          );
+          setMergeRunning(false);
+          return;
         }
-        merged++;
-      } catch {
-        // on passe au groupe suivant
+        continue;
       }
+      consecutiveFails = 0;
+
+      // 2. Rapatriement des ressources locales puis suppression du doublon.
+      for (const dup of others) {
+        await migrateSongExtras(dup.id, kept.id);
+        const deleted = await removeSong(dup.id);
+        if (deleted) removed++;
+        else failed.push(label);
+      }
+      merged++;
     }
     setMergeStatus(
-      `Fusion : ${merged} groupe(s) fusionné(s), ${removed} doublon(s) supprimé(s).`
+      failed.length > 0
+        ? `Fusion : ${merged} groupe(s) fusionné(s), ${removed} doublon(s) supprimé(s). ` +
+            `${failed.length} groupe(s) incomplet(s) — relance la fusion pour terminer.`
+        : `Fusion : ${merged} groupe(s) fusionné(s), ${removed} doublon(s) supprimé(s).`
     );
     setMergeRunning(false);
   }, [duplicateGroups, duplicateExtra, upsertSong, removeSong]);
