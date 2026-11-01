@@ -17,8 +17,10 @@ Deux réglages importants y sont appliqués :
 """
 
 import sys
+import time
 
 import onnxruntime as ort
+import soundfile as sf
 from demucs_onnx import inference
 from demucs_onnx.cli import main
 
@@ -45,5 +47,17 @@ def _make_session(onnx_path, providers):
 sys.stdout = _TtyStream(sys.stdout)
 inference._make_session = _make_session
 
+def _attendre_lecture(chemin: str, essais: int = 10) -> None:
+    # Un fichier qui vient d'être écrit peut rester verrouillé quelques instants
+    # (antivirus) : libsndfile échoue alors avec « System error ».
+    for _ in range(essais):
+        try:
+            sf.info(chemin)
+            return
+        except Exception:
+            time.sleep(1)
+
+
 if __name__ == "__main__":
+    _attendre_lecture(sys.argv[1])
     raise SystemExit(main(["separate", *sys.argv[1:]]))
