@@ -50,9 +50,22 @@ CACHE_TTL = 1800  # 30 minutes
 CACHE_MAX = 4
 
 # onnxruntime peut annoncer CUDAExecutionProvider sans que cuDNN soit
-# réellement présent : on tente le GPU et _separate_with_fallback bascule sur
-# le CPU au premier échec.
-_use_cuda = True
+# réellement présent. Sans cuDNN, le premier noyau Conv échoue
+# (« LoadLibrary failed for cudnn64_9.dll ») : on le détecte au démarrage pour
+# aller directement en CPU au lieu de gaspiller un essai GPU à chaque lancement.
+def _cudnn_available() -> bool:
+    if os.name != "nt":
+        return True
+    try:
+        import ctypes
+
+        ctypes.WinDLL("cudnn64_9.dll")
+        return True
+    except OSError:
+        return False
+
+
+_use_cuda = _cudnn_available()
 
 # ---- Progression de la séparation -----------------------------------------
 # Démucs (demucs_onnx) écrit sa barre tqdm « separating: 12%|…| 7/61 [..] »
