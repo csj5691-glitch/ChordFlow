@@ -1,3 +1,4 @@
+import gc
 import hashlib
 import os
 import re
@@ -12,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 import uvicorn
-from demucs_onnx import separate
+from demucs_onnx import separate, session_pool
 from fastapi import FastAPI, File, HTTPException, UploadFile, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -151,19 +152,41 @@ class _ProgressWriter:
 def _captured_separate(src: str, out_dir: str, token: str | None) -> None:
     """Séparation sérialisée, avec capture stderr quand un jeton est fourni."""
     with _separate_lock:
-        if token:
-            entry = PROGRESS.get(token)
-            if entry is None or entry.get("state") in ("done", "error"):
-                entry = _new_progress(token)
-            entry.update(state="running", line="chargement du modèle…", updated=time.time())
-            orig = sys.stderr
-            try:
-                sys.stderr = _ProgressWriter(orig, token)
-                _separate_with_fallback(src, out_dir)
-                return
-            finally:
-                sys.stderr = orig
-        _separate_with_fallback(src, out_dir)
+        try:
+            if token:
+                entry = PROGRESS.get(token)
+                if entry is None or entry.get("state") in ("done", "error"):
+                    entry = _new_progress(token)
+                entry.update(state="running", line="chargement du modèle…", updated=time.time())
+                orig = sys.stderr
+                try:
+                    sys.stderr = _ProgressWriter(orig, token)
+                    _separate_with_fallback(src, out_dir)
+                    return
+                finally:
+                    sys.stderr = orig
+            _separate_with_fallback(src, out_dir)
+        finally:
+            _release_memory()
+
+
+def _release_memory(drop_sessions: bool = True) -> None:
+    """Rend la mémoire à l'OS.
+
+    ONNX Runtime conserve d'énormes arénas internes : sans ça, le service
+    grossissait jusqu'à plusieurs Go et la séparation suivante échouait sur
+    « Unable to allocate 96.4 MiB ». On jette les sessions en cache (le modèle
+    est rechargé depuis le disque, ~1 s) puis on force le ramasse-miettes.
+    """
+    if drop_sessions:
+        try:
+            session_pool().clear()
+        except Exception:
+            pass
+    try:
+        gc.collect()
+    except Exception:
+        pass
 
 
 def _purge_cache() -> None:
@@ -214,20 +237,51 @@ def _separate_with_fallback(src: str, out_dir: str) -> None:
 
 
 def _write_no_vocals(stems_dir: Path) -> Path:
-    """Instrumental = somme des pistes non-voix effectivement générées."""
+    """Instrumental = somme des pistes non-voix effectivement générées.
+
+    Somme par blocs : avant, on chargeait les pistes entières en float32
+    (3 × ~96 Mo), ce qui participait aux échecs d'allocation mémoire.
+    """
     names = [n for n in MODEL_STEM_NAMES if n != "vocals"]
-    total = None
-    sample_rate = None
     for name in names:
-        p = stems_dir / f"{name}.wav"
-        if not p.is_file():
+        if not (stems_dir / f"{name}.wav").is_file():
             raise HTTPException(500, f"missing stem {name}")
-        data, sr = sf.read(str(p), dtype="float32")
-        sample_rate = sr
-        total = data if total is None else total + data
-    total = np.clip(total, -1.0, 1.0)
+
     target = stems_dir / "noVocals.wav"
-    sf.write(str(target), total, sample_rate, subtype="PCM_16")
+    handles: dict[str, sf.SoundFile] = {}
+    try:
+        with sf.SoundFile(str(stems_dir / f"{names[0]}.wav")) as probe:
+            sample_rate = probe.samplerate
+            channels = probe.channels
+        for name in names:
+            handles[name] = sf.SoundFile(str(stems_dir / f"{name}.wav"))
+        block = 262_144
+        with sf.SoundFile(
+            str(target),
+            mode="w",
+            samplerate=sample_rate,
+            channels=channels,
+            subtype="PCM_16",
+        ) as out:
+            while True:
+                total = None
+                finished = False
+                for name in names:
+                    chunk = handles[name].read(block, dtype="float32")
+                    if chunk.size == 0:
+                        finished = True
+                        break
+                    total = chunk if total is None else total + chunk
+                if finished or total is None:
+                    break
+                np.clip(total, -1.0, 1.0, out=total)
+                out.write(total)
+    finally:
+        for handle in handles.values():
+            try:
+                handle.close()
+            except Exception:
+                pass
     return target
 
 
@@ -247,6 +301,17 @@ def _device_info():
         "providers": providers,
         "ortVersion": getattr(onnxruntime, "__version__", ""),
     }
+
+
+@app.post("/reset")
+def reset_memory():
+    """Libère les sessions ONNX et force le ramasse-miettes.
+
+    Appelé par le client entre deux chansons d'une rafale : sans ça, la
+    mémoire du service montait jusqu'à faire échouer la séparation suivante.
+    """
+    _release_memory(drop_sessions=True)
+    return {"ok": True}
 
 
 @app.get("/health")

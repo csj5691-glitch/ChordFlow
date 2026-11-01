@@ -646,36 +646,58 @@ export default function Home() {
         total: targets.length,
         label: `Stems ${i + 1}/${targets.length} : ${s.title}`,
       });
-      let ok = true;
-      for (const stem of ["vocals", "noVocals"] as const) {
-        const token = crypto.randomUUID();
-        try {
-          const res = await fetch("/api/yt-stems", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ videoId, stem, progressToken: token }),
-          });
-          if (!res.ok) {
-            const data = (await res.json().catch(() => null)) as { error?: string } | null;
-            lastError = data?.error ?? `HTTP ${res.status}`;
+      // Avec libération mémoire + nouvelle tentative : Demucs échoue parfois
+      // sur « Unable to allocate 96.4 MiB » quand la RAM est saturée.
+      let songError: string | null = "non lancé";
+      for (let attempt = 0; attempt < 2; attempt++) {
+        let ok = true;
+        let err = "";
+        for (const stem of ["vocals", "noVocals"] as const) {
+          const token = crypto.randomUUID();
+          try {
+            const res = await fetch("/api/yt-stems", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ videoId, stem, progressToken: token }),
+            });
+            if (!res.ok) {
+              const data = (await res.json().catch(() => null)) as { error?: string } | null;
+              err = data?.error ?? `HTTP ${res.status}`;
+              ok = false;
+              break;
+            }
+            const blob = await res.blob();
+            await saveAudioStem(s.id, stem, blob);
+          } catch (e) {
+            err = e instanceof Error ? e.message : String(e);
             ok = false;
             break;
           }
-          const blob = await res.blob();
-          await saveAudioStem(s.id, stem, blob);
-        } catch (e) {
-          lastError = e instanceof Error ? e.message : String(e);
-          ok = false;
+        }
+        if (ok) {
+          songError = null;
           break;
         }
+        songError = err || "échec inconnu";
+        if (attempt === 0) {
+          // Libère les sessions ONNX (gros consommateurs) puis retente.
+          setBulkProgress({
+            current: i + 1,
+            total: targets.length,
+            label: `Stems ${i + 1}/${targets.length} : ${s.title} — mémoire libérée, nouvelle tentative…`,
+          });
+          await fetch("/api/stems-reset", { method: "POST" }).catch(() => null);
+          await new Promise((r) => window.setTimeout(r, 5000));
+        }
       }
-      if (ok) {
+      if (songError === null) {
         done++;
         consecutiveFails = 0;
       } else {
         failed++;
         consecutiveFails++;
-        // Service mort ou réseau : inutile de boucler sur 900 échecs.
+        lastError = songError;
+        // Service mort ou RAM épuisée : inutile de boucler sur 400 échecs.
         if (consecutiveFails >= 3) {
           setBulkStatus(
             `Stems : arrêt après 3 échecs consécutifs — ${done} chanson(s) traitée(s) sur ${targets.length}.` +
@@ -687,6 +709,8 @@ export default function Home() {
           return;
         }
       }
+      // Après chaque chanson : rendre la mémoire au système.
+      await fetch("/api/stems-reset", { method: "POST" }).catch(() => null);
       if (i < targets.length - 1) {
         await new Promise((r) => window.setTimeout(r, 1000));
       }
