@@ -50,11 +50,12 @@ inference._make_session = _make_session
 def _attendre_lecture(chemin: str, essais: int = 10) -> None:
     # Un fichier qui vient d'être écrit peut rester verrouillé quelques instants
     # (antivirus) : libsndfile échoue alors avec « System error ».
-    for _ in range(essais):
+    for i in range(essais):
         try:
             sf.info(chemin)
             return
-        except Exception:
+        except Exception as e:
+            print(f"[stems] input.wav illisible (essai {i + 1}/{essais}) : {e}", file=sys.stderr, flush=True)
             time.sleep(1)
 
 

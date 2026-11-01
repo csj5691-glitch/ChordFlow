@@ -49,6 +49,22 @@ CACHE_ROOT = Path(tempfile.gettempdir()) / "chordflow-stems-cache"
 CACHE_TTL = 1800  # 30 minutes
 CACHE_MAX = 4
 
+# Journal persistant (survit aux redémarrages) et chansons en échec conservées
+# pour analyse. Fichiers : <TEMP>\chordflow-stems-logs\service.log et \failed\.
+LOG_ROOT = Path(tempfile.gettempdir()) / "chordflow-stems-logs"
+FAILED_KEEP = 5
+
+
+def _journal(msg: str) -> None:
+    line = f"{datetime.now().isoformat(timespec='seconds')} pid={os.getpid()} {msg}"
+    print(f"[stems] {msg}", flush=True)
+    try:
+        LOG_ROOT.mkdir(parents=True, exist_ok=True)
+        with open(LOG_ROOT / "service.log", "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
+
 # onnxruntime peut annoncer CUDAExecutionProvider sans que cuDNN soit
 # réellement présent. Sans cuDNN, le premier noyau Conv échoue
 # (« LoadLibrary failed for cudnn64_9.dll ») : on le détecte au démarrage pour
@@ -223,7 +239,38 @@ def _purge_cache() -> None:
         except OSError:
             continue
         if expired or i >= CACHE_MAX:
+            _journal(f"purge {p.name[:12]} ({'ttl' if expired else 'max'})")
             shutil.rmtree(p, ignore_errors=True)
+
+
+def _sonde_lecture(chemin: Path) -> str:
+    try:
+        with open(chemin, "rb") as f:
+            f.read(16)
+        return "lisible"
+    except OSError as e:
+        return f"illisible (winerror={getattr(e, 'winerror', None)}, errno={e.errno}, {e.strerror})"
+
+
+def _garder_echec(entry: Path, key: str, src: Path, erreur: str) -> None:
+    """Conserve le dossier d'une chanson en échec (les 5 derniers) pour analyse."""
+    present = src.exists()
+    sonde = _sonde_lecture(src) if present else "non faite (fichier absent)"
+    taille = f", {src.stat().st_size} o" if present else ""
+    diag = f"erreur: {erreur}\nfichier: {'présent' if present else 'absent'}{taille}\nsonde: {sonde}\n"
+    dest = None
+    try:
+        (entry / "diagnostic.txt").write_text(diag, encoding="utf-8")
+        failed_root = LOG_ROOT / "failed"
+        failed_root.mkdir(parents=True, exist_ok=True)
+        dest = failed_root / f"{key[:12]}-{datetime.now():%Y%m%d-%H%M%S}"
+        shutil.move(str(entry), str(dest))
+        for old in sorted(failed_root.iterdir(), key=lambda p: p.stat().st_mtime)[:-FAILED_KEEP]:
+            shutil.rmtree(old, ignore_errors=True)
+    except OSError:
+        shutil.rmtree(entry, ignore_errors=True)
+        dest = None
+    _journal(f"ECHEC {key[:12]} : {erreur} | sonde : {sonde} | dossier : {dest or 'supprime'}")
 
 
 def _run_demucs(src: str, out_dir: str, providers: str, token: str | None) -> tuple[int, str]:
@@ -436,9 +483,9 @@ async def separate_audio(
             # /health ne répond plus pendant plusieurs minutes et les requêtes
             # suivantes s'empilent.
             await run_in_threadpool(_captured_separate, str(src), str(stems_dir), progress_token)
-            print(f"[stems] séparation {key[:12]} en {time.time() - t0:.1f}s", flush=True)
+            _journal(f"separation {key[:12]} ok en {time.time() - t0:.1f}s")
         except Exception as e:
-            shutil.rmtree(entry, ignore_errors=True)
+            _garder_echec(entry, key, src, str(e))
             _mark_progress(progress_token, state="error", line=f"échec: {e}")
             raise HTTPException(500, f"separation failed: {e}") from e
         finally:
@@ -516,4 +563,5 @@ if __name__ == "__main__":
         "si CUDA est annonce mais absent (cuDNN), le service bascule seul sur le CPU.",
         flush=True,
     )
+    _journal(f"demarrage port {port} modele {MODEL} device {info['device']}")
     uvicorn.run(app, host="127.0.0.1", port=port)
