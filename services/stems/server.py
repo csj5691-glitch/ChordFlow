@@ -1,3 +1,4 @@
+import asyncio
 import gc
 import hashlib
 import os
@@ -252,6 +253,14 @@ def _sonde_lecture(chemin: Path) -> str:
         return f"illisible (winerror={getattr(e, 'winerror', None)}, errno={e.errno}, {e.strerror})"
 
 
+_VERROUS_CHANSON: dict[str, asyncio.Lock] = {}
+
+
+def _verrou_chanson(key: str) -> asyncio.Lock:
+    """Une seule séparation par chanson : une requête en double attend la première."""
+    return _VERROUS_CHANSON.setdefault(key, asyncio.Lock())
+
+
 def _garder_echec(entry: Path, key: str, src: Path, erreur: str) -> None:
     """Conserve le dossier d'une chanson en échec (les 5 derniers) pour analyse."""
     present = src.exists()
@@ -470,38 +479,40 @@ async def separate_audio(
     if progress_token:
         _mark_progress(progress_token, state="running", percent=0, line="en file d'attente…")
 
-    if not (stems_dir / "vocals.wav").is_file():
-        _purge_cache()
-        entry.mkdir(parents=True, exist_ok=True)
-        src = entry / f"input{suffix}"
-        src.write_bytes(data)
-        stems_dir.mkdir(exist_ok=True)
-        try:
-            t0 = time.time()
-            # `separate()` est bloquant (ONNX CPU) : on le déporte dans un
-            # thread pour que la boucle d'événements reste libre — sinon
-            # /health ne répond plus pendant plusieurs minutes et les requêtes
-            # suivantes s'empilent.
-            await run_in_threadpool(_captured_separate, str(src), str(stems_dir), progress_token)
-            _journal(f"separation {key[:12]} ok en {time.time() - t0:.1f}s")
-        except Exception as e:
-            _garder_echec(entry, key, src, str(e))
-            _mark_progress(progress_token, state="error", line=f"échec: {e}")
-            raise HTTPException(500, f"separation failed: {e}") from e
-        finally:
-            # Windows : le fichier d'entrée peut rester verrouillé un court
-            # instant (demucs/antivirus) -> WinError 32. Le cache étant purgé
-            # par TTL, on ignore l'échec au lieu de transformer une séparation
-            # réussie en 500.
+    _journal(f"requete {key[:12]} stem={stem}")
+    async with _verrou_chanson(key):
+        if not (stems_dir / "vocals.wav").is_file():
+            _purge_cache()
+            entry.mkdir(parents=True, exist_ok=True)
+            src = entry / f"input{suffix}"
+            src.write_bytes(data)
+            stems_dir.mkdir(exist_ok=True)
             try:
-                src.unlink(missing_ok=True)
-            except OSError:
-                pass
-        entry.touch()
-    else:
-        entry.touch()
-        print(f"[stems] cache hit {key[:12]}", flush=True)
-        _mark_progress(progress_token, state="done", percent=100, line="déjà en cache")
+                t0 = time.time()
+                # `separate()` est bloquant (ONNX CPU) : on le déporte dans un
+                # thread pour que la boucle d'événements reste libre — sinon
+                # /health ne répond plus pendant plusieurs minutes et les requêtes
+                # suivantes s'empilent.
+                await run_in_threadpool(_captured_separate, str(src), str(stems_dir), progress_token)
+                _journal(f"separation {key[:12]} ok en {time.time() - t0:.1f}s")
+            except Exception as e:
+                _garder_echec(entry, key, src, str(e))
+                _mark_progress(progress_token, state="error", line=f"échec: {e}")
+                raise HTTPException(500, f"separation failed: {e}") from e
+            finally:
+                # Windows : le fichier d'entrée peut rester verrouillé un court
+                # instant (demucs/antivirus) -> WinError 32. Le cache étant purgé
+                # par TTL, on ignore l'échec au lieu de transformer une séparation
+                # réussie en 500.
+                try:
+                    src.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            entry.touch()
+        else:
+            entry.touch()
+            _journal(f"cache hit {key[:12]}")
+            _mark_progress(progress_token, state="done", percent=100, line="déjà en cache")
 
     if stem == "noVocals":
         try:
