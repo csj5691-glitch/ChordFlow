@@ -239,9 +239,7 @@ def _run_demucs(src: str, out_dir: str, providers: str, token: str | None) -> tu
     """
     cmd = [
         sys.executable,
-        "-m",
-        "demucs_onnx.cli",
-        "separate",
+        str(Path(__file__).with_name("worker.py")),
         src,
         out_dir,
         "--model",
