@@ -585,7 +585,9 @@ export default function Home() {
     setBulkStatus("Calcul des chansons sans stems…");
     const gap = await computeStemsGap(customSongs);
     setStemsGap(gap);
-    const withYoutube = customSongs.filter((s) => !!(s.youtubeId || loadYouTubeId(s.id)));
+    // Les covers GZ2H sont ignorées pour l'instant.
+    const isGz2hCover = (s: SongTab) => /\(cover by gz2h\)/i.test(`${s.title} ${s.artist}`);
+    const withYoutube = customSongs.filter((s) => !!(s.youtubeId || loadYouTubeId(s.id)) && !isGz2hCover(s));
     const targets: SongTab[] = [];
     for (const s of withYoutube) {
       if (await hasAudioStems(s.id)) continue;
@@ -919,7 +921,7 @@ export default function Home() {
               disabled={bulkRunning || mergeRunning}
               title={
                 stemsGap
-                  ? `${stemsGap.missing} chanson(s) du répertoire avec lien YouTube n'ont pas encore de stems, dont ${stemsGap.missingHorsCover} hors covers GZ2H` +
+                  ? `${stemsGap.missingHorsCover} chanson(s) avec lien YouTube sans stems (covers GZ2H ignorées : ${stemsGap.missing - stemsGap.missingHorsCover} sur ${stemsGap.missing} sans stems)` +
                     (stemsGap.noYoutube > 0 ? ` — ${stemsGap.noYoutube} sans lien YouTube ignorée(s)` : "")
                   : "Compter les chansons sans stems puis extraire"
               }
@@ -928,7 +930,7 @@ export default function Home() {
               <Mic2 className="w-3.5 h-3.5" />
               {bulkProgress?.label?.startsWith("Stems")
                 ? "Extraction des stems…"
-                : `Extraire stems en rafale${stemsGap ? ` (${stemsGap.missing} · ${stemsGap.missingHorsCover} hors GZ2H)` : ""}`}
+                : `Extraire stems en rafale${stemsGap ? ` (${stemsGap.missingHorsCover})` : ""}`}
             </button>
           </div>
           {bulkProgress && (
