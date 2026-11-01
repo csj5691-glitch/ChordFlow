@@ -3,6 +3,7 @@ import hashlib
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -13,7 +14,6 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 import uvicorn
-from demucs_onnx import separate, session_pool
 from fastapi import FastAPI, File, HTTPException, UploadFile, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -66,6 +66,20 @@ def _cudnn_available() -> bool:
 
 
 _use_cuda = _cudnn_available()
+
+
+def _hf_model_cached() -> bool:
+    """Le modèle ONNX est-il déjà en cache local ?
+
+    Si oui, on force le mode hors ligne dans le processus de séparation :
+    plus d'avertissement « unauthenticated requests to the HF Hub » ni
+    d'attente réseau à chaque rechargement du modèle.
+    """
+    if os.environ.get("HF_HOME"):
+        root = Path(os.environ["HF_HOME"]) / "hub"
+    else:
+        root = Path.home() / ".cache" / "huggingface" / "hub"
+    return (root / "models--StemSplitio--htdemucs-onnx").is_dir()
 
 # ---- Progression de la séparation -----------------------------------------
 # Démucs (demucs_onnx) écrit sa barre tqdm « separating: 12%|…| 7/61 [..] »
@@ -163,7 +177,7 @@ class _ProgressWriter:
 
 
 def _captured_separate(src: str, out_dir: str, token: str | None) -> None:
-    """Séparation sérialisée, avec capture stderr quand un jeton est fourni."""
+    """Séparation sérialisée (un seul processus Demucs à la fois)."""
     with _separate_lock:
         try:
             if token:
@@ -171,31 +185,18 @@ def _captured_separate(src: str, out_dir: str, token: str | None) -> None:
                 if entry is None or entry.get("state") in ("done", "error"):
                     entry = _new_progress(token)
                 entry.update(state="running", line="chargement du modèle…", updated=time.time())
-                orig = sys.stderr
-                try:
-                    sys.stderr = _ProgressWriter(orig, token)
-                    _separate_with_fallback(src, out_dir)
-                    return
-                finally:
-                    sys.stderr = orig
-            _separate_with_fallback(src, out_dir)
+            _separate_with_fallback(src, out_dir, token)
         finally:
             _release_memory()
 
 
 def _release_memory(drop_sessions: bool = True) -> None:
-    """Rend la mémoire à l'OS.
+    """Libère ce que garde le service (le gros du calcul est dans un sous-processus).
 
-    ONNX Runtime conserve d'énormes arénas internes : sans ça, le service
-    grossissait jusqu'à plusieurs Go et la séparation suivante échouait sur
-    « Unable to allocate 96.4 MiB ». On jette les sessions en cache (le modèle
-    est rechargé depuis le disque, ~1 s) puis on force le ramasse-miettes.
+    Le modèle et les sessions ONNX vivent désormais dans le processus enfant,
+    qui disparaît à la fin de chaque chanson : il ne reste ici que les tampons
+    du fichier uploadé, que le ramasse-miettes récupère.
     """
-    if drop_sessions:
-        try:
-            session_pool().clear()
-        except Exception:
-            pass
     try:
         gc.collect()
     except Exception:
@@ -225,28 +226,80 @@ def _purge_cache() -> None:
             shutil.rmtree(p, ignore_errors=True)
 
 
-def _separate_with_fallback(src: str, out_dir: str) -> None:
+def _run_demucs(src: str, out_dir: str, providers: str, token: str | None) -> tuple[int, str]:
+    """Lance la séparation dans un processus Python séparé.
+
+    C'est le point clé pour les rafales de plusieurs centaines de chansons :
+    ONNX Runtime ne rend pas vraiment son aréna au système (le service montait
+    à 11 Go et la séparation suivante échouait sur « Unable to allocate
+    96.4 MiB »). En sortant le calcul du service, la fin du processus rend
+    toute la mémoire d'un coup ; le service, lui, reste léger (~100 Mo).
+
+    Retourne (code de sortie, dernières lignes de stderr).
+    """
+    cmd = [
+        sys.executable,
+        "-m",
+        "demucs_onnx.cli",
+        "separate",
+        src,
+        out_dir,
+        "--model",
+        MODEL,
+        "--providers",
+        providers,
+    ]
+    env = dict(os.environ)
+    if _hf_model_cached():
+        env["HF_HUB_OFFLINE"] = "1"
+        env["HF_HUB_DISABLE_TELEMETRY"] = "1"
+    writer = _ProgressWriter(sys.stderr, token) if token else None
+    tail: list[str] = []
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+        env=env,
+    )
+    assert proc.stderr is not None
+    for line in proc.stderr:
+        if writer is not None:
+            writer.write(line)
+        else:
+            try:
+                sys.stderr.write(line)
+            except Exception:
+                pass
+        if line.strip():
+            tail.append(line.strip())
+            if len(tail) > 20:
+                tail.pop(0)
+    code = proc.wait()
+    return code, " | ".join(tail[-6:])
+
+
+def _separate_with_fallback(src: str, out_dir: str, token: str | None = None) -> None:
     """Essaie CUDA puis retombe sur le CPU (cuDNN absent ou GPU indisponible)."""
     global _use_cuda
     if _use_cuda:
-        try:
-            separate(
-                str(src),
-                str(out_dir),
-                model=MODEL,
-                providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
-            )
+        code, tail = _run_demucs(src, out_dir, "cuda", token)
+        if code == 0:
             return
-        except Exception as e:
-            _use_cuda = False
-            print(f"[stems] CUDA/CuDNN indisponible ({e}) — passage en CPU", flush=True)
-            for f in Path(out_dir).glob("*"):
-                if f.is_file():
-                    try:
-                        f.unlink()
-                    except OSError:
-                        pass
-    separate(str(src), str(out_dir), model=MODEL, providers=["CPUExecutionProvider"])
+        _use_cuda = False
+        print(f"[stems] CUDA/CuDNN indisponible ({tail[:300]}) — passage en CPU", flush=True)
+        for f in Path(out_dir).glob("*"):
+            if f.is_file():
+                try:
+                    f.unlink()
+                except OSError:
+                    pass
+    code, tail = _run_demucs(src, out_dir, "cpu", token)
+    if code != 0:
+        raise RuntimeError(tail or f"code {code}")
 
 
 def _write_no_vocals(stems_dir: Path) -> Path:
