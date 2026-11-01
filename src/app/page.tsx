@@ -201,7 +201,7 @@ export default function Home() {
   const [mergeRunning, setMergeRunning] = useState(false);
   const [mergeStatus, setMergeStatus] = useState<string | null>(null);
   // Chansons à qui il manque des stems (calculé une fois le répertoire chargé).
-  const [stemsGap, setStemsGap] = useState<{ missing: number; noYoutube: number } | null>(null);
+  const [stemsGap, setStemsGap] = useState<{ missing: number; missingHorsCover: number; noYoutube: number } | null>(null);
   const stemsCountedRef = useRef(false);
 
   useEffect(() => {
@@ -551,8 +551,9 @@ export default function Home() {
   // local (audio-store ou stems importés). Les compteurs IDB évitent de lire
   // les WAV : compter ne coûte presque rien.
   const computeStemsGap = useCallback(
-    async (songs: SongTab[]): Promise<{ missing: number; noYoutube: number }> => {
+    async (songs: SongTab[]): Promise<{ missing: number; missingHorsCover: number; noYoutube: number }> => {
       let missing = 0;
+      let missingHorsCover = 0;
       let noYoutube = 0;
       for (const s of songs) {
         const videoId = s.youtubeId || loadYouTubeId(s.id);
@@ -563,8 +564,9 @@ export default function Home() {
         if (await hasAudioStems(s.id)) continue;
         if (await hasStems(s.id)) continue;
         missing++;
+        if (!/\(cover by gz2h\)/i.test(`${s.title} ${s.artist}`)) missingHorsCover++;
       }
-      return { missing, noYoutube };
+      return { missing, missingHorsCover, noYoutube };
     },
     []
   );
@@ -917,7 +919,7 @@ export default function Home() {
               disabled={bulkRunning || mergeRunning}
               title={
                 stemsGap
-                  ? `${stemsGap.missing} chanson(s) du répertoire avec lien YouTube n'ont pas encore de stems` +
+                  ? `${stemsGap.missing} chanson(s) du répertoire avec lien YouTube n'ont pas encore de stems, dont ${stemsGap.missingHorsCover} hors covers GZ2H` +
                     (stemsGap.noYoutube > 0 ? ` — ${stemsGap.noYoutube} sans lien YouTube ignorée(s)` : "")
                   : "Compter les chansons sans stems puis extraire"
               }
@@ -926,7 +928,7 @@ export default function Home() {
               <Mic2 className="w-3.5 h-3.5" />
               {bulkProgress?.label?.startsWith("Stems")
                 ? "Extraction des stems…"
-                : `Extraire stems en rafale${stemsGap ? ` (${stemsGap.missing})` : ""}`}
+                : `Extraire stems en rafale${stemsGap ? ` (${stemsGap.missing} · ${stemsGap.missingHorsCover} hors GZ2H)` : ""}`}
             </button>
           </div>
           {bulkProgress && (
