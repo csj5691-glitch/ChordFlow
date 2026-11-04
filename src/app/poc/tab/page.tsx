@@ -7,11 +7,12 @@
 // memoire. Le transport ecrit dans `setCurrentTime` exactement comme le fera le
 // Studio, et `TabPlaybackView` ne fait que lire cette horloge.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play, RotateCcw, Upload } from "lucide-react";
 import TabPlaybackView from "@/components/TabPlaybackView";
 import { loadGuitarProScore } from "@/lib/gp-import";
 import { setCurrentTime } from "@/lib/playback-store";
+import { AUDITION_LEAD, createAudition } from "@/lib/tab-player/audition";
 import { demoSong } from "@/lib/tab-player/demo-song";
 import { fromAlphaTabScore, type AdapterStats } from "@/lib/tab-player/from-alphaTab";
 import { createTiming } from "@/lib/tab-player/timing";
@@ -33,6 +34,7 @@ export default function PocTabPage() {
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [follow, setFollow] = useState(true);
+  const [sound, setSound] = useState(true);
 
   const timing = createTiming(song.tempo, song.bars.reduce((sum, bar) => sum + bar.beats, 0));
   const duration = timing.duration;
@@ -40,32 +42,49 @@ export default function PocTabPage() {
   const rafRef = useRef(0);
   const anchorRef = useRef({ wall: 0, position: 0 });
 
+  // Son de controle : une instance par morceau, jete avec lui.
+  const audition = useMemo(() => createAudition(song), [song]);
+  useEffect(() => () => audition.dispose(), [audition]);
+
   const stop = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
     rafRef.current = 0;
+    audition.stop();
     setPlaying(false);
-  }, []);
+  }, [audition]);
 
   const seek = useCallback(
     (time: number) => {
       const clamped = Math.min(duration, Math.max(0, time));
-      anchorRef.current = { wall: performance.now(), position: clamped };
+      const wall = performance.now() + (playing ? AUDITION_LEAD * 1000 : 0);
+      anchorRef.current = { wall, position: clamped };
       setCurrentTime(clamped);
       setPosition(clamped);
+      if (playing) {
+        if (sound) audition.start(clamped, AUDITION_LEAD);
+        else audition.stop();
+      }
     },
-    [duration]
+    [audition, duration, playing, sound]
   );
 
   const play = useCallback(() => {
     if (playing) return;
     // Repartir du debut si la lecture est terminee.
     const start = position >= duration - 0.05 ? 0 : position;
-    anchorRef.current = { wall: performance.now(), position: start };
+    // L'image et le son partent ensemble : le decalage audio est repris par
+    // l'horloge visuelle (le curseur reste sur place pendant le pre-roll).
+    anchorRef.current = {
+      wall: performance.now() + (sound ? AUDITION_LEAD * 1000 : 0),
+      position: start,
+    };
     setPlaying(true);
+    if (sound) audition.start(start, AUDITION_LEAD);
+    else audition.stop();
 
     let shown = -1;
     const frame = () => {
-      const elapsed = (performance.now() - anchorRef.current.wall) / 1000;
+      const elapsed = Math.max(0, performance.now() - anchorRef.current.wall) / 1000;
       let time = anchorRef.current.position + elapsed;
       if (time >= duration) {
         time = duration;
@@ -83,13 +102,14 @@ export default function PocTabPage() {
       rafRef.current = requestAnimationFrame(frame);
     };
     rafRef.current = requestAnimationFrame(frame);
-  }, [duration, playing, position, stop]);
+  }, [audition, duration, playing, position, sound, stop]);
 
   const toggle = useCallback(() => {
     if (playing) {
       const time = Math.min(
         duration,
-        anchorRef.current.position + (performance.now() - anchorRef.current.wall) / 1000
+        anchorRef.current.position +
+          Math.max(0, performance.now() - anchorRef.current.wall) / 1000
       );
       stop();
       setCurrentTime(time);
@@ -108,15 +128,19 @@ export default function PocTabPage() {
 
   // Charger un morceau repart de zero : l'horloge partagee ne doit pas garder
   // la position du morceau precedent.
-  const applySong = useCallback((next: TabPlayerSong) => {
-    cancelAnimationFrame(rafRef.current);
-    rafRef.current = 0;
-    setPlaying(false);
-    setCurrentTime(0);
-    setPosition(0);
-    anchorRef.current = { wall: performance.now(), position: 0 };
-    setSong(next);
-  }, []);
+  const applySong = useCallback(
+    (next: TabPlayerSong) => {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+      audition.stop();
+      setPlaying(false);
+      setCurrentTime(0);
+      setPosition(0);
+      anchorRef.current = { wall: performance.now(), position: 0 };
+      setSong(next);
+    },
+    [audition]
+  );
 
   const importFile = useCallback(
     async (file: File) => {
@@ -257,6 +281,21 @@ export default function PocTabPage() {
           />
           Suivre
         </label>
+
+        <label className="inline-flex items-center gap-2 text-xs text-zinc-400">
+          <input
+            type="checkbox"
+            checked={sound}
+            onChange={(event) => {
+              const on = event.target.checked;
+              setSound(on);
+              if (!on) audition.stop();
+              else if (playing) audition.start(position, 0.02);
+            }}
+            className="accent-amber-400"
+          />
+          Son
+        </label>
       </section>
 
       <TabPlaybackView song={song} follow={follow} onSeek={seek} maxHeight={620} />
@@ -321,7 +360,8 @@ export default function PocTabPage() {
 
       <p className="font-mono text-[11px] text-zinc-600">
         Transport local : chaque image ecrit dans setCurrentTime(). Le composant de
-        tablature ne possede ni horloge ni audio. Aucune donnee n&apos;est envoyee.
+        tablature ne possede ni horloge ni audio ; le son de controle (synthese
+        locale, provisoire) suit la meme horloge. Aucune donnee n&apos;est envoyee.
       </p>
     </main>
   );
