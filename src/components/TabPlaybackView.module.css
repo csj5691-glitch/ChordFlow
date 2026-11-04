@@ -1,0 +1,161 @@
+/* Copyright (c) 2026 Claude St-Jean. All rights reserved. */
+
+/* Le SVG est mis a l'echelle par la largeur du conteneur : toutes les tailles
+   ci-dessous sont en unites du viewBox (960 de large). */
+
+.scroller {
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  background: #09090b;
+  border: 1px solid #27272a;
+  border-radius: 12px;
+  scrollbar-color: #3f3f46 transparent;
+}
+
+.sheet {
+  width: 100%;
+}
+
+.system {
+  display: block;
+  width: 100%;
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ---------- portees et mesures ---------- */
+
+.staffLine {
+  fill: none;
+  stroke: #3f3f46;
+  stroke-width: 0.7;
+}
+
+.barLine {
+  stroke: #52525b;
+  stroke-width: 0.9;
+}
+
+.beatTick {
+  stroke: #3f3f46;
+  stroke-width: 0.7;
+}
+
+.measureNo {
+  fill: #52525b;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 9px;
+}
+
+.section {
+  fill: #a1a1aa;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.tuningLabel {
+  fill: #5d6d7f;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 7px;
+}
+
+.trackLabel {
+  fill: #71717a;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+
+.hit {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.hit:hover {
+  fill: rgba(251, 191, 36, 0.05);
+}
+
+/* ---------- notes ---------- */
+
+.noteGroup {
+  --note-color: #86efac;
+}
+
+.noteGroup[data-track="1"] {
+  --note-color: #7dd3fc;
+}
+
+.note {
+  pointer-events: none;
+}
+
+.note text {
+  fill: var(--note-color);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.note[data-tied="true"] text {
+  fill: #64748b;
+}
+
+.note[data-dead="true"] text {
+  fill: #71717a;
+}
+
+.note[data-played="true"] text {
+  fill: #3f3f46;
+}
+
+.note[data-on="true"] text {
+  fill: #fbbf24;
+}
+
+/* ---------- techniques et liaisons ---------- */
+
+.techLine {
+  fill: none;
+  stroke: #a1a1aa;
+  stroke-width: 0.9;
+  stroke-linecap: round;
+}
+
+.tieLine {
+  fill: none;
+  stroke: #a1a1aa;
+  stroke-width: 0.8;
+  stroke-linecap: round;
+}
+
+.techText {
+  fill: #a1a1aa;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 8px;
+}
+
+/* ---------- curseur ---------- */
+
+.playhead {
+  visibility: hidden;
+}
+
+.phBody {
+  fill: rgba(251, 191, 36, 0.12);
+}
+
+.phLine {
+  stroke: #fbbf24;
+  stroke-width: 1.1;
+}
+
+.phCap {
+  fill: #fbbf24;
+}

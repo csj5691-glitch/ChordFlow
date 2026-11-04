@@ -123,6 +123,13 @@ async function loadScore(file: File): Promise<model.Score> {
   return importer.ScoreLoader.loadScoreFromBytes(bytes);
 }
 
+// Charge un fichier Guitar Pro sans le convertir en diagrammes. Utilise par le
+// POC du lecteur de tablature animee, qui a besoin du Score alphaTab brut
+// (tempo, accordages, techniques) plutot que du modele d'accords.
+export async function loadGuitarProScore(file: File): Promise<model.Score> {
+  return loadScore(file);
+}
+
 // Converts a Guitar Pro file into a standard SMF1 MIDI file (multi-track),
 // used by the Songsterr MIDI import (Songsterr's own MIDI export is Plus-only).
 export async function guitarProToMidi(file: File): Promise<Uint8Array<ArrayBuffer>> {
