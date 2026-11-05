@@ -10,6 +10,7 @@ import { NavGlyph } from "@/components/NavGlyph";
 import Conductor from "@/components/Conductor";
 import TabStaffView from "@/components/TabStaffView";
 import ArpeggioEditor from "@/components/ArpeggioEditor";
+import TabPlaybackView from "@/components/TabPlaybackView";
 import { loadAudioStems, saveAudioStem, getAudioStemUrl } from "@/lib/audio-store";
 import {
   analyzeGuitarProFile,
@@ -44,6 +45,7 @@ import {
   detectArticulationSequences,
 } from "@/lib/articulation";
 import { diagramsToTabWithPositions } from "@/lib/diagrams-to-tab";
+import { fromChords } from "@/lib/tab-player/from-chords";
 import { playSoftSequence, type SoftPlayer } from "@/lib/soft-player";
 import {
   ArrowLeft,
@@ -246,8 +248,11 @@ function EditSongView({ id }: { id: string }) {
   const [seqView, setSeqView] = useState<"cards" | "tab">("cards");
   const [arpEdit, setArpEdit] = useState<{ start: number; end: number } | null>(null);
   const [playingAll, setPlayingAll] = useState(false);
-  const [playingIndex, setPlayingIndex] = useState<number | null>(null);
+  const [tabFollow, setTabFollow] = useState(true);
   const allPlayerRef = useRef<SoftPlayer | null>(null);
+  // Horloge locale de l'aperçu « Écouter tout » : le lecteur doux ne publie pas
+  // de temps, on extrapole donc depuis l'horloge murale entre deux notes.
+  const previewClock = useRef({ wall: 0, frozen: 0, running: false });
   const [legatoEdit, setLegatoEdit] = useState<number | null>(null);
   const legatoEditRef = useRef<number | null>(null);
   legatoEditRef.current = legatoEdit;
@@ -376,37 +381,62 @@ function EditSongView({ id }: { id: string }) {
     return map;
   }, [sequenceTab.graces]);
 
-  // Riffs : passages de notes seules (séquences d'« arpèges »), éditables
-  // individuellement dans l'éditeur de notes.
-  const riffs = useMemo(
-    () => articulationSequences.filter((seq) => seq.kind === "arpeges"),
-    [articulationSequences]
-  );
+  // Horloge de l'aperçu : avance en temps réel pendant l'écoute, se fige à
+  // l'arrêt pour laisser le curseur sur la dernière note.
+  const previewTime = useCallback(() => {
+    const clock = previewClock.current;
+    return clock.running
+      ? clock.frozen + (performance.now() - clock.wall) / 1000
+      : clock.frozen;
+  }, []);
+
+  const freezePreview = useCallback(() => {
+    const clock = previewClock.current;
+    if (clock.running) {
+      clock.frozen += (performance.now() - clock.wall) / 1000;
+      clock.running = false;
+    }
+  }, []);
 
   // Lecture continue de TOUTES les étapes (1 → N) de la piste avec le son doux.
   const stopAll = useCallback(() => {
     allPlayerRef.current?.stop();
     allPlayerRef.current = null;
+    freezePreview();
     setPlayingAll(false);
-    setPlayingIndex(null);
-  }, []);
+  }, [freezePreview]);
+
+  // Clic sur une mesure : on arrête l'aperçu (le son doux ne sait pas reprendre
+  // à une position donnée) puis on place le curseur au temps demandé.
+  const seekPreview = useCallback(
+    (seconds: number) => {
+      stopAll();
+      previewClock.current = {
+        frozen: Math.max(0, seconds),
+        wall: performance.now(),
+        running: false,
+      };
+    },
+    [stopAll]
+  );
 
   const playAll = useCallback(() => {
     allPlayerRef.current?.stop();
     allPlayerRef.current = null;
+    previewClock.current = { wall: performance.now(), frozen: 0, running: true };
     const player = playSoftSequence(
       diagrams,
       song?.bpm ?? 90,
       () => {
+        freezePreview();
         setPlayingAll(false);
-        setPlayingIndex(null);
       },
-      (i) => setPlayingIndex(i)
+      () => {}
     );
     if (!player) return;
     allPlayerRef.current = player;
     setPlayingAll(true);
-  }, [diagrams, song?.bpm]);
+  }, [diagrams, song?.bpm, freezePreview]);
 
   useEffect(() => {
     return () => {
@@ -1454,6 +1484,20 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
   };
 
   const bpm = song?.bpm ?? 90;
+
+  // Tablature animée de la piste active, calculée seulement quand l'onglet Riff
+  // est visible (le Studio reste réactif pendant l'édition des diagrammes).
+  const tabSong = useMemo(() => {
+    if (mode !== "riff") return null;
+    const result = fromChords(diagrams, {
+      title: song?.title ?? "",
+      artist: song?.artist,
+      bpm,
+      timeSignature: song?.timeSignature,
+      tuning: song?.tuning,
+    });
+    return result.song.bars.length > 0 ? result.song : null;
+  }, [mode, diagrams, song?.title, song?.artist, song?.timeSignature, song?.tuning, bpm]);
   const secondsFor = (beats: number) => (beats * 60) / bpm;
   const beatsFor = (d: SavedChordShape) => (d.duration ?? 1) * (d.dotted ? 1.5 : 1);
 
@@ -1686,10 +1730,10 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                   ? "text-black bg-amber-400"
                   : "text-zinc-400 bg-zinc-800 hover:bg-zinc-700"
               }`}
-              title="Afficher les riffs (passages de notes seules) et éditer leurs notes"
+              title="Afficher la tablature animée dérivée de la grille d'accords"
             >
               <Music4 className="w-3.5 h-3.5" />
-              Riff
+              Tablature
             </button>
             <button
               onClick={() => setConductorOpen(true)}
@@ -1743,14 +1787,21 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
             </p>
           </div>
         ) : mode === "riff" ? (
-          <div className="flex flex-col gap-6">
-            <div className="flex flex-wrap items-center gap-3">
-              <h2 className="text-sm font-bold text-zinc-300">
-                Riffs ({riffs.length})
-              </h2>
-              <span className="text-[10px] text-zinc-600 bg-zinc-800/60 rounded px-1.5 py-0.5">
-                Passages de notes seules (≥ 2 attaques) — éditez les notes directement
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-500">
+              <span>
+                Tablature dérivée de la grille d&apos;accords. Cliquez une
+                mesure pour y placer le curseur d&apos;aperçu.
               </span>
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={tabFollow}
+                  onChange={(event) => setTabFollow(event.target.checked)}
+                  className="accent-amber-400"
+                />
+                Suivre
+              </label>
               {diagrams.length > 0 && (
                 <button
                   type="button"
@@ -1762,7 +1813,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                   }`}
                   title={
                     playingAll
-                      ? "Arrêter la lecture"
+                      ? "Arrêter l'aperçu"
                       : "Écouter toutes les étapes en continu (son doux)"
                   }
                 >
@@ -1771,7 +1822,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                   ) : (
                     <Play className="w-3.5 h-3.5" />
                   )}
-                  {playingAll ? "Arrêter" : `Écouter tout (1–${diagrams.length})`}
+                  {playingAll ? "Arrêter" : "Écouter tout"}
                 </button>
               )}
             </div>
@@ -1780,44 +1831,19 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                 Aucun diagramme dans cette piste. Importez un fichier Guitar
                 Pro/MIDI ou créez des diagrammes d&apos;abord.
               </p>
-            ) : riffs.length === 0 ? (
-              <div className="flex flex-col gap-3">
-                <p className="text-sm text-zinc-600">
-                  Aucun riff distinct détecté — édition de la séquence
-                  complète.
-                </p>
-                <ArpeggioEditor
-                  key="riff-all"
-                  embedded
-                  heading="Séquence complète"
-                  diagrams={diagrams}
-                  start={0}
-                  end={diagrams.length - 1}
-                  title={song?.title}
-                  bpm={bpm}
-                  tuning={song?.tuning}
-                  playingIndex={playingAll ? playingIndex : null}
-                  onChange={(list) => upsert({ ...song, diagrams: list })}
-                />
-              </div>
+            ) : !tabSong ? (
+              <p className="text-sm text-zinc-600">
+                Aucune note à afficher en tablature. Vérifiez les frettes et les
+                cordes des diagrammes.
+              </p>
             ) : (
-              <div className="flex flex-col gap-4">
-                {riffs.map((riff, i) => (
-                  <ArpeggioEditor
-                    key={`riff-${riff.start}-${riff.end}`}
-                    embedded
-                    heading={`Riff ${i + 1}`}
-                    diagrams={diagrams}
-                    start={riff.start}
-                    end={riff.end}
-                    title={song?.title}
-                    bpm={bpm}
-                    tuning={song?.tuning}
-                    playingIndex={playingAll ? playingIndex : null}
-                    onChange={(list) => upsert({ ...song, diagrams: list })}
-                  />
-                ))}
-              </div>
+              <TabPlaybackView
+                song={tabSong}
+                follow={tabFollow}
+                maxHeight={640}
+                getTime={previewTime}
+                onSeek={seekPreview}
+              />
             )}
           </div>
         ) : (
@@ -3299,6 +3325,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
           diagrams={diagrams}
           bpm={bpm}
           timeSignature={song?.timeSignature}
+          tuning={song?.tuning}
           content={content}
           officialPlain={song?.officialPlain}
           officialSynced={song?.officialSynced}

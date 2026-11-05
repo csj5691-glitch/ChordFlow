@@ -34,6 +34,8 @@ interface TabPlaybackViewProps {
   className?: string;
   /** Appele au clic sur une mesure, avec le temps de reference en secondes. */
   onSeek?: (seconds: number) => void;
+  /** Horloge optionnelle ; par defaut l'horloge partagee de ChordFlow. */
+  getTime?: () => number;
 }
 
 interface ActiveSystem {
@@ -51,6 +53,7 @@ export default function TabPlaybackView({
   maxHeight = 560,
   className,
   onSeek,
+  getTime,
 }: TabPlaybackViewProps) {
   const layout = useMemo(
     () => buildLayout(song, { measuresPerSystem }),
@@ -167,18 +170,19 @@ export default function TabPlaybackView({
   useEffect(() => {
     let raf = 0;
     let last = Number.NaN;
+    const clock = getTime ?? getCurrentTime;
     const frame = () => {
-      const time = getCurrentTime();
+      const time = clock();
       if (time !== last) {
         last = time;
         draw(time);
       }
       raf = requestAnimationFrame(frame);
     };
-    draw(getCurrentTime());
+    draw(clock());
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [draw]);
+  }, [draw, getTime]);
 
   return (
     <div
