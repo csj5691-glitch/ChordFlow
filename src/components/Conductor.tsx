@@ -21,15 +21,18 @@ import { loadStemShift, saveStemShift } from "@/lib/line-offsets";
 import type { SavedChordShape, SongTab } from "@/lib/types";
 import ChordShapeView from "@/components/ChordShapeView";
 import TabStaffView from "@/components/TabStaffView";
-import RiffHarmonyView from "@/components/RiffHarmonyView";
+import TabPlaybackView from "@/components/TabPlaybackView";
 import { BarGlyph } from "@/components/BarGlyph";
 import { diagramFrequencies, diagramsToTabWithPositions } from "@/lib/diagrams-to-tab";
+import { fromChords } from "@/lib/tab-player/from-chords";
 import { guessChordFromPitchClasses } from "@/lib/tab-view";
 
 interface ConductorProps {
   diagrams: SavedChordShape[];
   bpm: number;
   timeSignature?: SongTab["timeSignature"];
+  /** Accordage de la piste (libellé « D A F C G C »...), pour la tablature. */
+  tuning?: string;
   content: string;
   officialPlain?: string;
   officialSynced?: string;
@@ -330,6 +333,7 @@ export default function Conductor({
   diagrams,
   bpm,
   timeSignature,
+  tuning,
   content,
   officialPlain,
   officialSynced,
@@ -344,6 +348,19 @@ export default function Conductor({
   onClose,
 }: ConductorProps) {
   const events = useMemo(() => renderSequence(diagrams, bpm), [diagrams, bpm]);
+  // Tablature animée du morceau, dérivée de la grille : elle remplace l'ancien
+  // panneau Riff/Harmonique du Chef. Le moteur ne possède pas d'horloge, elle
+  // lui est fournie via gridMsRef plus bas.
+  const tabSong = useMemo(() => {
+    if (diagrams.length === 0) return null;
+    const result = fromChords(diagrams, {
+      title: "",
+      bpm,
+      timeSignature,
+      tuning,
+    });
+    return result.song.bars.length > 0 ? result.song : null;
+  }, [diagrams, bpm, timeSignature, tuning]);
   const measureInfo = useMemo(
     () => measureInfoFromSignature(timeSignature),
     [timeSignature]
@@ -427,10 +444,14 @@ export default function Conductor({
   // Pause/reprise : on mémorise la position dans le morceau, puis on rejoue
   // depuis cet instant (les événements déjà passés sont sautés).
   const [paused, setPaused] = useState(false);
-  // Vue du passage de riff central : tablature ou progression d'accords.
-  const [riffView, setRiffView] = useState<"riff" | "harmonique">("harmonique");
+  // Vue centrale du Chef : tablature animée du morceau (par défaut) ou
+  // diagramme de l'accord courant, qui reste accessible en un clic.
+  const [centerView, setCenterView] = useState<"tab" | "chord">("tab");
   const seekRef = useRef(0);
   const t0Ref = useRef<number | null>(null);
+  // Temps de grille courant (ms), décalage de bande compris : c'est l'horloge
+  // que lit la tablature animée, comme les diagrammes.
+  const gridMsRef = useRef(0);
   // Bande affichée : la séquence de diagrammes d'accords de la partition.
   const bandEvents = events;
   const instVolRef = useRef(instVolume);
@@ -453,7 +474,6 @@ export default function Conductor({
   const timerRef = useRef<number | null>(null);
   const stripRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const centerTabRef = useRef<HTMLDivElement | null>(null);
   const [stemStart, setStemStart] = useState<number | null>(null);
   const [stemDuration, setStemDuration] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -628,6 +648,7 @@ export default function Conductor({
 
     const seek = Math.max(0, fromSec);
     seekRef.current = seek;
+    gridMsRef.current = seek * 1000 + bandOffsetRef.current * 1000;
     setPaused(false);
     setLyricIndex(-1);
     setElapsedMs(seek * 1000);
@@ -762,6 +783,7 @@ export default function Conductor({
       // Le décalage de bande rend la synchro malléable : un décalage positif
       // retarde l'affichage des diagrammes par rapport à la musique.
       const tb = gridClock + bandOffsetRef.current * 1000;
+      gridMsRef.current = tb;
       let i = bandEvents.findIndex(
         (e) => e.start * 1000 <= tb && tb < (e.start + e.duration) * 1000
       );
@@ -833,6 +855,22 @@ export default function Conductor({
     return seekRef.current;
   }, []);
 
+  // Horloge stable (identité constante) lue par la tablature à chaque image.
+  const tabTime = useCallback(() => Math.max(0, gridMsRef.current / 1000), []);
+
+  // Clic sur une mesure de la tablature : on relance la lecture à cet endroit.
+  const tabSeek = useCallback(
+    (seconds: number) => {
+      const target = Math.max(0, seconds - bandOffsetRef.current);
+      if (playing || paused) void play(target);
+      else {
+        seekRef.current = target;
+        gridMsRef.current = seconds * 1000;
+      }
+    },
+    [playing, paused, play]
+  );
+
   const togglePlay = useCallback(() => {
     if (playing) {
       // Pause : on mémorise la position avant de tout couper.
@@ -868,6 +906,7 @@ export default function Conductor({
         void play(start);
       } else {
         seekRef.current = start;
+        gridMsRef.current = start * 1000 + shift * 1000;
         setElapsedMs(start * 1000);
       }
     },
@@ -909,17 +948,6 @@ export default function Conductor({
     const target = el.offsetLeft + el.offsetWidth / 2 - strip.clientWidth / 2;
     strip.scrollLeft = Math.max(0, target);
   }, [index]);
-
-  // Suit la note jouée dans la tablature de riff centrale : défile pour garder la
-  // colonne en cours visible, sans que l'utilisateur ait à scroller.
-  useEffect(() => {
-    const box = centerTabRef.current;
-    if (!box) return;
-    const hit = box.querySelector<HTMLElement>('[data-highlight="1"]');
-    if (!hit) return;
-    const target = hit.offsetLeft + hit.offsetWidth / 2 - box.clientWidth / 2;
-    box.scrollLeft = Math.max(0, target);
-  }, [index, riffView]);
 
   const totalBeat = diagrams.reduce((a, d) => a + (d.bar ? 0 : beatsForShape(d)), 0);
   const cur = bandEvents[index];
@@ -1067,14 +1095,6 @@ export default function Conductor({
     const cells = riffTabs[ri]?.cells[rel] ?? [];
     if (cells.length === 0) return undefined;
     return new Set(cells.map((c) => `${c.m}|${c.s}|${c.slot}`));
-  }, [index, runOfIndex, riffRuns, riffTabs]);
-  // Mesure en cours dans le passage de riff affiché : met en évidence l'accord
-  // correspondant en vue « Harmonique ».
-  const activeRiffMeasure = useMemo(() => {
-    const ri = runOfIndex[index];
-    if (ri === undefined || ri < 0 || ri >= riffRuns.length) return -1;
-    const rel = index - riffRuns[ri].start;
-    return riffTabs[ri]?.cells[rel]?.[0]?.m ?? -1;
   }, [index, runOfIndex, riffRuns, riffTabs]);
   const dur2 = totalMs / 1000;
   const elapsedPct = totalMs > 0 ? Math.min(100, (elapsedMs / totalMs) * 100) : 0;
@@ -1339,59 +1359,63 @@ export default function Conductor({
                 ))}
               </div>
             )}
-            {runOfIndex[index] >= 0 ? (
+            {tabSong ? (
               <div className="flex w-full flex-col items-center gap-2">
                 <div className="flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-900 p-0.5 text-[10px] font-bold">
                   <button
-                    onClick={() => setRiffView("harmonique")}
+                    onClick={() => setCenterView("tab")}
                     className={`rounded-full px-3 py-0.5 transition-colors ${
-                      riffView === "harmonique"
-                        ? "bg-amber-400/25 text-amber-200 border border-amber-400/50"
-                        : "text-zinc-400 hover:text-zinc-200 border border-transparent"
-                    }`}
-                  >
-                    Harmonique
-                  </button>
-                  <button
-                    onClick={() => setRiffView("riff")}
-                    className={`rounded-full px-3 py-0.5 transition-colors ${
-                      riffView === "riff"
+                      centerView === "tab"
                         ? "bg-cyan-400/25 text-cyan-200 border border-cyan-400/50"
                         : "text-zinc-400 hover:text-zinc-200 border border-transparent"
                     }`}
                   >
-                    Riff
+                    Tablature
+                  </button>
+                  <button
+                    onClick={() => setCenterView("chord")}
+                    className={`rounded-full px-3 py-0.5 transition-colors ${
+                      centerView === "chord"
+                        ? "bg-amber-400/25 text-amber-200 border border-amber-400/50"
+                        : "text-zinc-400 hover:text-zinc-200 border border-transparent"
+                    }`}
+                  >
+                    Diagramme
                   </button>
                 </div>
-                {riffView === "riff" ? (
-                  <div
-                    ref={centerTabRef}
-                    className="w-screen max-w-[calc(100vw-10px)] overflow-x-auto"
-                  >
-                    <TabStaffView
-                      bpm={bpm}
-                      tab={riffTabs[runOfIndex[index]].tab}
-                      showMutes={false}
-                      highlight={activeRiffHighlight}
-                      rests={riffTabs[runOfIndex[index]].rests}
-                      beats={riffTabs[runOfIndex[index]].grid}
-                      measureChords={riffChords[runOfIndex[index]]}
-                      measureOffset={riffTabs[runOfIndex[index]].measureOffset}
-                      maxMeasuresPerLine={9999}
+                {centerView === "tab" ? (
+                  <div className="w-screen max-w-[calc(100vw-10px)]">
+                    <TabPlaybackView
+                      song={tabSong}
+                      follow
+                      maxHeight={300}
+                      getTime={tabTime}
+                      onSeek={tabSeek}
                     />
                   </div>
                 ) : (
-                  <div
-                    ref={centerTabRef}
-                    className="w-screen max-w-[calc(100vw-10px)] overflow-x-auto"
-                  >
-                    <RiffHarmonyView
-                      chords={riffChords[runOfIndex[index]]}
-                      currentMeasure={activeRiffMeasure}
-                      measureOffset={riffTabs[runOfIndex[index]].measureOffset}
-                    />
+                  <div className="w-52 sm:w-80 md:w-96">
+                    <ChordShapeView shape={cur.shape} />
                   </div>
                 )}
+              </div>
+            ) : runOfIndex[index] >= 0 ? (
+              <div className="flex w-full flex-col items-center gap-2">
+                <div
+                  className="w-screen max-w-[calc(100vw-10px)] overflow-x-auto"
+                >
+                  <TabStaffView
+                    bpm={bpm}
+                    tab={riffTabs[runOfIndex[index]].tab}
+                    showMutes={false}
+                    highlight={activeRiffHighlight}
+                    rests={riffTabs[runOfIndex[index]].rests}
+                    beats={riffTabs[runOfIndex[index]].grid}
+                    measureChords={riffChords[runOfIndex[index]]}
+                    measureOffset={riffTabs[runOfIndex[index]].measureOffset}
+                    maxMeasuresPerLine={9999}
+                  />
+                </div>
               </div>
             ) : (
               <div className="w-52 sm:w-80 md:w-96">
