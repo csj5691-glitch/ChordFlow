@@ -4,7 +4,6 @@
 
 import { use, useState, useCallback, useMemo, useEffect, useRef, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import ChordDisplay from "@/components/ChordDisplay";
 import ChordLyricSync from "@/components/ChordLyricSync";
 import RhythmTimeline from "@/components/RhythmTimeline";
 import AudioPlayer from "@/components/AudioPlayer";
@@ -21,7 +20,7 @@ import SpotifySearch from "@/components/SpotifySearch";
 // FUTURE DEV: import StemsMixer from "@/components/StemsMixer";
 import AddSong from "@/components/AddSong";
 import { getSongTab } from "@/lib/mock-data";
-import { parseChordContent, sectionsToContent } from "@/lib/chord-parser";
+import { parseChordContent } from "@/lib/chord-parser";
 import { detectKeyFromContent } from "@/lib/key-detection";
 import { loadLineOffsets, saveLineOffset, loadGlobalOffset, saveGlobalOffset } from "@/lib/line-offsets";
 import { saveAudioStem, loadAudioStems } from "@/lib/audio-store";
@@ -199,7 +198,9 @@ function SongView({ id }: SongViewProps) {
   const [duration, setDuration] = useState(0);
   const [seekTo, setSeekTo] = useState<number | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("lyrics");
+  // La tablature est le rendu principal ; « Paroles » reste accessible et sert
+  // de repli quand la chanson n'a pas de diagrammes.
+  const [viewMode, setViewMode] = useState<ViewMode>("tab");
   const [tabFollow, setTabFollow] = useState(true);
   const [audioSource, setAudioSource] = useState<AudioSource>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -849,53 +850,6 @@ const [extracting, setExtracting] = useState(false);
       return next;
     });
   }, [id]);
-
-  const handleChordEdit = useCallback((sectionIndex: number, lineIndex: number, chordIndex: number, newChord: string) => {
-    const updated = sections.map((s, si) => {
-      if (si !== sectionIndex) return s;
-      return {
-        ...s,
-        lines: s.lines.map((l, li) => {
-          if (li !== lineIndex) return l;
-          const newChords = [...l.chords];
-          if (chordIndex < newChords.length) {
-            newChords[chordIndex] = newChord;
-          } else {
-            newChords.push(newChord);
-          }
-          let newRaw = l.rawChord;
-          if (chordIndex < l.chords.length && l.rawChord) {
-            const old = l.chords[chordIndex];
-            const idx = l.rawChord.indexOf(old);
-            if (idx !== -1) {
-              newRaw = l.rawChord.slice(0, idx) + newChord + l.rawChord.slice(idx + old.length);
-            } else {
-              newRaw = newChords.join("  ");
-            }
-          } else {
-            newRaw = newChords.join("  ");
-          }
-          return {
-            ...l,
-            chords: newChords,
-            rawChord: newRaw,
-          };
-        }),
-      };
-    });
-    const newContent = sectionsToContent(updated);
-    setEditableContent(newContent);
-    if (id?.startsWith("custom-") && song) {
-      upsert({ ...song, content: newContent });
-    }
-  }, [sections, id, song, upsert]);
-
-  const handleRawEdit = useCallback((newContent: string) => {
-    setEditableContent(newContent);
-    if (id?.startsWith("custom-") && song) {
-      upsert({ ...song, content: newContent });
-    }
-  }, [id, song, upsert]);
 
   const handleKeyChange = useCallback(
     (newKey: string) => {
@@ -1849,15 +1803,6 @@ const [extracting, setExtracting] = useState(false);
               maxHeight={640}
             />
           </div>
-        ) : viewMode === "chords" ? (
-          <ChordDisplay
-            sections={sections}
-            timestamps={timestamps}
-            onSeek={handleSeek}
-            offset={lyricsOffset}
-            onChordEdit={handleChordEdit}
-            onRawEdit={handleRawEdit}
-          />
         ) : viewMode === "sync" ? (
           <ChordLyricSync
             sections={sections}
