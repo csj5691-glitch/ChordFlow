@@ -8,7 +8,9 @@ import ChordDisplay from "@/components/ChordDisplay";
 import ChordLyricSync from "@/components/ChordLyricSync";
 import RhythmTimeline from "@/components/RhythmTimeline";
 import AudioPlayer from "@/components/AudioPlayer";
+import TabPlaybackView from "@/components/TabPlaybackView";
 import { setCurrentTime } from "@/lib/playback-store";
+import { chordSequenceBeats, fromChords } from "@/lib/tab-player/from-chords";
 import Waveform from "@/components/Waveform";
 import SyncedLyrics from "@/components/SyncedLyrics";
 import YouTubePlayer from "@/components/YouTubePlayer";
@@ -76,7 +78,7 @@ const GUITAR_TUNINGS = [
   "B E A D F# B",
 ];
 
-type ViewMode = "chords" | "lyrics" | "sync";
+type ViewMode = "chords" | "lyrics" | "sync" | "tab";
 type AudioSource = "youtube" | "upload" | "spotify" | null;
 
 function getStaticSong(id: string): SongTab | null {
@@ -198,6 +200,7 @@ function SongView({ id }: SongViewProps) {
   const [seekTo, setSeekTo] = useState<number | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("lyrics");
+  const [tabFollow, setTabFollow] = useState(true);
   const [audioSource, setAudioSource] = useState<AudioSource>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [rawDuration, setRawDuration] = useState(0);
@@ -464,6 +467,25 @@ const [extracting, setExtracting] = useState(false);
 
     return result;
   }, [sections, duration, song, lrcTimestamps]);
+
+  // Tablature derivee de la grille d'accords (lecture seule). Le tempo du
+  // fichier importe fait foi ; sinon on cale la grille sur la duree audio pour
+  // que le curseur couvre le morceau.
+  const tabSong = useMemo(() => {
+    if (!song?.diagrams || song.diagrams.length === 0) return null;
+    const knownBpm = song.bpm && song.bpm > 0 ? song.bpm : detectedBpm;
+    const beats = chordSequenceBeats(song.diagrams);
+    const fitBpm = beats > 0 && duration > 1 ? (beats * 60) / duration : undefined;
+    const bpm = knownBpm && knownBpm > 0 ? knownBpm : fitBpm;
+    const result = fromChords(song.diagrams, {
+      title: song.title,
+      artist: song.artist,
+      bpm,
+      timeSignature: song.timeSignature,
+      tuning: song.tuning,
+    });
+    return result.song.bars.length > 0 ? result.song : null;
+  }, [song, detectedBpm, duration]);
 
   const applyUpload = useCallback((url: string, file: File | null) => {
     setAudioUrl(url);
@@ -1053,6 +1075,19 @@ const [extracting, setExtracting] = useState(false);
               Sync
             </button>
             */}
+            {tabSong && (
+              <button
+                onClick={() => setViewMode("tab")}
+                className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
+                  viewMode === "tab"
+                    ? "text-black bg-amber-400"
+                    : "text-zinc-400 bg-zinc-800 hover:bg-zinc-700"
+                }`}
+              >
+                <Music2 className="w-3.5 h-3.5" />
+                Tablature
+              </button>
+            )}
             <button
               onClick={() => setViewMode("lyrics")}
               className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
@@ -1791,7 +1826,30 @@ const [extracting, setExtracting] = useState(false);
           />
         )}
 
-        {viewMode === "chords" ? (
+        {viewMode === "tab" && tabSong ? (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
+              <span>
+                Tablature dérivée de la grille d&apos;accords. Cliquez une mesure pour y aller.
+              </span>
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={tabFollow}
+                  onChange={(event) => setTabFollow(event.target.checked)}
+                  className="accent-amber-400"
+                />
+                Suivre
+              </label>
+            </div>
+            <TabPlaybackView
+              song={tabSong}
+              follow={tabFollow}
+              onSeek={handleSeek}
+              maxHeight={640}
+            />
+          </div>
+        ) : viewMode === "chords" ? (
           <ChordDisplay
             sections={sections}
             timestamps={timestamps}
@@ -1800,17 +1858,7 @@ const [extracting, setExtracting] = useState(false);
             onChordEdit={handleChordEdit}
             onRawEdit={handleRawEdit}
           />
-        ) : viewMode === "lyrics" ? (
-          <SyncedLyrics
-            songId={id}
-            artist={song.artist}
-            title={song.title}
-            plainLyrics={song.officialPlain || ""}
-            syncedLrc={song.officialSynced || undefined}
-            onSeek={handleSeek}
-            offset={lyricsOffset}
-          />
-        ) : (
+        ) : viewMode === "sync" ? (
           <ChordLyricSync
             sections={sections}
             syncedLrc={song.officialSynced || undefined}
@@ -1819,6 +1867,16 @@ const [extracting, setExtracting] = useState(false);
             offset={lyricsOffset}
             lineOffsets={perLineOffsets}
             onLineOffsetChange={handleLineOffsetChange}
+          />
+        ) : (
+          <SyncedLyrics
+            songId={id}
+            artist={song.artist}
+            title={song.title}
+            plainLyrics={song.officialPlain || ""}
+            syncedLrc={song.officialSynced || undefined}
+            onSeek={handleSeek}
+            offset={lyricsOffset}
           />
         )}
       </main>
