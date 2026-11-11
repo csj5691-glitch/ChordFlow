@@ -386,7 +386,20 @@ export default function Conductor({
   const [playing, setPlaying] = useState(false);
   const [index, setIndex] = useState(0);
   const [lyricIndex, setLyricIndex] = useState(-1);
-  const [anchorDisplay, setAnchorDisplay] = useState(0);
+  // Ancre des paroles : la prop fait foi tant que l'utilisateur ne la modifie
+  // pas dans le Chef (boutons -/+). On garde le reglage local avec sa valeur
+  // de depart pour l'abandonner des que la prop change, sans effet de synchro
+  // (un setState dans un effet provoquait un rendu en cascade).
+  const [anchorEdit, setAnchorEdit] = useState<{
+    base: number | undefined;
+    value: number;
+  } | null>(null);
+  const anchorDisplay =
+    anchorEdit && anchorEdit.base === lyricAnchorDiagram
+      ? anchorEdit.value
+      : lyricAnchorDiagram !== undefined
+        ? lyricAnchorDiagram + 1
+        : 0;
   const [instVolume, setInstVolume] = useState(1);
   const [vocalsVolume, setVocalsVolume] = useState(0.9);
   const [localLyricOffset, setLocalLyricOffset] = useState(0);
@@ -402,13 +415,11 @@ export default function Conductor({
   useEffect(() => {
     if (lyricAnchorDiagram !== undefined) {
       lyricAnchorRef.current = lyricAnchorDiagram;
-      setAnchorDisplay(lyricAnchorDiagram + 1);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lyricAnchorDiagram]);
   const setAnchorFromDisplay = (val: number) => {
     const idx = Math.max(0, val - 1);
-    setAnchorDisplay(val);
+    setAnchorEdit({ base: lyricAnchorDiagram, value: val });
     lyricAnchorRef.current = idx;
   };
   const changeLyricOffset = (delta: number) => {

@@ -258,8 +258,6 @@ function EditSongView({ id }: { id: string }) {
   // de temps, on extrapole donc depuis l'horloge murale entre deux notes.
   const previewClock = useRef({ wall: 0, frozen: 0, running: false });
   const [legatoEdit, setLegatoEdit] = useState<number | null>(null);
-  const legatoEditRef = useRef<number | null>(null);
-  legatoEditRef.current = legatoEdit;
   const [editableContent, setEditableContent] = useState<string | null>(null);
   const [showBuilder, setShowBuilder] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -3037,7 +3035,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                         shape={d}
                         tuning={song?.tuning}
                         onNoteClick={
-                          legatoEditRef.current === i
+                          legatoEdit === i
                             ? (s) => handleNoteClick(i, s)
                             : undefined
                         }
