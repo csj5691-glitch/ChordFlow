@@ -20,7 +20,7 @@ import {
 import { SongTab } from "@/lib/types";
 import { songHasYoutube, songHasSpotify, usePersistedUploads } from "@/lib/song-sources";
 import { Plus, Trash2, Pencil, ArrowUpAZ, ArrowDownAZ, ListFilter, ArrowUp, ListMusic, Search, Mic2, Combine } from "lucide-react";
-import { SourceBadges } from "@/components/SourceBadges";
+import { SourceBadges, GuitarProLogo } from "@/components/SourceBadges";
 import { loadHomeScroll, saveHomeScroll } from "@/lib/home-scroll-store";
 import { saveYouTubeId, loadYouTubeId } from "@/lib/youtube-store";
 import { saveAudioStem, hasAudioStems } from "@/lib/audio-store";
@@ -132,6 +132,7 @@ function RepertoireRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const hasGpTab = (song.gpTracks?.length ?? 0) > 0;
   return (
     <div
       className="flex items-center gap-3 p-3 bg-zinc-900/80 border border-zinc-800 rounded-xl hover:border-zinc-700 transition-colors group cursor-pointer"
@@ -141,7 +142,17 @@ function RepertoireRow({
         <span className="text-amber-400 text-lg">♪</span>
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-white truncate">{song.title}</p>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <p className="text-sm font-medium text-white truncate">{song.title}</p>
+          {hasGpTab && (
+            <span
+              title="Tablature Guitar Pro / Songsterr importée"
+              className="flex-shrink-0 inline-flex"
+            >
+              <GuitarProLogo className="w-3.5 h-3.5" />
+            </span>
+          )}
+        </div>
         <p className="text-xs text-zinc-500 truncate">{song.artist}</p>
       </div>
       <div className="flex items-center gap-2 flex-wrap justify-end">

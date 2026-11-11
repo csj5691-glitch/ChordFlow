@@ -20,6 +20,28 @@ export function SpotifyLogo({ className = "w-3.5 h-3.5" }: { className?: string 
   );
 }
 
+// Logo « Guitar Pro » (monogramme GP) : affiché près du titre quand une
+// tablature Guitar Pro / Songsterr a été importée dans la chanson.
+export function GuitarProLogo({ className = "w-3.5 h-3.5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" role="img" aria-label="Guitar Pro">
+      <rect x="1" y="1" width="22" height="22" rx="5" fill="#1e5bd6" />
+      <text
+        x="12"
+        y="16.2"
+        textAnchor="middle"
+        fontFamily="Arial, Helvetica, sans-serif"
+        fontSize="9.5"
+        fontWeight="700"
+        letterSpacing="-0.4"
+        fill="#ffffff"
+      >
+        GP
+      </text>
+    </svg>
+  );
+}
+
 export function SourceBadges({
   youtube,
   spotify,
