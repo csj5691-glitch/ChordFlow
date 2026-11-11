@@ -109,3 +109,34 @@ export function saveStemShift(songId: string, offset: number): void {
   }
   localStorage.setItem(STEM_SHIFT_KEY, JSON.stringify(all));
 }
+
+// Latence audio (millisecondes) : décalage entre l'horloge du contexte audio
+// et le son réellement entendu (sortie système, casque Bluetooth…). Positif =
+// retarder la tablature et les paroles par rapport aux stems. Le Chef ajoute
+// automatiquement la latence de sortie de l'appareil ; cette valeur est
+// l'ajustement manuel de l'utilisateur, sauvegardé par chanson.
+const SYNC_LATENCY_KEY = "chordflow-sync-latency";
+
+function getAllSyncLatency(): Record<string, number> {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(localStorage.getItem(SYNC_LATENCY_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+export function loadSyncLatency(songId: string): number {
+  const value = getAllSyncLatency()[songId];
+  return Number.isFinite(value) ? value : 0;
+}
+
+export function saveSyncLatency(songId: string, ms: number): void {
+  const all = getAllSyncLatency();
+  if (!ms) {
+    delete all[songId];
+  } else {
+    all[songId] = Math.round(ms);
+  }
+  localStorage.setItem(SYNC_LATENCY_KEY, JSON.stringify(all));
+}
