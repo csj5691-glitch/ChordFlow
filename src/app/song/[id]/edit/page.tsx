@@ -1,7 +1,7 @@
 "use client";
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
-import { use, useState, useCallback, useRef, useEffect, useSyncExternalStore, useMemo } from "react";
+import { use, useState, useCallback, useRef, useEffect, useSyncExternalStore, useMemo, type ComponentProps } from "react";
 import { useRouter } from "next/navigation";
 import ChordBuilder from "@/components/ChordBuilder";
 import ChordShapeView from "@/components/ChordShapeView";
@@ -243,6 +243,62 @@ export default function EditSongPage({
 }) {
   const { id } = use(params);
   return <EditSongView key={id} id={id} />;
+}
+
+function TabSection({
+  index,
+  song,
+  repeats,
+  from,
+  follow,
+  getClock,
+  seekClock,
+}: {
+  index: number;
+  song: ComponentProps<typeof TabPlaybackView>["song"];
+  repeats: number;
+  from: number;
+  follow: boolean;
+  getClock: () => number;
+  seekClock: (seconds: number) => void;
+}) {
+  const getTime = useCallback(() => getClock() - from, [getClock, from]);
+  const onSeek = useCallback((s: number) => seekClock(s + from), [seekClock, from]);
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="flex items-center gap-2 text-[11px] font-semibold text-zinc-400">
+        <span>Section {index + 1}</span>
+        {repeats > 0 && <span className="font-mono text-amber-400">rejoue ×{repeats}</span>}
+      </p>
+      <TabPlaybackView
+        song={song}
+        follow={follow}
+        singleLine
+        maxHeight={640}
+        getTime={getTime}
+        onSeek={onSeek}
+      />
+    </div>
+  );
+}
+
+// Découpe la séquence en sections : chaque repère de barre ferme la section
+// précédente, et son nombre de répétitions s'applique à cette section.
+function repeatSections(
+  list: SavedChordShape[]
+): { shapes: SavedChordShape[]; repeats: number }[] {
+  const out: { shapes: SavedChordShape[]; repeats: number }[] = [];
+  let cur: SavedChordShape[] = [];
+  for (const d of list) {
+    if (d.bar) {
+      out.push({ shapes: cur, repeats: d.repeats ?? 1 });
+      cur = [];
+    } else {
+      cur.push(d);
+    }
+  }
+  if (cur.length > 0) out.push({ shapes: cur, repeats: 0 });
+  return out.filter((s) => s.shapes.length > 0);
 }
 
 function EditSongView({ id }: { id: string }) {
@@ -1505,6 +1561,34 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
     return result.song.bars.length > 0 ? result.song : null;
   }, [mode, diagrams, song?.title, song?.artist, song?.timeSignature, song?.tuning, bpm]);
 
+  // Une tablature par section répétée. Le curseur reste sur l'horloge globale :
+  // chaque section décale le temps de son point de départ.
+  const tabSections = useMemo(() => {
+    if (mode !== "riff") return [];
+    let start = 0;
+    const sections: {
+      key: number;
+      song: NonNullable<typeof tabSong>;
+      repeats: number;
+      from: number;
+    }[] = [];
+    repeatSections(diagrams).forEach((sec, key) => {
+      const result = fromChords(sec.shapes, {
+        title: song?.title ?? "",
+        artist: song?.artist,
+        bpm,
+        timeSignature: song?.timeSignature,
+        tuning: song?.tuning,
+      });
+      if (result.song.bars.length === 0) return;
+      const from = start;
+      const beats = result.song.bars.reduce((a, b) => a + b.beats, 0);
+      start += (beats * 60) / Math.max(1, bpm);
+      sections.push({ key, song: result.song, repeats: sec.repeats, from });
+    });
+    return sections;
+  }, [mode, diagrams, song?.title, song?.artist, song?.timeSignature, song?.tuning, bpm]);
+
   // Paroles sous la tablature : horodatees avec les paroles officielles (LRC)
   // recalees sur la grille quand elles existent, sinon reparties sur la duree
   // de la tablature. Les lignes de tab ASCII d'un import sont ignorees.
@@ -1894,14 +1978,18 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
               </p>
             ) : (
               <>
-                <TabPlaybackView
-                  song={tabSong}
-                  follow={tabFollow}
-                  singleLine={playingAll}
-                  maxHeight={640}
-                  getTime={previewTime}
-                  onSeek={seekPreview}
-                />
+                {tabSections.map((sec, si) => (
+                  <TabSection
+                    key={sec.key}
+                    index={si}
+                    song={sec.song}
+                    repeats={sec.repeats}
+                    from={sec.from}
+                    follow={tabFollow}
+                    getClock={previewTime}
+                    seekClock={seekPreview}
+                  />
+                ))}
                 <TabLyricsView
                   lines={tabLyrics}
                   getTime={previewTime}

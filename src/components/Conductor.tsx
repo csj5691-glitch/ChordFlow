@@ -2,14 +2,11 @@
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
 import {
-  memo,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type MutableRefObject,
-  type RefObject,
   type SyntheticEvent,
 } from "react";
 import { ChevronLeft, ChevronRight, Pause, Square, Play, RotateCcw, X } from "lucide-react";
@@ -132,206 +129,6 @@ function strumDirection(startBeat: number, beats: number): "D" | "U" {
 // après un déploiement, c'est qu'un bundle périmé est encore servi — ce tag le
 // rend visible immédiatement. À mettre à jour à chaque déploiement.
 const BUILD_TAG = "sans-midi";
-
-type RiffTab = ReturnType<typeof diagramsToTabWithPositions>;
-
-interface ConductorBandProps {
-  bandEvents: SynthEvent[];
-  index: number;
-  bpm: number;
-  runOfIndex: number[];
-  riffRuns: { start: number; end: number }[];
-  riffTabs: RiffTab[];
-  riffChords: Map<number, string[]>[];
-  activeRiffHighlight: Set<string> | undefined;
-  itemRefs: MutableRefObject<(HTMLDivElement | null)[]>;
-  stripRef: RefObject<HTMLDivElement | null>;
-}
-
-// Bande de diagrammes : mémoïsée et re-rendue uniquement quand le diagramme
-// actif change — pas à chaque tick de lecture (25×/s), qui re-rendait sinon
-// chaque carte et chaque SVG (lag sur les longues chansons).
-// Largeur d'une carte d'accord (w-28 = 112 px) et espacement entre cartes.
-const CHORD_CARD_W = 112;
-const CARD_GAP = 8;
-// Nombre de cartes rendues de part et d'autre du diagramme actif.
-const BAND_WINDOW = 14;
-
-const ConductorBand = memo(function ConductorBand({
-  bandEvents,
-  index,
-  bpm,
-  runOfIndex,
-  riffRuns,
-  riffTabs,
-  riffChords,
-  activeRiffHighlight,
-  itemRefs,
-  stripRef,
-}: ConductorBandProps) {
-  // Liste des cartes réellement affichées : une carte par diagramme d'accord, et
-  // UNE carte par passage de riff (qui couvre plusieurs événements). Sans cela,
-  // une longue chanson montait des centaines de cartes SVG dans le DOM (~cent
-  // nœuds chacune) : layout/paint de plusieurs secondes à chaque changement de
-  // diagramme.
-  const items = useMemo(() => {
-    const list: { key: string; idxs: number[]; runIdx: number }[] = [];
-    for (let i = 0; i < bandEvents.length; i++) {
-      const ev = bandEvents[i];
-      if (!ev || !ev.shape) continue;
-      const runIdx = runOfIndex[i];
-      if (runIdx >= 0) {
-        const run = riffRuns[runIdx];
-        if (i !== run.start) continue;
-        const idxs: number[] = [];
-        for (let k = run.start; k <= run.end; k++) idxs.push(k);
-        list.push({ key: `riff-${run.start}`, idxs, runIdx });
-      } else {
-        list.push({ key: `${ev.id}-${i}`, idxs: [i], runIdx: -1 });
-      }
-    }
-    return list;
-  }, [bandEvents, runOfIndex, riffRuns]);
-
-  const { offsets, totalWidth, itemOfIndex } = useMemo(() => {
-    const off: number[] = [5];
-    const map = new Array<number>(bandEvents.length).fill(0);
-    for (let k = 0; k < items.length; k++) {
-      const it = items[k];
-      const w =
-        it.runIdx >= 0
-          ? Math.max(260, (riffRuns[it.runIdx].end - riffRuns[it.runIdx].start + 1) * 46)
-          : CHORD_CARD_W;
-      for (const i of it.idxs) map[i] = k;
-      off.push(off[k] + w + CARD_GAP);
-    }
-    return { offsets: off, totalWidth: off[items.length], itemOfIndex: map };
-  }, [items, riffRuns, bandEvents.length]);
-
-  const activeItem = itemOfIndex[index] ?? 0;
-  const startItem = Math.max(0, activeItem - BAND_WINDOW);
-  const endItem = Math.min(items.length, activeItem + BAND_WINDOW + 1);
-  const windowItems = items.slice(startItem, endItem);
-  const leftPad = offsets[startItem];
-  const rightPad = totalWidth - offsets[endItem];
-
-  return (
-    <div className="absolute inset-0 top-14 overflow-hidden pointer-events-none">
-      <div className="absolute -bottom-2 left-0 right-0 h-48">
-        <div
-          ref={stripRef}
-          className="flex overflow-x-auto pb-4 pt-3"
-          style={{ scrollbarWidth: "none" }}
-        >
-          <div style={{ width: leftPad, flexShrink: 0 }} aria-hidden />
-          {windowItems.map((it) => {
-            const refCb = (el: HTMLDivElement | null) => {
-              for (const i of it.idxs) itemRefs.current[i] = el;
-            };
-            if (it.runIdx >= 0) {
-              const runIdx = it.runIdx;
-              const run = riffRuns[runIdx];
-              const runActive = index >= run.start && index <= run.end;
-              return (
-                <div
-                  key={it.key}
-                  ref={refCb}
-                  style={{ marginRight: CARD_GAP }}
-                  className={`flex-shrink-0 rounded-xl border transition-all duration-150 overflow-x-auto ${
-                    runActive
-                      ? "border-cyan-400 shadow-[0_0_24px_rgba(34,211,238,0.45)] bg-zinc-900"
-                      : "border-cyan-900/70 bg-zinc-900/50"
-                  }`}
-                >
-                  <div className={runActive ? "" : "opacity-50"}>
-                    <div className="text-center text-[10px] font-bold py-1 truncate px-1 text-cyan-300">
-                      Riff · {run.end - run.start + 1} notes
-                    </div>
-                    <div className="px-1.5 pb-1">
-                      <TabStaffView
-                        title=""
-                        bpm={bpm}
-                        tab={riffTabs[runIdx].tab}
-                        showMutes={false}
-                        highlight={activeRiffHighlight}
-                        rests={riffTabs[runIdx].rests}
-                        beats={riffTabs[runIdx].grid}
-                        measureChords={riffChords[runIdx]}
-                        measureOffset={riffTabs[runIdx].measureOffset}
-                        maxMeasuresPerLine={9999}
-                      />
-                    </div>
-                  </div>
-                </div>
-              );
-            }
-            const i = it.idxs[0];
-            const ev = bandEvents[i];
-            if (!ev || !ev.shape) return null;
-            const active = i === index;
-            const isSilence =
-              ev.silence ||
-              ((ev.notes.length === 0 || ev.notes[0] === 0) &&
-                !(ev.mutedNotes && ev.mutedNotes.length > 0));
-            const evBeats = beatsForShape(ev.shape);
-            const nv = noteValueInfo(evBeats);
-            const dir = isSilence ? null : strumDirection(ev.start / (60 / bpm), evBeats);
-            const drums = ev.shape.drumHits ?? 0;
-            return (
-              <div
-                key={it.key}
-                ref={refCb}
-                style={{ width: CHORD_CARD_W, marginRight: CARD_GAP }}
-                className={`flex-shrink-0 rounded-xl border transition-all duration-150 ${
-                  active
-                    ? "border-amber-400 shadow-[0_0_24px_rgba(251,191,36,0.5)] scale-105 bg-zinc-900"
-                    : "border-zinc-800 bg-zinc-900/50"
-                }`}
-              >
-                <div className={active ? "" : "opacity-40"}>
-                  <div
-                    className={`text-center text-[10px] font-bold py-1 truncate px-1 ${
-                      isSilence ? "text-zinc-500" : active ? "text-amber-400" : "text-zinc-400"
-                    }`}
-                  >
-                    {ev.label}
-                  </div>
-                  <div className="pointer-events-none [&_svg]:h-24 [&_svg]:w-full">
-                    <ChordShapeView shape={ev.shape} />
-                  </div>
-                </div>
-                <div className="flex items-center justify-between gap-1.5 px-1.5 py-1 border-t border-zinc-800 bg-zinc-950/80 font-mono leading-none">
-                  <span title={nv.title} className="text-[10px] text-zinc-400 truncate">
-                    {nv.label}
-                  </span>
-                  {drums > 0 ? (
-                    <span title={`${drums} coups`} className="text-[11px] text-amber-300 font-bold">
-                      ×{drums}
-                    </span>
-                  ) : dir ? (
-                    <span
-                      title={dir === "D" ? "Strum bas (Down)" : "Strum haut (Up)"}
-                      className={`text-[11px] font-bold ${
-                        dir === "D" ? "text-emerald-300" : "text-sky-300"
-                      }`}
-                    >
-                      {dir === "D" ? "↓ D" : "↑ U"}
-                    </span>
-                  ) : (
-                    <span title="Silence" className="text-[11px] text-zinc-500">
-                      —
-                    </span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-          <div style={{ width: rightPad, flexShrink: 0 }} aria-hidden />
-        </div>
-      </div>
-    </div>
-  );
-});
 
 export default function Conductor({
   diagrams,
@@ -510,8 +307,7 @@ export default function Conductor({
   const instRef = useRef<HTMLAudioElement | null>(null);
   const vocalsRef = useRef<HTMLAudioElement | null>(null);
   const timerRef = useRef<number | null>(null);
-  const stripRef = useRef<HTMLDivElement | null>(null);
-  const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+
   const [stemStart, setStemStart] = useState<number | null>(null);
   const [stemDuration, setStemDuration] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -988,18 +784,6 @@ export default function Conductor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events, stemDuration]);
 
-  useEffect(() => {
-    const strip = stripRef.current;
-    const el = itemRefs.current[index];
-    if (!strip || !el) return;
-    // Défilement INSTANTANÉ (pas "smooth") : sur une bande de plusieurs centaines
-    // de cartes SVG, le défilement fluide relançait un layout/paint complet du
-    // contenu à chaque image — d'où des gels de plusieurs secondes à chaque
-    // changement de diagramme.
-    const target = el.offsetLeft + el.offsetWidth / 2 - strip.clientWidth / 2;
-    strip.scrollLeft = Math.max(0, target);
-  }, [index]);
-
   const totalBeat = diagrams.reduce((a, d) => a + (d.bar ? 0 : beatsForShape(d)), 0);
   const cur = bandEvents[index];
   const curBeats = cur ? beatsForShape(cur.shape) : 0;
@@ -1238,19 +1022,6 @@ export default function Conductor({
         </div>
       </div>
 
-      <ConductorBand
-        bandEvents={bandEvents}
-        index={index}
-        bpm={bpm}
-        runOfIndex={runOfIndex}
-        riffRuns={riffRuns}
-        riffTabs={riffTabs}
-        riffChords={riffChords}
-        activeRiffHighlight={activeRiffHighlight}
-        itemRefs={itemRefs}
-        stripRef={stripRef}
-      />
-
       <div className="flex-1 flex flex-col items-center justify-start sm:justify-center overflow-y-auto px-6 pt-3 sm:pt-0 pb-24 sm:pb-14 relative z-10 gap-3 sm:gap-5">
         {flatLyrics.length > 0 && (
           <div className="text-center max-w-3xl w-full">
@@ -1439,6 +1210,7 @@ export default function Conductor({
                     <TabPlaybackView
                       song={tabSong}
                       follow
+                      singleLine
                       maxHeight={300}
                       getTime={tabTime}
                       onSeek={tabSeek}
