@@ -28,7 +28,7 @@ export default function AudioPlayer({
 }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  const [, setAutoplayBlocked] = useState(false);
   const [internalVolume, setInternalVolume] = useState(0.8);
   const [rawDuration, setRawDuration] = useState(0);
   const animFrameRef = useRef<number>(0);

@@ -253,6 +253,10 @@ useEffect(() => {
       autoPlayAttemptedRef.current = false;
       window.onYouTubeIframeAPIReady = () => {};
     };
+    // Le lecteur est créé une seule fois par vidéo : les callbacks, la taille
+    // et la vitesse sont lus à la création (ou via des refs pour l'état).
+    // Les ajouter aux dépendances recréerait l'iframe à chaque rendu du parent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoId]);
 
   useEffect(() => {

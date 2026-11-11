@@ -20,7 +20,6 @@ interface ChordDiagramProps {
 }
 
 const STRING_NAMES = ["E", "A", "D", "G", "B", "e"];
-const STRING_COUNT = 6;
 const STRING_SPACING = 28;
 const FRET_COUNT = 5;
 const FRET_SPACING = 40;

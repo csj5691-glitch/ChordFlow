@@ -311,7 +311,6 @@ export function resolveChordForDiagram(
 
   if (!best) return null;
 
-  const noteName = noteEntry.split("/")[0].replace("#", "#").replace("b", "b");
   return {
     note: noteEntry,
     quality: best.quality,

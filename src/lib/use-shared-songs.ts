@@ -106,7 +106,7 @@ export function useSharedSongs() {
         }
       }
     };
-  }, []);
+  }, [loadFromAnywhere]);
 
   const upsertSong = useCallback(
     async (song: SongTab): Promise<boolean> => {

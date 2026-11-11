@@ -242,7 +242,7 @@ const [extracting, setExtracting] = useState(false);
     id ? loadGlobalOffset(id) : 0
   );
   const [isPlaying, setIsPlaying] = useState(false);
-  const [voiceVolume, setVoiceVolume] = useState<number | null>(null);
+  const [voiceVolume] = useState<number | null>(null);
   const [playToggle, setPlayToggle] = useState(0);
   const [perLineOffsets, setPerLineOffsets] = useState<Record<number, number>>(
     () => (id ? loadLineOffsets(id) : {})
@@ -270,7 +270,6 @@ const [extracting, setExtracting] = useState(false);
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setShuffle(!!session.shuffle);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSetlist({ playlist, index: idx });
   }, [id]);
 
@@ -500,13 +499,6 @@ const [extracting, setExtracting] = useState(false);
     setPlaybackSpeed(1);
     setBpmError(null);
   }, []);
-
-  const handleUploadFile = useCallback(
-    (file: File) => {
-      applyUpload(URL.createObjectURL(file), file);
-    },
-    [applyUpload]
-  );
 
   useEffect(() => {
     const handler = (e: Event) => {

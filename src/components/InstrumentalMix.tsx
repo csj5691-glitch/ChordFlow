@@ -1,7 +1,7 @@
 "use client";
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Music2, X } from "lucide-react";
 import {
   loadAudioStems,
@@ -121,16 +121,19 @@ export default function InstrumentalMix({
     }
   };
 
-  const targetPos = (t: number) => {
-    const el = audioRef.current;
-    if (!el) return t;
-    const dur =
-      Number.isFinite(el.duration) && el.duration > 0 ? el.duration : 0;
-    const raw = (t + offsetMs / 1000) / tempoScale;
-    if (dur <= 0) return raw;
-    if (loopOn) return ((raw % dur) + dur) % dur;
-    return Math.min(Math.max(0, raw), Math.max(0, dur - 0.05));
-  };
+  const targetPos = useCallback(
+    (t: number) => {
+      const el = audioRef.current;
+      if (!el) return t;
+      const dur =
+        Number.isFinite(el.duration) && el.duration > 0 ? el.duration : 0;
+      const raw = (t + offsetMs / 1000) / tempoScale;
+      if (dur <= 0) return raw;
+      if (loopOn) return ((raw % dur) + dur) % dur;
+      return Math.min(Math.max(0, raw), Math.max(0, dur - 0.05));
+    },
+    [offsetMs, tempoScale, loopOn]
+  );
 
   useEffect(() => {
     onVoiceVolume?.(voiceVol);
@@ -173,7 +176,7 @@ export default function InstrumentalMix({
     if (seekTo != null) {
       el.currentTime = targetPos(seekTo);
     }
-  }, [seekTo, tempoScale, offsetMs, loopOn, fileUrl]);
+  }, [seekTo, tempoScale, offsetMs, loopOn, fileUrl, targetPos]);
 
   useEffect(() => {
     const el = audioRef.current;
@@ -194,7 +197,7 @@ export default function InstrumentalMix({
     } else {
       el.pause();
     }
-  }, [isPlaying, tempoScale, offsetMs, loopOn, fileUrl]);
+  }, [isPlaying, tempoScale, offsetMs, loopOn, fileUrl, targetPos]);
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -219,7 +222,7 @@ export default function InstrumentalMix({
       }
     }, 250);
     return () => window.clearInterval(id);
-  }, [isPlaying, tempoScale, offsetMs, loopOn, fileUrl]);
+  }, [isPlaying, tempoScale, offsetMs, loopOn, fileUrl, targetPos]);
 
   useEffect(() => {
     console.log(`[ChordFlow] instrumental isPlaying=${isPlaying}`);

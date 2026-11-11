@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Claude St-Jean. All rights reserved.
 
 import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   decodeState,
   exchangeCode,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/spotify-auth";
 
 function CallbackBody() {
+  const router = useRouter();
   const [status, setStatus] = useState<string>("Connexion à Spotify...");
   const doneRef = useRef(false);
 
@@ -27,7 +29,7 @@ function CallbackBody() {
     if (code) {
       const guardKey = `chordflow-cb-${code}`;
       if (sessionStorage.getItem(guardKey)) {
-        window.location.assign(`${window.location.origin}${returnPath}`);
+        router.replace(returnPath);
         return;
       }
       sessionStorage.setItem(guardKey, "1");
@@ -36,7 +38,7 @@ function CallbackBody() {
     const finish = (ms: number) => {
       window.sessionStorage.removeItem("chordflow-spotify-return");
       setTimeout(() => {
-        window.location.assign(`${window.location.origin}${returnPath}`);
+        router.replace(returnPath);
       }, ms);
     };
 
@@ -73,7 +75,7 @@ function CallbackBody() {
       }
       finish(800);
     })();
-  }, []);
+  }, [router]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-zinc-950">

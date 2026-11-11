@@ -99,11 +99,13 @@ export default function SpotifyPlayer({
   const endedRef = useRef(onEnded);
   const queueUrisRef = useRef(queueUris);
   const deviceTrackRef = useRef(onDeviceTrack);
+  const trackUriRef = useRef(trackUri);
   useEffect(() => {
     playbackErrorRef.current = onPlaybackError;
     durationRef.current = onDurationChange;
     playStateRef.current = onPlayStateChange;
     endedRef.current = onEnded;
+    trackUriRef.current = trackUri;
   });
 
   useEffect(() => {
@@ -229,7 +231,7 @@ export default function SpotifyPlayer({
         !endedFiredRef.current
       ) {
         endedFiredRef.current = true;
-        console.log("[ChordFlow] fin de piste détectée (poll) →", trackUri);
+        console.log("[ChordFlow] fin de piste détectée (poll) →", trackUriRef.current);
         endedRef.current?.();
       }
 
