@@ -1189,12 +1189,13 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
   };
 
   const extractSongsterrId = (input: string): number | null => {
-    // Formats Songsterr : /a/wa/song/<id>, songid=<id>, ou …/a/wsa/…-s<id>.
+    // Formats Songsterr : /a/wa/song/<id>, songid=<id>, ou
+    // /a/wsa/<slug>-s<id> (suivi éventuellement d'une révision /r<id>).
     const m = input.match(
-      /\/song\/(\d+)|song(?:id)=(\d+)|[-/]s(\d+)(?=[?#]|$)/i
+      /\/song\/(\d+)|song\?id=(\d+)|song(?:id)=(\d+)|[-/]s(\d+)(?=[/?#]|$)/i
     );
     if (!m) return null;
-    const raw = m[1] ?? m[2] ?? m[3];
+    const raw = m[1] ?? m[2] ?? m[3] ?? m[4];
     const id = Number(raw);
     return Number.isInteger(id) && id > 0 ? id : null;
   };
@@ -1204,7 +1205,9 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
     if (!link) return;
     const songId = extractSongsterrId(link);
     if (!songId) {
-      setStError("Lien Songsterr non reconnu. Utilisez le lien d'une page « …/a/wa/song/… ».");
+      setStError(
+        "Lien Songsterr non reconnu. Collez l'URL d'une tab : elle contient « -s123456 » ou « /song/123456 »."
+      );
       return;
     }
     setStError(null);
