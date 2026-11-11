@@ -1841,6 +1841,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
               <TabPlaybackView
                 song={tabSong}
                 follow={tabFollow}
+                singleLine={playingAll}
                 maxHeight={640}
                 getTime={previewTime}
                 onSeek={seekPreview}

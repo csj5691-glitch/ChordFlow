@@ -18,6 +18,17 @@
   width: 100%;
 }
 
+/* Une seule ligne : la feuille prend la largeur du systeme et defile
+   horizontalement, le suivi gardant le curseur dans la fenetre. */
+.singleLine {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.singleLine .sheet {
+  width: max-content;
+}
+
 .system {
   display: block;
   width: 100%;

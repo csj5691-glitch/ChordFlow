@@ -112,12 +112,18 @@ export interface Layout {
 export interface LayoutOptions {
   measuresPerSystem?: number;
   systemWidth?: number;
+  /** Largeur d'une mesure en unites du viewBox (prioritaire sur systemWidth). */
+  measureWidth?: number;
 }
 
 export function buildLayout(song: TabPlayerSong, options: LayoutOptions = {}): Layout {
-  const systemWidth = options.systemWidth ?? SYSTEM_WIDTH;
   const measuresPerSystem = Math.max(1, Math.floor(options.measuresPerSystem ?? 4));
-  const measureWidth = (systemWidth - SYSTEM_PAD * 2) / measuresPerSystem;
+  // Une seule ligne de tablature : on garde des mesures lisibles et on elargit
+  // le systeme (defilement horizontal) au lieu de compresser tout le morceau.
+  const measureWidth =
+    options.measureWidth ??
+    ((options.systemWidth ?? SYSTEM_WIDTH) - SYSTEM_PAD * 2) / measuresPerSystem;
+  const systemWidth = SYSTEM_PAD * 2 + measureWidth * measuresPerSystem;
 
   const totalBeats = song.bars.reduce((sum, bar) => sum + bar.beats, 0);
   const timing = createTiming(song.tempo, totalBeats);

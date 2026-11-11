@@ -27,6 +27,11 @@ interface TabPlaybackViewProps {
   song: TabPlayerSong;
   /** Mesures par systeme (4 par defaut). */
   measuresPerSystem?: number;
+  /**
+   * Tout afficher sur une seule ligne (defilement horizontal continu).
+   * Utilise pendant « Ecouter tout » pour voir la tablature defiler.
+   */
+  singleLine?: boolean;
   /** Suivre la lecture en faisant defiler le conteneur. */
   follow?: boolean;
   /** Hauteur maximale du conteneur defilant, en pixels. */
@@ -40,25 +45,34 @@ interface TabPlaybackViewProps {
 
 interface ActiveSystem {
   system: number;
+  /** Mesure suivie par la boucle d'animation (evite de parcourir toutes les notes). */
+  barIndex: number;
   cursor: SVGUseElement | null;
   notes: { el: SVGGElement; t: number; tEnd: number }[];
 }
 
 const format = (value: number): string => value.toFixed(2);
 
+/** Largeur d'une mesure sur une seule ligne (unites du viewBox). */
+const SINGLE_LINE_MEASURE = 260;
+
 export default function TabPlaybackView({
   song,
   measuresPerSystem = 4,
+  singleLine = false,
   follow = true,
   maxHeight = 560,
   className,
   onSeek,
   getTime,
 }: TabPlaybackViewProps) {
-  const layout = useMemo(
-    () => buildLayout(song, { measuresPerSystem }),
-    [song, measuresPerSystem]
-  );
+  const layout = useMemo(() => {
+    const barCount = Math.max(1, song.bars.length);
+    return buildLayout(song, {
+      measuresPerSystem: singleLine ? barCount : measuresPerSystem,
+      measureWidth: singleLine ? SINGLE_LINE_MEASURE : undefined,
+    });
+  }, [song, measuresPerSystem, singleLine]);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const svgEls = useRef(new Map<number, SVGSVGElement>());
@@ -67,6 +81,19 @@ export default function TabPlaybackView({
   const registerSystem = useCallback((index: number, el: SVGSVGElement | null) => {
     if (el) svgEls.current.set(index, el);
     else svgEls.current.delete(index);
+  }, []);
+
+  // Suivi horizontal (une seule ligne) : le curseur reste a ~35 % de la
+  // fenetre et la tablature defile en continu sous lui.
+  const followX = useCallback((x: number) => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const view = container.clientWidth;
+    if (!view) return;
+    const target = Math.max(0, x - view * 0.35);
+    const max = Math.max(0, container.scrollWidth - view);
+    const next = Math.min(target, max);
+    if (Math.abs(container.scrollLeft - next) > 0.5) container.scrollLeft = next;
   }, []);
 
   const scrollToSystem = useCallback((system: number) => {
@@ -93,36 +120,41 @@ export default function TabPlaybackView({
     (time: number) => {
       const beat = layout.timing.timeToBeat(time);
       const bar = layout.barAtBeat(beat);
+      const previous = active.current;
+      const systemChanged = !previous || previous.system !== bar.system;
 
-      if (!active.current || active.current.system !== bar.system) {
-        const previous = active.current;
-        if (previous) {
+      if (!previous || systemChanged || previous.barIndex !== bar.index) {
+        if (previous && systemChanged) {
           const previousSvg = svgEls.current.get(previous.system);
           const previousCursor = previousSvg?.querySelector<SVGUseElement>(
             "use[data-playhead]"
           );
           if (previousCursor) previousCursor.style.visibility = "hidden";
-          for (const note of previous.notes) {
-            note.el.dataset.on = "false";
-            note.el.dataset.played = String(time >= note.tEnd);
-          }
         }
 
         const svg = svgEls.current.get(bar.system);
         const cursor =
           svg?.querySelector<SVGUseElement>("use[data-playhead]") ?? null;
-        const notes = svg
-          ? Array.from(svg.querySelectorAll<SVGGElement>("g[data-note]")).map(
-              (el) => ({
-                el,
-                t: Number(el.dataset.t ?? 0),
-                tEnd: Number(el.dataset.e ?? 0),
-              })
-            )
-          : [];
+        const notes: { el: SVGGElement; t: number; tEnd: number }[] = [];
+        if (svg) {
+          // Une seule passe par mesure (pas par image) : on remet a jour l'etat
+          // des notes du systeme, puis la boucle d'animation ne suit que les
+          // notes de la mesure courante.
+          const members = String(bar.index);
+          for (const el of svg.querySelectorAll<SVGGElement>("g[data-note]")) {
+            const t = Number(el.dataset.t ?? 0);
+            const tEnd = Number(el.dataset.e ?? 0);
+            const played = time >= tEnd;
+            if (el.dataset.played !== String(played)) {
+              el.dataset.played = String(played);
+            }
+            el.dataset.on = "false";
+            if (el.dataset.bar === members) notes.push({ el, t, tEnd });
+          }
+        }
 
-        active.current = { system: bar.system, cursor, notes };
-        if (follow) scrollToSystem(bar.system);
+        active.current = { system: bar.system, barIndex: bar.index, cursor, notes };
+        if (follow && !singleLine) scrollToSystem(bar.system);
       }
 
       const current = active.current;
@@ -133,6 +165,7 @@ export default function TabPlaybackView({
         current.cursor.setAttribute("transform", `translate(${format(x)} 0)`);
         current.cursor.style.visibility = "visible";
       }
+      if (follow && singleLine) followX(x);
 
       for (const note of current.notes) {
         const on = time >= note.t && time < note.tEnd;
@@ -143,17 +176,25 @@ export default function TabPlaybackView({
         }
       }
     },
-    [layout, follow, scrollToSystem]
+    [layout, follow, singleLine, scrollToSystem, followX]
   );
 
-  // Reactiver le suivi doit ramener immediatement le systeme courant a l'ecran.
+  // Reactiver le suivi doit ramener immediatement la position courante a l'ecran.
   useEffect(() => {
-    if (follow && active.current) scrollToSystem(active.current.system);
-  }, [follow, scrollToSystem]);
+    if (!follow) return;
+    const current = active.current;
+    if (!current) return;
+    if (singleLine) {
+      const bar = layout.bars[current.barIndex];
+      if (bar) followX(bar.x);
+    } else {
+      scrollToSystem(current.system);
+    }
+  }, [follow, singleLine, scrollToSystem, followX, layout]);
 
   // Un nouveau morceau invalide le systeme actif, efface les etats du morceau
   // precedent (React reutilise les noeuds des premiers systemes) et remet le
-  // defilement en haut. Le premier dessin vient de la boucle d'animation.
+  // defilement au debut. Le premier dessin vient de la boucle d'animation.
   useEffect(() => {
     active.current = null;
     for (const svg of svgEls.current.values()) {
@@ -164,7 +205,10 @@ export default function TabPlaybackView({
         el.dataset.played = "false";
       }
     }
-    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 0;
+      scrollRef.current.scrollLeft = 0;
+    }
   }, [layout]);
 
   useEffect(() => {
@@ -187,7 +231,7 @@ export default function TabPlaybackView({
   return (
     <div
       ref={scrollRef}
-      className={`${styles.scroller} ${className ?? ""}`}
+      className={`${styles.scroller} ${singleLine ? styles.singleLine : ""} ${className ?? ""}`}
       style={{ maxHeight }}
     >
       <div className={styles.sheet}>
@@ -198,6 +242,7 @@ export default function TabPlaybackView({
             layout={layout}
             register={registerSystem}
             onSeek={onSeek}
+            pixelWidth={singleLine ? layout.systemWidth : undefined}
           />
         ))}
       </div>
@@ -214,6 +259,8 @@ interface SystemSvgProps {
   layout: Layout;
   register: (index: number, el: SVGSVGElement | null) => void;
   onSeek?: (seconds: number) => void;
+  /** Largeur en pixels (une seule ligne : 1 unite du viewBox = 1 px). */
+  pixelWidth?: number;
 }
 
 const SystemSvg = memo(function SystemSvg({
@@ -221,6 +268,7 @@ const SystemSvg = memo(function SystemSvg({
   layout,
   register,
   onSeek,
+  pixelWidth,
 }: SystemSvgProps) {
   const width = layout.systemWidth;
   const height = layout.systemHeight;
@@ -235,7 +283,10 @@ const SystemSvg = memo(function SystemSvg({
   return (
     <div
       className={styles.system}
-      style={{ aspectRatio: `${width} / ${height}` }}
+      style={{
+        aspectRatio: `${width} / ${height}`,
+        ...(pixelWidth ? { width: `${pixelWidth}px` } : null),
+      }}
     >
       <svg
         ref={(el) => register(system.index, el)}
@@ -423,6 +474,7 @@ function NoteGlyph({ note }: { note: LayoutNote }) {
       {techniqueGlyphs(note)}
       <g
         data-note
+        data-bar={note.barIndex}
         data-t={note.t.toFixed(4)}
         data-e={note.tEnd.toFixed(4)}
         data-on="false"
