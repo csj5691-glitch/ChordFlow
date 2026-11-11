@@ -246,30 +246,25 @@ export default function EditSongPage({
 }
 
 function TabSection({
-  index,
+  title,
   song,
-  repeats,
-  from,
+  start,
   follow,
   getClock,
   seekClock,
 }: {
-  index: number;
+  title: string;
   song: ComponentProps<typeof TabPlaybackView>["song"];
-  repeats: number;
-  from: number;
+  start: number;
   follow: boolean;
   getClock: () => number;
   seekClock: (seconds: number) => void;
 }) {
-  const getTime = useCallback(() => getClock() - from, [getClock, from]);
-  const onSeek = useCallback((s: number) => seekClock(s + from), [seekClock, from]);
+  const getTime = useCallback(() => getClock() - start, [getClock, start]);
+  const onSeek = useCallback((s: number) => seekClock(s + start), [seekClock, start]);
   return (
     <div className="flex flex-col gap-2">
-      <p className="flex items-center gap-2 text-[11px] font-semibold text-zinc-400">
-        <span>Section {index + 1}</span>
-        {repeats > 0 && <span className="font-mono text-amber-400">rejoue ×{repeats}</span>}
-      </p>
+      <p className="text-[11px] font-semibold text-zinc-400">{title}</p>
       <TabPlaybackView
         song={song}
         follow={follow}
@@ -1563,30 +1558,51 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
 
   // Une tablature par section répétée. Le curseur reste sur l'horloge globale :
   // chaque section décale le temps de son point de départ.
-  const tabSections = useMemo(() => {
+  // Chaque passage (répétition comprise) a sa propre portée, dans l'ordre de
+  // lecture du son : même découpe que renderSequence (boucles + 1re/2e fin).
+  const tabPasses = useMemo(() => {
     if (mode !== "riff") return [];
     let start = 0;
-    const sections: {
-      key: number;
+    const passes: {
+      key: string;
+      section: number;
+      pass: number;
+      loops: number;
       song: NonNullable<typeof tabSong>;
-      repeats: number;
-      from: number;
+      start: number;
     }[] = [];
-    repeatSections(diagrams).forEach((sec, key) => {
-      const result = fromChords(sec.shapes, {
-        title: song?.title ?? "",
-        artist: song?.artist,
-        bpm,
-        timeSignature: song?.timeSignature,
-        tuning: song?.tuning,
-      });
-      if (result.song.bars.length === 0) return;
-      const from = start;
-      const beats = result.song.bars.reduce((a, b) => a + b.beats, 0);
-      start += (beats * 60) / Math.max(1, bpm);
-      sections.push({ key, song: result.song, repeats: sec.repeats, from });
+    repeatSections(diagrams).forEach((sec, si) => {
+      const loops = Math.max(1, sec.repeats);
+      const useEndings = loops > 1 && sec.shapes.some((d) => d.ending != null);
+      for (let r = 0; r < loops; r++) {
+        const isLast = r === loops - 1;
+        const shapes = sec.shapes.filter(
+          (d) =>
+            !useEndings ||
+            !((d.ending === 1 && isLast) || (d.ending === 2 && !isLast))
+        );
+        const result = fromChords(shapes, {
+          title: song?.title ?? "",
+          artist: song?.artist,
+          bpm,
+          timeSignature: song?.timeSignature,
+          tuning: song?.tuning,
+        });
+        const beats = result.song.bars.reduce((a, b) => a + b.beats, 0);
+        if (result.song.bars.length > 0) {
+          passes.push({
+            key: `${si}-${r}`,
+            section: si,
+            pass: r + 1,
+            loops,
+            song: result.song,
+            start,
+          });
+        }
+        start += (beats * 60) / Math.max(1, bpm);
+      }
     });
-    return sections;
+    return passes;
   }, [mode, diagrams, song?.title, song?.artist, song?.timeSignature, song?.tuning, bpm]);
 
   // Paroles sous la tablature : horodatees avec les paroles officielles (LRC)
@@ -1978,13 +1994,12 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
               </p>
             ) : (
               <>
-                {tabSections.map((sec, si) => (
+                {tabPasses.map((p) => (
                   <TabSection
-                    key={sec.key}
-                    index={si}
-                    song={sec.song}
-                    repeats={sec.repeats}
-                    from={sec.from}
+                    key={p.key}
+                    title={`Section ${p.section + 1}${p.loops > 1 ? ` · passage ${p.pass}/${p.loops}` : ""}`}
+                    song={p.song}
+                    start={p.start}
                     follow={tabFollow}
                     getClock={previewTime}
                     seekClock={seekPreview}
