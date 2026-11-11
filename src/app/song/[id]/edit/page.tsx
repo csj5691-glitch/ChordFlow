@@ -11,6 +11,7 @@ import Conductor from "@/components/Conductor";
 import TabStaffView from "@/components/TabStaffView";
 import ArpeggioEditor from "@/components/ArpeggioEditor";
 import TabPlaybackView from "@/components/TabPlaybackView";
+import TabLyricsView, { type TabLyricLine } from "@/components/TabLyricsView";
 import { loadAudioStems, saveAudioStem, getAudioStemUrl } from "@/lib/audio-store";
 import {
   analyzeGuitarProFile,
@@ -45,6 +46,9 @@ import {
   detectArticulationSequences,
 } from "@/lib/articulation";
 import { diagramsToTabWithPositions } from "@/lib/diagrams-to-tab";
+import { parseChordContent } from "@/lib/chord-parser";
+import { decodeHtmlEntities } from "@/lib/ug-scraper";
+import { buildChordLineTimestamps } from "@/lib/lyric-timing";
 import { fromChords } from "@/lib/tab-player/from-chords";
 import { playSoftSequence, type SoftPlayer } from "@/lib/soft-player";
 import {
@@ -1499,6 +1503,56 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
     });
     return result.song.bars.length > 0 ? result.song : null;
   }, [mode, diagrams, song?.title, song?.artist, song?.timeSignature, song?.tuning, bpm]);
+
+  // Paroles sous la tablature : horodatees avec les paroles officielles (LRC)
+  // recalees sur la grille quand elles existent, sinon reparties sur la duree
+  // de la tablature. Les lignes de tab ASCII d'un import sont ignorees.
+  const tabLyrics = useMemo<TabLyricLine[]>(() => {
+    const content = song?.content ?? "";
+    if (!content.trim()) return [];
+    const sections = parseChordContent(decodeHtmlEntities(content));
+    const isTabNoise = (text: string): boolean => {
+      const value = text.trim();
+      if (/^[eBGDAE]\s*\|/.test(value)) return true;
+      return /^[\d\s|:()\-\\/hpbx~]+$/i.test(value);
+    };
+
+    const lrc: { time: number; text: string }[] = [];
+    for (const raw of (song?.officialSynced || "").split("\n")) {
+      const match = raw.match(/^\[(\d+):(\d+\.?\d*)\]\s*(.*)/);
+      if (match && match[3].trim()) {
+        lrc.push({
+          time: parseInt(match[1], 10) * 60 + parseFloat(match[2]),
+          text: decodeHtmlEntities(match[3]).trim(),
+        });
+      }
+    }
+
+    if (lrc.length > 0) {
+      const timed = buildChordLineTimestamps(sections, lrc);
+      const result = timed
+        .map((entry) => {
+          const line = sections[entry.sectionIndex]?.lines[entry.lineIndex];
+          return {
+            label: sections[entry.sectionIndex]?.label ?? "",
+            text: (line?.lyrics ?? "").trim(),
+            time: entry.time,
+          };
+        })
+        .filter((line) => line.text && !isTabNoise(line.text));
+      if (result.some((line) => line.time > 0)) return result;
+    }
+
+    return sections.flatMap((section) =>
+      section.lines
+        .map((line) => ({
+          label: section.label ?? "",
+          text: line.lyrics.trim(),
+          time: null,
+        }))
+        .filter((line) => line.text && !isTabNoise(line.text))
+    );
+  }, [song?.content, song?.officialSynced]);
   const secondsFor = (beats: number) => (beats * 60) / bpm;
   const beatsFor = (d: SavedChordShape) => (d.duration ?? 1) * (d.dotted ? 1.5 : 1);
 
@@ -1838,14 +1892,22 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                 cordes des diagrammes.
               </p>
             ) : (
-              <TabPlaybackView
-                song={tabSong}
-                follow={tabFollow}
-                singleLine={playingAll}
-                maxHeight={640}
-                getTime={previewTime}
-                onSeek={seekPreview}
-              />
+              <>
+                <TabPlaybackView
+                  song={tabSong}
+                  follow={tabFollow}
+                  singleLine={playingAll}
+                  maxHeight={640}
+                  getTime={previewTime}
+                  onSeek={seekPreview}
+                />
+                <TabLyricsView
+                  lines={tabLyrics}
+                  getTime={previewTime}
+                  offset={lyricsOffset}
+                  duration={(totalBeats * 60) / Math.max(1, bpm)}
+                />
+              </>
             )}
           </div>
         ) : (
