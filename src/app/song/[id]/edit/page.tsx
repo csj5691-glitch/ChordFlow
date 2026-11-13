@@ -1472,17 +1472,21 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
     let ending1 = 0;
     let ending2 = 0;
     let total = 0;
+    // Même logique que renderSequence : avec répétition, la 1re fin joue à
+    // chaque passage sauf le dernier, la 2e fin seulement au dernier ; sans
+    // répétition, toutes les fins jouent une fois.
+    const flush = (loops: number) => {
+      total +=
+        loops > 1
+          ? sectionBeats * loops + ending1 * (loops - 1) + ending2
+          : sectionBeats + ending1 + ending2;
+      sectionBeats = 0;
+      ending1 = 0;
+      ending2 = 0;
+    };
     for (const d of list) {
       if (d.bar) {
-        const loops = sectionRepeats(d);
-        if (loops > 1 && (ending1 > 0 || ending2 > 0)) {
-          total += sectionBeats * loops + ending1 * (loops - 1);
-        } else {
-          total += sectionBeats * loops;
-        }
-        sectionBeats = 0;
-        ending1 = 0;
-        ending2 = 0;
+        flush(sectionRepeats(d));
       } else if (d.navKind) {
         // marqueur sans durée
       } else if (d.ending === 1) {
@@ -1493,7 +1497,8 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
         sectionBeats += beatsFor(d);
       }
     }
-    return total + sectionBeats;
+    flush(1);
+    return total;
   })();
 
   const measureState = (() => {
