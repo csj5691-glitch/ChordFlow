@@ -5,6 +5,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { parseAsciiTabModel, type AsciiTabModel, type TabToken } from "@/lib/ascii-tab-midi";
 import type { TabRest } from "@/lib/notes-to-tab";
+import type { TabBarMark } from "@/lib/diagrams-to-tab";
 import {
   slotKind,
   slotFrets,
@@ -283,6 +284,8 @@ export default function TabStaffView({
   measureOffset = 0,
   measures,
   tuning,
+  barMarks,
+  onBarMarkClick,
   onChange,
 }: {
   title?: string;
@@ -316,6 +319,12 @@ export default function TabStaffView({
   // Libellé d'accordage (ex. « D A F C G C ») : remplace les noms de cordes
   // standard affichés à gauche de la portée.
   tuning?: string;
+  // Signes de renvoi par mesure : côté « start » (bord gauche) et « end » (bord
+  // droit). Rendus au-dessus de la portée avec le nombre de passages.
+  barMarks?: Map<number, { start?: TabBarMark; end?: TabBarMark }>;
+  // Clic sur un signe de renvoi : ouvre le réglage de la barre correspondante
+  // dans la bande de cartes (mêmes commandes que les cartes).
+  onBarMarkClick?: (diagramIndex: number) => void;
   onChange?: (ascii: string) => void;
 }) {
   const model = useMemo(() => parseAsciiTabModel(tab), [tab]);
@@ -534,6 +543,8 @@ export default function TabStaffView({
                     slides={slides}
                     graces={graces}
                     beats={beats ? beats[m] : undefined}
+                    barMarks={barMarks?.get(m)}
+                    onBarMarkClick={onBarMarkClick}
                     sel={sel && sel.m === m ? sel : null}
                     onSelect={select}
                     onFret={changeFret}
@@ -550,7 +561,67 @@ export default function TabStaffView({
           ↑/↓ = case · ←/→ = colonne · M = étouffée · T = liaison · Suppr = repos · Échap = désélectionner
         </p>
       )}
+      {!editable && onBarMarkClick && barMarks && barMarks.size > 0 && (
+        <p className="text-[10px] text-zinc-600 mt-1.5 px-1">
+          Clic sur un signe de répétition pour ouvrir le réglage de la barre dans les cartes.
+        </p>
+      )}
     </div>
+  );
+}
+
+// Pictogramme d'un signe de renvoi posé au-dessus de la portée : trait épais à
+// gauche pour un début, à droite pour une fin, avec le nombre de passages à la
+// fin de section (« ×4 »). Cliquable quand le Studio fournit `onClick` : le
+// clic ouvre le réglage de la barre dans la bande de cartes.
+function BarMarkBadge({
+  mark,
+  side,
+  onClick,
+}: {
+  mark: TabBarMark;
+  side: "start" | "end";
+  onClick?: (diagramIndex: number) => void;
+}) {
+  const isStart = side === "start";
+  const count = !isStart && mark.repeats > 1 ? `×${mark.repeats}` : "";
+  const title = isStart
+    ? "Début de répétition"
+    : mark.repeats > 1
+      ? `Fin de répétition — section rejouée ${mark.repeats} fois`
+      : "Fin de répétition — section jouée une seule fois";
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick ? () => onClick(mark.diagramIndex) : undefined}
+      title={onClick ? `${title} — cliquer pour régler` : title}
+      className={
+        "absolute flex items-center gap-0.5 text-[9px] font-bold leading-none rounded px-0.5 " +
+        (onClick ? "text-amber-300 hover:bg-amber-400/15 cursor-pointer" : "text-amber-300/90 cursor-default")
+      }
+      style={{ top: 30, [isStart ? "left" : "right"]: 1 }}
+    >
+      <svg width={11} height={13} viewBox="0 0 11 13" aria-hidden="true" fill="currentColor">
+        {isStart ? (
+          <>
+            <rect x={0} y={0} width={2.4} height={13} rx={0.4} />
+            <rect x={5} y={0} width={1} height={13} />
+            <circle cx={8.4} cy={3.4} r={1.15} />
+            <circle cx={8.4} cy={9.6} r={1.15} />
+          </>
+        ) : (
+          <>
+            <circle cx={2.6} cy={3.4} r={1.15} />
+            <circle cx={2.6} cy={9.6} r={1.15} />
+            <rect x={5} y={0} width={1} height={13} />
+            <rect x={8.6} y={0} width={2.4} height={13} rx={0.4} />
+          </>
+        )}
+      </svg>
+      {count && <span>{count}</span>}
+    </button>
   );
 }
 
@@ -570,6 +641,8 @@ function MeasureBox({
   slides,
   graces,
   beats,
+  barMarks,
+  onBarMarkClick,
   sel,
   onSelect,
   onFret,
@@ -590,6 +663,8 @@ function MeasureBox({
   slides?: Map<string, "/" | "\\">;
   graces?: Map<string, number>;
   beats?: { unit: number; slots: number; notes: { slot: number; beats: number }[] };
+  barMarks?: { start?: TabBarMark; end?: TabBarMark };
+  onBarMarkClick?: (diagramIndex: number) => void;
   sel: Cell | null;
   onSelect: (cell: Cell, dir?: "left" | "right" | "up" | "down") => void;
   onFret: (cell: Cell, delta: 1 | -1) => void;
@@ -676,6 +751,10 @@ function MeasureBox({
       <span className="absolute left-1/2 -translate-x-1/2 top-0.5 text-[9px] text-zinc-500 leading-none">
         {measureNumber}
       </span>
+      {/* signes de renvoi (début / fin de section) : mêmes informations que
+          les cartes, cliquables pour ouvrir leur réglage */}
+      {barMarks?.start && <BarMarkBadge mark={barMarks.start} side="start" onClick={onBarMarkClick} />}
+      {barMarks?.end && <BarMarkBadge mark={barMarks.end} side="end" onClick={onBarMarkClick} />}
       {/* accords interprétés pour la mesure (riffs du Studio) : un accord centré,
           ou deux accords (un par tranche de 2 temps) si l'harmonie change en
           cours de mesure ; diagramme au survol */}

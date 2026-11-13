@@ -43,7 +43,7 @@ import {
   articulationByIndex,
   detectArticulationSequences,
 } from "@/lib/articulation";
-import { diagramsToTabWithPositions } from "@/lib/diagrams-to-tab";
+import { diagramsToTabWithPositions, type TabBarMark } from "@/lib/diagrams-to-tab";
 import { playSoftSequence, type SoftPlayer } from "@/lib/soft-player";
 import {
   ArrowLeft,
@@ -375,6 +375,34 @@ function EditSongView({ id }: { id: string }) {
     for (const g of sequenceTab.graces) map.set(`${g.m}|${g.s}|${g.slot}`, g.fret);
     return map;
   }, [sequenceTab.graces]);
+
+  // Signes de renvoi par mesure pour la vue Tablature (côté début / fin).
+  const sequenceBarMarks = useMemo(() => {
+    const map = new Map<number, { start?: TabBarMark; end?: TabBarMark }>();
+    for (const b of sequenceTab.bars) {
+      const entry = map.get(b.measure) ?? {};
+      entry[b.side] = b;
+      map.set(b.measure, entry);
+    }
+    return map;
+  }, [sequenceTab.bars]);
+
+  // Clic sur un signe de renvoi de la tablature : bascule sur les cartes, ouvre
+  // le réglage de la barre et l'amène à l'écran (mêmes commandes que la carte).
+  const revealDiagramCard = useCallback(
+    (index: number) => {
+      const d = diagrams[index];
+      if (!d) return;
+      setSeqView("cards");
+      if (d.bar) setExpandedBar(d.id);
+      requestAnimationFrame(() => {
+        document
+          .getElementById(`diagram-card-${d.id}`)
+          ?.scrollIntoView({ block: "center", behavior: "smooth" });
+      });
+    },
+    [diagrams]
+  );
 
   // Riffs : passages de notes seules (séquences d'« arpèges »), éditables
   // individuellement dans l'éditeur de notes.
@@ -2903,6 +2931,8 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                         graces={gracesMap}
                         measures={sequenceTab.grid.length}
                         tuning={song?.tuning}
+                        barMarks={sequenceBarMarks}
+                        onBarMarkClick={revealDiagramCard}
                       />
                     ) : (
                       <p className="text-[11px] text-zinc-600">
@@ -2937,6 +2967,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                   {diagrams.map((d, i) => (
                   <div
                     key={d.id}
+                    id={`diagram-card-${d.id}`}
                     className={`bg-zinc-900 border border-zinc-700 rounded-xl p-3 flex flex-col sm:flex-row items-center gap-4 ${
                       articulationMap.has(i)
                         ? `border-l-4 ${ARTICULATION_BORDER[articulationMap.get(i)!]}`
