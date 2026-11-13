@@ -434,9 +434,19 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
     if (!bar) continue;
     const masterBar = score.masterBars[mbIdx];
 
-    if (masterBar.isRepeatStart) {
+    // Répétitions : la barre de fin porte le nombre total de passages
+    // (`repeatCount`), que `renderSequence` rejoue. Une barre qui est à la fois
+    // fin et début ferme la section précédente avant d'ouvrir la suivante.
+    const repeatStart = masterBar.isRepeatStart;
+    const repeatEnd = masterBar.isRepeatEnd;
+    const repeatCount = Math.max(1, Math.min(32, masterBar.repeatCount || 1));
+    if (repeatEnd && repeatStart) {
+      diagrams.push(barShape("endRepeat", repeatCount));
+      diagrams.push(barShape("beginRepeat"));
+    } else if (repeatStart) {
       diagrams.push(barShape("beginRepeat"));
     }
+    const ending = repeatEnding(masterBar);
     const section = masterBar.section;
     if (section?.marker) {
       diagrams.push(sectionShape(section.marker));
@@ -588,15 +598,23 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
       }
     }
 
-    if (masterBar.isRepeatEnd) {
-      diagrams.push(barShape("endRepeat"));
+    // Les accords de la mesure précèdent la barre de fin : le signe de renvoi
+    // ferme la mesure (et donc la section rejouée), il ne l'ouvre pas.
+    if (ending) {
+      for (const d of barChords) d.ending = ending;
     }
-
-    // Flush bar-level chords after repeat marks so measure flow reads clearly.
     if (barChords.length > 0) {
       diagrams.push(...barChords);
     }
+    if (repeatEnd && !repeatStart) {
+      diagrams.push(barShape("endRepeat", repeatCount));
+    }
   }
+
+  // Fins alternatives : dans une partition, la 2e fin est écrite APRÈS le signe
+  // de renvoi. Le modèle ChordFlow place toutes les fins dans la section
+  // répétée ; on rapatrie donc la 2e fin avant la barre de fin.
+  moveSecondEndingsBeforeRepeat(diagrams);
 
   // Direction des slides de décalage : déduite de l'attaque suivante sur la
   // même corde (les liaisons retirées ne font plus d'attaque parasite).
@@ -935,7 +953,10 @@ function drumShape(label: string, hits: number, duration: number): SavedChordSha
   };
 }
 
-function barShape(kind: "beginRepeat" | "endRepeat"): SavedChordShape {
+function barShape(
+  kind: "beginRepeat" | "endRepeat",
+  repeats = 1
+): SavedChordShape {
   return {
     id: gpId("gp-bar"),
     label: kind === "beginRepeat" ? "Répétition début" : "Répétition fin",
@@ -947,8 +968,38 @@ function barShape(kind: "beginRepeat" | "endRepeat"): SavedChordShape {
     capo: 0,
     bar: true,
     barKind: kind,
-    repeats: 1,
+    repeats,
   };
+}
+
+// Fin alternative d'une mesure (`alternateEndings` est un drapeau : bit 0 =
+// 1re fin, bit 1 = 2e fin). ChordFlow ne modélise que les fins 1 et 2.
+function repeatEnding(mb: model.MasterBar): 1 | 2 | undefined {
+  const bits = mb.alternateEndings;
+  if (!bits) return undefined;
+  if (bits === 2) return 2;
+  // 1, ou 1+2 quand la 1re fin couvre les deux premiers passages.
+  return 1;
+}
+
+// Rapatrie la 2e fin (écrite après le signe de renvoi) dans la section
+// répétée, avant la barre de fin, pour que `renderSequence` la joue au dernier
+// passage seulement.
+function moveSecondEndingsBeforeRepeat(diagrams: SavedChordShape[]): void {
+  for (let i = 0; i < diagrams.length; i++) {
+    const bar = diagrams[i];
+    if (!bar.bar || bar.barKind !== "endRepeat" || (bar.repeats ?? 1) < 2) continue;
+    let end = i + 1;
+    while (end < diagrams.length) {
+      const d = diagrams[end];
+      if (d.bar || d.ending !== 2) break;
+      end++;
+    }
+    if (end === i + 1) continue;
+    const second = diagrams.splice(i + 1, end - i - 1);
+    diagrams.splice(i, 0, ...second);
+    i += second.length;
+  }
 }
 
 function sectionShape(marker: string): SavedChordShape {
