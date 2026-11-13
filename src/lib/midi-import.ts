@@ -402,30 +402,45 @@ export function midiChordTimeline(data: Uint8Array): MidiChordEvent[] {
 function identifyChord(pitches: number[]): string | null {
   if (pitches.length < 2) return null;
 
-  const pitchSet = [...new Set(pitches)].sort((a, b) => a - b);
-  if (pitchSet.length < 2) return null;
-
-  const root = pitchSet[0] % 12;
-  const intervals = pitchSet.map((p) => (p - root) % 12);
+  // Conserve l'ordre des hauteurs (grave → aigu) : la note la plus grave est
+  // essayée en premier, puis les autres en cas de renversement.
+  const candidates: number[] = [];
+  for (const pitch of [...pitches].sort((a, b) => a - b)) {
+    const pc = ((pitch % 12) + 12) % 12;
+    if (!candidates.includes(pc)) candidates.push(pc);
+  }
+  if (candidates.length < 2) return null;
 
   const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-  const rootName = NOTE_NAMES[root] as "C" | "C#" | "D" | "D#" | "E" | "F" | "F#" | "G" | "G#" | "A" | "A#" | "B";
 
-  if (intervals.includes(4) && intervals.includes(7)) {
-    if (intervals.includes(10)) return `${rootName}m7`;
-    if (intervals.includes(11)) return `${rootName}maj7`;
-    return `${rootName}`;
-  }
-  if (intervals.includes(3) && intervals.includes(7)) {
-    if (intervals.includes(10)) return `${rootName}m7`;
-    if (intervals.includes(11)) return `${rootName}maj7`;
-    return `${rootName}m`;
-  }
-  if (intervals.includes(4) && intervals.includes(7) && intervals.includes(10)) {
-    return `${rootName}7`;
-  }
-  if (intervals.includes(7)) {
-    return `${rootName}5`;
+  // La note la plus grave n'est pas forcément la fondamentale (renversements) :
+  // on essaie chaque hauteur comme fondamentale et on garde la première qui
+  // forme un accord reconnu.
+  for (const root of candidates) {
+    const intervals = new Set(candidates.map((p) => (p - root + 12) % 12));
+    const rootName = NOTE_NAMES[root];
+
+    if (intervals.has(4) && intervals.has(7)) {
+      if (intervals.has(11)) return `${rootName}maj7`;
+      if (intervals.has(10)) return `${rootName}7`;
+      return rootName;
+    }
+    if (intervals.has(3) && intervals.has(7)) {
+      if (intervals.has(11)) return `${rootName}mMaj7`;
+      if (intervals.has(10)) return `${rootName}m7`;
+      return `${rootName}m`;
+    }
+    if (intervals.has(4) && intervals.has(8)) {
+      if (intervals.has(10)) return `${rootName}+7`;
+      return `${rootName}+`;
+    }
+    if (intervals.has(3) && intervals.has(6)) {
+      if (intervals.has(9)) return `${rootName}dim7`;
+      return `${rootName}dim`;
+    }
+    if (intervals.has(7) && intervals.size === 2) {
+      return `${rootName}5`;
+    }
   }
 
   return null;
@@ -465,9 +480,14 @@ export function importMidi(
     });
 
     const trackDiagrams: SavedChordShape[] = [];
+    // Quantification à la double-croche (1/4 de temps) au lieu du temps entier :
+    // les accords changés sur une croche/double-croche ne sont plus fusionnés
+    // avec l'accord du temps précédent.
+    const ticksPerSlot = Math.max(1, Math.round(ticksPerBeat / 4));
     const notesByBeat = new Map<number, MidiNote[]>();
     for (const note of track.notes) {
-      const beat = Math.floor(note.startTick / ticksPerBeat);
+      const slot = Math.round(note.startTick / ticksPerSlot);
+      const beat = (slot * ticksPerSlot) / ticksPerBeat;
       if (!notesByBeat.has(beat)) notesByBeat.set(beat, []);
       notesByBeat.get(beat)!.push(note);
     }

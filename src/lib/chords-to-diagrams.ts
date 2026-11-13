@@ -81,6 +81,10 @@ function chordToShape(name: string): SavedChordShape | null {
     muted,
     baseFret: shape.baseFret,
     capo: 0,
+    // Les cordes à vide ne figurent pas dans `fingers` (fret 0, pas de doigt).
+    // On mémorise le nombre de cordes qui sonnent pour que la tablature et le
+    // synthé les rajoutent au lieu de perdre des notes (ex. C = 5 cordes).
+    sounding: shape.frets.filter((fret) => fret !== -1).length,
   };
 }
 

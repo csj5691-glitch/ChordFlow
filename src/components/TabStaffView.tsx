@@ -357,6 +357,7 @@ export default function TabStaffView({
             title: title ?? (model.title === "MIDI" ? undefined : model.title),
             bpm: bpm ?? model.bpm,
             measures: buildEditedMeasures(model, next),
+            barBeats: model.barBeats,
           })
         );
       }

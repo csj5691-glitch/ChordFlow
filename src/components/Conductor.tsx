@@ -455,6 +455,10 @@ export default function Conductor({
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
   const centerTabRef = useRef<HTMLDivElement | null>(null);
   const [stemStart, setStemStart] = useState<number | null>(null);
+  // Vrai quand la détection du pré-roll est terminée (ou qu'il n'y a pas
+  // d'audio) : l'autolecture attend ce signal pour démarrer avec le bon
+  // alignement, au lieu de partir avant la fin de `detectFirstSound`.
+  const [stemProbeDone, setStemProbeDone] = useState(!(instrumentalUrl || vocalsUrl));
   const [stemDuration, setStemDuration] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const stemStartRef = useRef<number | null>(null);
@@ -581,7 +585,10 @@ export default function Conductor({
     let cancelled = false;
     const refUrl = instrumentalUrl ?? vocalsUrl;
     void Promise.resolve().then(() => {
-      if (!cancelled) setStemDuration(null);
+      if (!cancelled) {
+        setStemDuration(null);
+        setStemProbeDone(!refUrl);
+      }
     });
     if (refUrl) {
       void detectFirstSound(refUrl).then((d) => {
@@ -593,11 +600,15 @@ export default function Conductor({
           setStemStart(d);
           stemStartRef.current = d;
         }
+        setStemProbeDone(true);
       });
     } else {
       stemStartRef.current = null;
       void Promise.resolve().then(() => {
-        if (!cancelled) setStemStart(null);
+        if (!cancelled) {
+          setStemStart(null);
+          setStemProbeDone(true);
+        }
       });
     }
     return () => {
@@ -829,7 +840,16 @@ export default function Conductor({
   const currentPosSec = useCallback((): number => {
     const t0 = t0Ref.current;
     const ctx = ctxRef.current;
-    if (t0 !== null && ctx) return Math.max(0, ctx.currentTime - t0);
+    if (t0 !== null && ctx) {
+      const audioSec = Math.max(0, ctx.currentTime - t0);
+      const ratio = tempoRatioRef.current;
+      // La position audio doit être ramenée en temps de grille, sinon une
+      // pause/reprise ou un saut repart sur la position audio brute et dérive
+      // dès que l'étalonnage tempo est différent de 1.
+      if (ratio === 1) return audioSec;
+      const seek = seekRef.current;
+      return seek + (audioSec - seek) * ratio;
+    }
     return seekRef.current;
   }, []);
 
@@ -874,6 +894,7 @@ export default function Conductor({
     [bandEvents, currentPosSec, play, playing, paused]
   );
   useEffect(() => {
+    if (!stemProbeDone) return;
     if (playedRef.current || events.length === 0) return;
     playedRef.current = true;
     const t = window.setTimeout(() => void play(0), 50);
@@ -882,11 +903,12 @@ export default function Conductor({
       stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events]);
+  }, [events, stemProbeDone]);
 
   // Autolecture sans accords : les stems se lisent seuls dès que la durée
   // audio est connue (les accords restent gérés par l'effet ci-dessus).
   useEffect(() => {
+    if (!stemProbeDone) return;
     if (events.length > 0) return;
     if (playedRef.current || stemDuration === null) return;
     playedRef.current = true;
@@ -896,7 +918,7 @@ export default function Conductor({
       stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events, stemDuration]);
+  }, [events, stemDuration, stemProbeDone]);
 
   useEffect(() => {
     const strip = stripRef.current;

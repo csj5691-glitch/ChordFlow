@@ -8,7 +8,11 @@ const FRAME_SECONDS = 0.05;
 const MIN_BPM = 60;
 const MAX_BPM = 180;
 
-function downsampleToTarget(samples: Float32Array, srcRate: number, maxSeconds: number): Float32Array {
+function downsampleToTarget(
+  samples: Float32Array,
+  srcRate: number,
+  maxSeconds: number
+): { samples: Float32Array; sampleRate: number } {
   const windowLen = Math.min(samples.length, Math.floor(maxSeconds * srcRate));
   const step = Math.max(2, Math.round(srcRate / TARGET_SAMPLE_RATE));
   const outLength = Math.floor(windowLen / step);
@@ -23,11 +27,14 @@ function downsampleToTarget(samples: Float32Array, srcRate: number, maxSeconds: 
     }
     out[i] = acc / n;
   }
-  return out;
+  // Le pas étant arrondi, la fréquence réelle diffère de TARGET_SAMPLE_RATE
+  // (ex. 48 kHz / 4 = 12 kHz) : on la renvoie pour que les trames d'onset
+  // soient calculées avec la bonne durée.
+  return { samples: out, sampleRate: srcRate / step };
 }
 
-function onsetEnvelope(mono: Float32Array): Float32Array {
-  const frame = Math.floor(TARGET_SAMPLE_RATE * FRAME_SECONDS);
+function onsetEnvelope(mono: Float32Array, sampleRate: number): Float32Array {
+  const frame = Math.max(1, Math.floor(sampleRate * FRAME_SECONDS));
   const count = Math.floor(mono.length / frame);
   const env = new Float32Array(count);
   for (let i = 0; i < count; i++) {
@@ -51,8 +58,8 @@ export function analyzePcm(samples: Float32Array, sampleRate: number, maxSeconds
     return { bpm: 0, confidence: 0 };
   }
 
-  const mono = downsampleToTarget(samples, sampleRate, maxSeconds);
-  const diff = onsetEnvelope(mono);
+  const { samples: mono, sampleRate: monoRate } = downsampleToTarget(samples, sampleRate, maxSeconds);
+  const diff = onsetEnvelope(mono, monoRate);
 
   const hopSec = FRAME_SECONDS;
   const minLag = Math.max(2, Math.floor((60 / MAX_BPM) / hopSec) - 1);

@@ -386,12 +386,30 @@ export interface SerializableTab {
   title?: string;
   bpm?: number;
   measures: (TabToken | undefined)[][][];
+  // Durée de chaque mesure en temps (levées, 3/4, 7/8...). Conservée lors des
+  // éditions pour ne pas reperdre les signatures irrégulières à la sérialisation.
+  barBeats?: number[];
+}
+
+function beatsToMeter(beats: number): string {
+  for (const den of [4, 8, 16]) {
+    const num = Math.round((beats * den) / 4);
+    if (num > 0 && Math.abs((num * 4) / den - beats) < 1e-6) return `${num}/${den}`;
+  }
+  return "4/4";
 }
 
 export function serializeTabModel(model: SerializableTab): string {
   const header: string[] = [];
   if (model.title) header.push(`Title: ${model.title}`);
   header.push(`Tempo: ${model.bpm ?? DEFAULT_BPM}`);
+  const barBeats = model.barBeats ?? [];
+  if (barBeats.some((b) => b !== 4)) {
+    const padded = model.measures.length % 4 === 1 ? model.measures.length + 1 : model.measures.length;
+    const list = barBeats.slice(0, padded);
+    while (list.length < padded) list.push(4);
+    header.push(`Meters: ${list.map(beatsToMeter).join(",")}`);
+  }
   const lines: string[] = [...header];
   for (let i = 0; i < model.measures.length; i += 4) {
     const group = model.measures.slice(i, i + 4);

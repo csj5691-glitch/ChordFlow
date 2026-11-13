@@ -95,9 +95,41 @@ function durationToBeats(duration: model.Duration, dots: number, tupletNumerator
   let beats = DURATION_TO_BEATS[duration] ?? 1;
   for (let i = 0; i < dots; i++) beats += beats * 0.5;
   if (tupletNumerator > 0 && tupletDenominator > 0) {
-    beats = beats * ((3 * tupletDenominator) / tupletNumerator);
+    // Triolet 3:2 : une croche écrite vaut 1/3 de temps, pas 1 temps. Le
+    // facteur est denominator / numerator (et non 3 × denominator / numerator,
+    // qui doublait la durée).
+    beats = beats * (tupletDenominator / tupletNumerator);
   }
   return +beats.toFixed(4);
+}
+
+// alphaTab compte 960 ticks par noire ; ChordFlow compte 1 beat par noire.
+const ALPHATAB_TICKS_PER_BEAT = 960;
+
+// Durée réelle d'une mesure, en beats. `calculateDuration` tient compte des
+// levées (anacrusis) et des changements de signature ; on retombe sur la
+// signature courante si alphaTab n'a pas encore calculé la durée.
+function masterBarBeats(masterBar: model.MasterBar | undefined): number {
+  if (masterBar) {
+    const calculated = masterBar.calculateDuration() / ALPHATAB_TICKS_PER_BEAT;
+    if (Number.isFinite(calculated) && calculated > 0) return calculated;
+    return (4 * masterBar.timeSignatureNumerator) / masterBar.timeSignatureDenominator;
+  }
+  return 4;
+}
+
+// Position d'un beat dans sa mesure, en beats, telle qu'elle est ÉCRITE.
+// `displayStart` ignore le décalage de lecture causé par une note d'agrément
+// (une note principale après un appoggiature reste sur le temps).
+function beatDisplayStartInBar(beat: model.Beat): number {
+  return beat.displayStart / ALPHATAB_TICKS_PER_BEAT;
+}
+
+// Position de lecture réelle d'un beat dans sa mesure, en beats. Sert à la
+// synchronisation des paroles et à l'instant de la première note, où une note
+// d'agrément décale réellement le son.
+function beatPlaybackStartInBar(beat: model.Beat): number {
+  return beat.playbackStart / ALPHATAB_TICKS_PER_BEAT;
 }
 
 // Libellé d'accordage de la portée, tel qu'affiché dans l'en-tête de la
@@ -158,26 +190,16 @@ function getFirstNoteTime(score: model.Score, trackIndex: number): number | null
   let currentBeat = 0;
   for (let mbIdx = 0; mbIdx < score.masterBars.length; mbIdx++) {
     const bar = staff.bars[mbIdx];
-    if (!bar) continue;
     const masterBar = score.masterBars[mbIdx];
-    const numerator = masterBar?.timeSignatureNumerator ?? 4;
-    const denominator = masterBar?.timeSignatureDenominator ?? 4;
-    const barBeats = (4 * numerator) / denominator;
+    const barBeats = masterBarBeats(masterBar);
 
-    const voice = bar.voices.find((v) => v.beats.length > 0);
+    const voice = bar?.voices.find((v) => v.beats.length > 0);
     if (voice) {
-      let barPos = 0;
       for (const beat of voice.beats) {
+        if (beat.graceType) continue;
         if (!beat.isRest && !beat.isEmpty && beat.notes.length > 0) {
-          return (currentBeat + barPos) * secondsPerBeat;
+          return (currentBeat + beatPlaybackStartInBar(beat)) * secondsPerBeat;
         }
-        const duration = durationToBeats(
-          beat.duration,
-          beat.dots,
-          beat.tupletNumerator,
-          beat.tupletDenominator
-        );
-        barPos += duration;
       }
     }
 
@@ -217,17 +239,14 @@ function collectLyricSyllables(score: model.Score, trackIndex: number): GpLyricS
   let currentBeat = 0;
   for (let mbIdx = 0; mbIdx < score.masterBars.length; mbIdx++) {
     const bar = staff.bars[mbIdx];
-    if (!bar) continue;
     const masterBar = score.masterBars[mbIdx];
-    const numerator = masterBar?.timeSignatureNumerator ?? 4;
-    const denominator = masterBar?.timeSignatureDenominator ?? 4;
-    const barBeats = (4 * numerator) / denominator;
+    const barBeats = masterBarBeats(masterBar);
 
     // The lyric voice is always voices[0] (applyLyrics walks its beat chain).
-    const voice = bar.voices[0];
+    const voice = bar?.voices[0];
     if (voice) {
-      let barPos = 0;
       for (const beat of voice.beats) {
+        if (beat.graceType) continue;
         const syllables = beat.lyrics;
         if (syllables) {
           for (let li = 0; li < syllables.length; li++) {
@@ -235,18 +254,12 @@ function collectLyricSyllables(score: model.Score, trackIndex: number): GpLyricS
             if (!syllable) continue;
             while (rows.length <= li) rows.push([]);
             rows[li].push({
-              time: (currentBeat + barPos) * secondsPerBeat,
+              time: (currentBeat + beatPlaybackStartInBar(beat)) * secondsPerBeat,
               barIndex: mbIdx,
               syllable,
             });
           }
         }
-        barPos += durationToBeats(
-          beat.duration,
-          beat.dots,
-          beat.tupletNumerator,
-          beat.tupletDenominator
-        );
       }
     }
     currentBeat += barBeats;
@@ -663,45 +676,60 @@ export async function importGuitarProNotationAsTab(
 
   // Ticks = 480 par temps (même étalon que le parseur de tablatures ASCII).
   const events: TabNoteEvent[] = [];
+  // Dernière note ouverte par hauteur : une note liée (tie destination) doit
+  // prolonger cette note au lieu d'être ignorée ou re-attaquée.
+  const openByPitch = new Map<number, TabNoteEvent>();
+  // Bornes réelles des mesures (levées et signatures irrégulières incluses) :
+  // notesToTab peut ainsi rendre une première mesure de 3 temps au lieu de
+  // fusionner la levée avec la mesure suivante dans une grille 4/4 fixe.
+  const measureTicks: { startTick: number; durationTicks: number }[] = [];
   let currentBeats = 0;
   for (let mbIdx = 0; mbIdx < score.masterBars.length; mbIdx++) {
     const bar = staff.bars[mbIdx];
     const masterBar = score.masterBars[mbIdx];
-    if (!bar) continue;
-    const voice = pickVoice(bar);
+    const barBeats = masterBarBeats(masterBar);
+    measureTicks.push({
+      startTick: Math.round(currentBeats * 480),
+      durationTicks: Math.max(1, Math.round(barBeats * 480)),
+    });
+    const voice = bar ? pickVoice(bar) : null;
     if (voice) {
-      let barPos = 0;
       for (const beat of voice.beats) {
-        if (beat.isRest || beat.isEmpty || beat.notes.length === 0) {
-          barPos += durationToBeats(
-            beat.duration,
-            beat.dots,
-            beat.tupletNumerator,
-            beat.tupletDenominator
-          );
-          continue;
-        }
-        const startTick = Math.round((currentBeats + barPos) * 480);
-        const durationTicks = Math.round(
-          durationToBeats(beat.duration, beat.dots, beat.tupletNumerator, beat.tupletDenominator) * 480
-        );
+        // Les notes d'agrément sont décoratives : elles ne doivent ni créer
+        // d'événement ni décaler la grille rythmique.
+        if (beat.graceType) continue;
+        if (beat.isRest || beat.isEmpty || beat.notes.length === 0) continue;
+        const startTick = Math.round((currentBeats + beatDisplayStartInBar(beat)) * 480);
+        // Durée écrite (et non de lecture) : une note d'agrément ne doit pas
+        // raccourcir la note précédente dans la tablature.
+        const beatBeats =
+          beat.displayDuration > 0
+            ? beat.displayDuration / ALPHATAB_TICKS_PER_BEAT
+            : durationToBeats(
+                beat.duration,
+                beat.dots,
+                beat.tupletNumerator,
+                beat.tupletDenominator
+              );
+        const durationTicks = Math.max(1, Math.round(beatBeats * 480));
         for (const note of beat.notes) {
-          if (note.isTieDestination) continue;
           const pitch = note.realValue;
           if (typeof pitch !== "number" || !Number.isFinite(pitch)) continue;
-          events.push({ pitch, startTick, durationTicks });
+          if (note.isTieDestination) {
+            const open = openByPitch.get(pitch);
+            // Une liaison commence exactement à la fin de la note précédente.
+            if (open && open.startTick + open.durationTicks === startTick) {
+              open.durationTicks += durationTicks;
+              continue;
+            }
+          }
+          const ev: TabNoteEvent = { pitch, startTick, durationTicks };
+          events.push(ev);
+          openByPitch.set(pitch, ev);
         }
-        barPos += durationToBeats(
-          beat.duration,
-          beat.dots,
-          beat.tupletNumerator,
-          beat.tupletDenominator
-        );
       }
     }
-    const numerator = masterBar?.timeSignatureNumerator ?? 4;
-    const denominator = masterBar?.timeSignatureDenominator ?? 4;
-    currentBeats += (4 * numerator) / denominator;
+    currentBeats += barBeats;
   }
 
   if (events.length === 0) {
@@ -709,7 +737,7 @@ export async function importGuitarProNotationAsTab(
   }
 
   const warnings: string[] = [];
-  const converted = notesToTab(events, { title, bpm });
+  const converted = notesToTab(events, { title, bpm, measureTicks });
   if (converted.measures === 0) {
     throw new Error("Aucune note convertible (gamme guitare) dans cette piste.");
   }
@@ -963,6 +991,11 @@ function shapeKey(d: SavedChordShape): string {
     d.barreCount,
     d.baseFret,
     d.capo,
+    d.sounding,
+    // Deux accords piano/keys peuvent avoir le même libellé (« 4 notes ») mais
+    // des hauteurs différentes : sans ces fréquences, la fusion détruisait
+    // l'un des deux accords.
+    d.pitchFrequencies,
     d.slides,
     d.graceBefore,
   ]);

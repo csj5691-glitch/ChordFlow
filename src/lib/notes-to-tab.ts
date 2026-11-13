@@ -29,6 +29,12 @@ export interface NotesToTabOptions {
   // d'aligner la numérotation des mesures sur celles de la chanson : un riff qui
   // démarre en plein milieu de la mesure 6 est bien rendu dans la mesure 6.
   originTick?: number;
+  // Bornes de mesures (ticks 480/temps, même repère que les événements). Si
+  // fourni, remplace la grille 4/4 fixe : indispensable pour les levées
+  // (anacrusis), les changements de signature et les mesures incomplètes d'un
+  // import Guitar Pro. Sans cette option, le comportement 4/4 historique est
+  // conservé (diagrammes ChordFlow).
+  measureTicks?: { startTick: number; durationTicks: number }[];
 }
 
 // Position d'une note dans la portée rendue (mesure, corde 0 = aiguë, colonne).
@@ -114,7 +120,7 @@ interface Assignment {
   pitches: number[];
 }
 
-function tuneGrid(rels: number[]): { unit: number; slots: number } {
+function tuneGrid(rels: number[], barTicks?: number): { unit: number; slots: number } {
   let best = LADDER[0];
   let bestErr = Infinity;
   for (const cand of LADDER) {
@@ -127,6 +133,11 @@ function tuneGrid(rels: number[]): { unit: number; slots: number } {
       bestErr = err;
       best = cand;
     }
+  }
+  // Mesure non 4/4 (levée, 3/4, 7/8...) : le nombre de colonnes découle de la
+  // durée réelle de la mesure, pas du gabarit 4/4 de l'échelle.
+  if (barTicks && barTicks > 0) {
+    return { unit: best.unit, slots: Math.max(1, Math.ceil(barTicks / best.unit)) };
   }
   return best;
 }
@@ -287,12 +298,12 @@ function planFrets(columns: Column[]): (Assignment | null)[] {
     const pool = tight.length > 0 ? tight : cands;
     const top: { cost: number; assign: Assignment }[] = [];
     for (const cand of pool) {
-      let bestPrev = 0;
-      if (prevTop.length > 0) {
-        for (const p of prevTop) {
-          const t = p.cost + transitionCost(p.assign, cand);
-          if (t < bestPrev || bestPrev === 0) bestPrev = t;
-        }
+      // Sentinelle Infinity : un coût de transition nul (0) est une valeur
+      // valide et ne doit pas être écrasé par un coût supérieur.
+      let bestPrev = prevTop.length > 0 ? Infinity : 0;
+      for (const p of prevTop) {
+        const t = p.cost + transitionCost(p.assign, cand);
+        if (t < bestPrev) bestPrev = t;
       }
       top.push({ cost: colCost(cand) + bestPrev, assign: cand });
     }
@@ -322,19 +333,64 @@ function tieFor(fret: number): string {
   return `-${String(fret).padStart(2, " ")}l`;
 }
 
+// Convertit une durée de mesure en temps (1 temps = noire) vers une signature
+// lisible par le parseur : 3 -> 3/4, 3.5 -> 7/8, 1.25 -> 5/16.
+function beatsToMeter(beats: number): string {
+  for (const den of [4, 8, 16]) {
+    const num = Math.round((beats * den) / 4);
+    if (num > 0 && Math.abs((num * 4) / den - beats) < 1e-6) return `${num}/${den}`;
+  }
+  return "4/4";
+}
+
+interface CarryNote {
+  fret: number;
+  remainingTicks: number;
+}
+
 function renderMeasure(
   entries: { slot: number; assign: Assignment; durations: TabNoteEvent[] }[],
   unit: number,
-  slots: number
-): string[] {
+  slots: number,
+  carryIn?: Map<number, CarryNote>
+): { rows: string[]; carryOut: Map<number, CarryNote> } {
   // Chaque slot porte un token (le parseur ignore les cellules vides : un token
   // ne resterait pas aligné sur sa colonne). Les cordes non jouées sont des `x`
   // (étouffé : sans hauteur → aucun événement MIDI, juste un remplissage).
   const grid: string[][] = Array.from({ length: 6 }, () => Array(slots).fill(MUTE));
+  // Cases qui portent une NOUVELLE attaque : une liaison ne doit jamais les
+  // écraser, sinon une ré-attaque sur la même corde/case est avalée.
+  const attacks = new Set<string>();
   for (const { slot, assign } of entries) {
     if (slot >= slots || slot < 0) continue;
     for (let i = 0; i < assign.pitches.length; i++) {
       grid[assign.strings[i]][slot] = noteFor(assign.frets[i]);
+      attacks.add(`${assign.strings[i]}:${slot}`);
+    }
+  }
+
+  // Liaison venue de la mesure précédente : on prolonge la tenue sur les
+  // premiers slots, jusqu'à épuisement de la durée ou ré-attaque sur la corde.
+  const carryOut = new Map<number, CarryNote>();
+  if (carryIn) {
+    for (const [row, carry] of carryIn) {
+      const need = Math.max(1, Math.ceil(carry.remainingTicks / unit));
+      const limit = Math.min(slots, need);
+      let cut = false;
+      for (let k = 0; k < limit; k++) {
+        if (attacks.has(`${row}:${k}`)) {
+          cut = true;
+          break;
+        }
+        grid[row][k] = tieFor(carry.fret);
+      }
+      // La note dépasse encore la mesure : on transmet le reste à la suivante.
+      if (!cut && need > slots) {
+        carryOut.set(row, {
+          fret: carry.fret,
+          remainingTicks: carry.remainingTicks - slots * unit,
+        });
+      }
     }
   }
 
@@ -345,28 +401,45 @@ function renderMeasure(
     const durByPitch = new Map<number, number>();
     for (const d of durations) durByPitch.set(d.pitch, (durByPitch.get(d.pitch) ?? 0) + d.durationTicks);
     for (let i = 0; i < assign.pitches.length; i++) {
-const dur = durByPitch.get(assign.pitches[i]);
-    if (!dur || dur <= 0) continue;
-    const endSlot = Math.min(slots, slot + Math.max(1, Math.ceil(dur / unit)));
-    // Liaison seulement si la note occupe 2 slots ou plus (un token `l` sur une
-    // attaque de 1 slot créerait une fausse tenue avec la mesure précédente).
-    if (endSlot <= slot + 1) continue;
-    spans.push({
-      row: assign.strings[i],
-      fret: assign.frets[i],
-      slot,
-      endSlot,
-    });
+      const dur = durByPitch.get(assign.pitches[i]);
+      if (!dur || dur <= 0) continue;
+      const row = assign.strings[i];
+      const fret = assign.frets[i];
+      const need = Math.max(1, Math.ceil(dur / unit));
+      const endSlot = Math.min(slots, slot + need);
+      // La note déborde la mesure : on prépare la liaison vers la mesure
+      // suivante, sauf si une ré-attaque sur la même corde la coupe avant.
+      if (slot + need > slots) {
+        let cut = false;
+        for (let k = slot + 1; k < slots; k++) {
+          if (attacks.has(`${row}:${k}`)) {
+            cut = true;
+            break;
+          }
+        }
+        if (!cut) {
+          carryOut.set(row, {
+            fret,
+            remainingTicks: dur - (slots - slot) * unit,
+          });
+        }
+      }
+      // Liaison seulement si la note occupe 2 slots ou plus (un token `l` sur une
+      // attaque de 1 slot créerait une fausse tenue avec la mesure précédente).
+      if (endSlot <= slot + 1) continue;
+      spans.push({ row, fret, slot, endSlot });
     }
   }
   spans.sort((a, b) => a.slot - b.slot || a.row - b.row);
   for (const span of spans) {
-    for (let k = span.slot; k < span.endSlot; k++) {
-      const cur = grid[span.row][k];
-      // Le token d'attaque (déjà écrit) et chaque prolongement portent `l` :
-      // le parseur relie un token `l` au précédent de même case.
-      if (cur === MUTE || cur === noteFor(span.fret)) grid[span.row][k] = tieFor(span.fret);
-      else break;
+    // L'attaque (k = slot) reste un token simple ; seuls les prolongements
+    // portent `l`. Le parseur interprète `l` comme « cette note continue la
+    // précédente », donc marquer l'attaque créerait une fausse liaison avec
+    // une ré-attaque de même case.
+    for (let k = span.slot + 1; k < span.endSlot; k++) {
+      if (attacks.has(`${span.row}:${k}`)) break;
+      if (grid[span.row][k] !== MUTE) break;
+      grid[span.row][k] = tieFor(span.fret);
     }
   }
 
@@ -376,7 +449,7 @@ const dur = durByPitch.get(assign.pitches[i]);
     for (let s = 0; s < slots; s++) line += grid[r][s] ?? "-  ";
     rows.push(line);
   }
-  return rows;
+  return { rows, carryOut };
 }
 
 export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = {}): NotesToTabResult {
@@ -403,9 +476,28 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
   const originTick = options.originTick ?? 0;
   const measureOffset = Math.floor(originTick / BAR_TICKS);
   const originBase = originTick - measureOffset * BAR_TICKS;
+  const customMeasures =
+    options.measureTicks && options.measureTicks.length > 0 ? options.measureTicks : null;
+  // Indice de la mesure contenant un tick (repère de la séquence fournie).
+  const measureIndexForTick = (tick: number): number => {
+    if (!customMeasures) return Math.floor((tick + originBase) / BAR_TICKS);
+    let lo = 0;
+    let hi = customMeasures.length - 1;
+    let ans = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (customMeasures[mid].startTick <= tick) {
+        ans = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return ans;
+  };
   const byMeasure = new Map<number, Column[]>();
   for (const col of columns) {
-    const mb = Math.floor((col.startTick + originBase) / BAR_TICKS);
+    const mb = measureIndexForTick(col.startTick);
     const list = byMeasure.get(mb) ?? [];
     list.push(col);
     byMeasure.set(mb, list);
@@ -422,6 +514,10 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
   const positions: TabPosition[][] = [];
   const rests: TabRest[] = [];
   const grid: { unit: number; slots: number; notes: { slot: number; beats: number }[] }[] = [];
+  // Durée (en temps) de chaque mesure rendue : sérialisée dans l'en-tête
+  // `Meters:` pour que le parseur ASCII restitue les levées et signatures
+  // irrégulières sans supposer 4/4.
+  const barBeatsList: number[] = [];
   let gi = 0;
   // Nombre de mesures rendues : colonnes réelles, PLUS la fin réelle des notes
   // (une tenue qui traverse la barre de mesure garde la mesure suivante visible).
@@ -433,21 +529,38 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
     for (const d of ds) maxDur = Math.max(maxDur, d.durationTicks);
     lastEnd = Math.max(lastEnd, col.startTick + maxDur);
   }
-  const maxMb = Math.max(
-    Math.floor((lastStart + originBase) / BAR_TICKS),
-    Math.floor((lastEnd + originBase - 1) / BAR_TICKS)
-  );
+  const maxMb = customMeasures
+    ? Math.max(customMeasures.length - 1, measureIndexForTick(lastEnd - 1))
+    : Math.max(
+        Math.floor((lastStart + originBase) / BAR_TICKS),
+        Math.floor((lastEnd + originBase - 1) / BAR_TICKS)
+      );
+  // Tenues qui traversent la barre de mesure : reportées de mesure en mesure.
+  let carry = new Map<number, CarryNote>();
   for (let mb = 0; mb <= maxMb; mb++) {
     const cols = byMeasure.get(mb) ?? [];
+    // Durée réelle de la mesure (levée, 3/4...) ou gabarit 4/4 historique.
+    const barTicks = customMeasures ? customMeasures[mb].durationTicks : BAR_TICKS;
+    barBeatsList.push(barTicks / TICKS_PER_BEAT);
     if (cols.length === 0) {
-      rendered.push(Array(6).fill(Array(4).fill(MUTE).join("")));
-      grid.push({ unit: TICKS_PER_BEAT, slots: 4, notes: [] });
+      let unit = TICKS_PER_BEAT;
+      for (const cand of LADDER) {
+        if (barTicks % cand.unit === 0) {
+          unit = cand.unit;
+          break;
+        }
+      }
+      const slots = Math.max(1, Math.round(barTicks / unit));
+      const { rows, carryOut } = renderMeasure([], unit, slots, carry);
+      carry = carryOut;
+      rendered.push(rows);
+      grid.push({ unit, slots, notes: [] });
       continue;
     }
     // Tick du début de la mesure, relatif au début de la séquence fournie.
-    const barStart = mb * BAR_TICKS - originBase;
+    const barStart = customMeasures ? customMeasures[mb].startTick : mb * BAR_TICKS - originBase;
     const rels = cols.map((c) => c.startTick - barStart);
-    const { unit, slots } = tuneGrid(rels);
+    const { unit, slots } = tuneGrid(rels, customMeasures ? barTicks : undefined);
     const entries = cols.map((col) => {
       const slot = Math.round((col.startTick - barStart) / unit);
       const assign = assignments[gi] ?? { strings: [], frets: [], pitches: [] };
@@ -478,7 +591,9 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
         return { slot: e.slot, beats: ticks / TICKS_PER_BEAT };
       });
     grid.push({ unit, slots, notes });
-    rendered.push(renderMeasure(entries, unit, slots));
+    const { rows, carryOut } = renderMeasure(entries, unit, slots, carry);
+    carry = carryOut;
+    rendered.push(rows);
   }
 
   // Portées de 4 mesures ; si la portée finale n'a qu'une mesure, on la double
@@ -486,6 +601,13 @@ export function notesToTab(events: TabNoteEvent[], options: NotesToTabOptions = 
   const header: string[] = [];
   if (options.title) header.push(`Title: ${options.title}`);
   header.push(`Tempo: ${bpm}`);
+  // Signatures seulement si elles sortent du 4/4 : les grilles d'accords
+  // gardent ainsi exactement leur format historique.
+  if (customMeasures && barBeatsList.some((b) => b !== 4)) {
+    const padded = rendered.length % 4 === 1 ? rendered.length + 1 : rendered.length;
+    while (barBeatsList.length < padded) barBeatsList.push(4);
+    header.push(`Meters: ${barBeatsList.map(beatsToMeter).join(",")}`);
+  }
 
   const lines: string[] = [...header];
   for (let i = 0; i < rendered.length; i += 4) {
