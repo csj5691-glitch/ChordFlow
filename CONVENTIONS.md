@@ -55,7 +55,9 @@ Pointage : `dotted: true` multiplie par 1.5 (`beatsForShape`).
   joue les fins `1.`, le dernier tour joue les fins `2.`. Effet **uniquement** si la barre qui
   suit la section a `repeats ≥ 2` (au moins 2 passages). Sans répétition, toutes les fins jouent.
 - **Renvois (`navKind`)** : marqueurs de direction sans durée (`SavedChordShape.navKind`), ignorés par la lecture — Segno 𝄋, Coda 𝄌, Fine, D.C., D.S., D.C./D.S. al Coda, D.C./D.S. al Fine. Glyphes SVG dans `NavGlyph.tsx`.
-- Lecture : `renderSequence` aplatit les sections/répétitions (`Math.max(1, repeats)`).
+- Lecture : `renderSequence` aplatit les sections/répétitions (`sectionRepeats`). Un signe
+  `endRepeat` / `bothRepeat` sans compteur explicite (`repeats` absent ou 1) vaut **2 passages** ;
+  `repeats: 0` reste une simple barre, jouée 1×.
 - Import GP : `repeatCount` devient `repeats` sur la barre `endRepeat` (placée **après** la
   dernière mesure de la section) et `alternateEndings` devient `ending` (la 2ᵉ fin est
   rapatriée avant la barre de fin, dans la section répétée).

@@ -25,6 +25,20 @@ export function beatsForShape(d: SavedChordShape): number {
   return d.dotted ? base * 1.5 : base;
 }
 
+// Nombre de passages d'une barre qui ferme une section. Un signe de renvoi
+// (`endRepeat` / `bothRepeat`) sans compteur explicite vaut 2 passages, comme
+// en notation : les répétitions posées dans le Studio sont ainsi lues même
+// quand le compteur n'a pas été touché.
+export function sectionRepeats(d: SavedChordShape): number {
+  if (!d.bar) return 1;
+  const repeats = d.repeats ?? 1;
+  if (repeats <= 0) return 1;
+  if (repeats === 1 && (d.barKind === "endRepeat" || d.barKind === "bothRepeat")) {
+    return 2;
+  }
+  return repeats;
+}
+
 const STRING_NAMES = ["E", "A", "D", "G", "B", "e"];
 
 export function fretForString(d: SavedChordShape, s: number): number {
@@ -148,7 +162,7 @@ export function renderSequence(
       continue;
     }
     if (d.bar) {
-      pushSection(d.repeats ?? 1, d.sectionLabel, d.barKind);
+      pushSection(sectionRepeats(d), d.sectionLabel, d.barKind);
     } else {
       section.push(d);
     }

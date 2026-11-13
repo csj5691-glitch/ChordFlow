@@ -21,7 +21,7 @@ import {
 } from "@/lib/gp-import";
 import { importMidi } from "@/lib/midi-import";
 import { asciiTabToMidi } from "@/lib/ascii-tab-midi";
-import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure, renderSequence } from "@/lib/chord-synth";
+import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure, renderSequence, sectionRepeats } from "@/lib/chord-synth";
 import { gmProgramName } from "@/lib/gm-voice";
 import { getSongTab } from "@/lib/mock-data";
 import { useSharedSong } from "@/lib/use-shared-song";
@@ -710,7 +710,8 @@ function EditSongView({ id }: { id: string }) {
       duration: 0,
       bar: true,
       barKind: kind,
-      repeats: 1,
+      // Un signe de renvoi vaut deux passages par défaut (notation standard).
+      repeats: kind === "endRepeat" || kind === "bothRepeat" ? 2 : 1,
       sectionLabel: "Intro",
     };
     upsert({ ...song, diagrams: [...(song.diagrams ?? []), bar] });
@@ -722,7 +723,15 @@ function EditSongView({ id }: { id: string }) {
       const list = [...(song.diagrams ?? [])];
       if (!list[index]) return;
       const meta = BAR_KINDS.find((b) => b.kind === kind) ?? BAR_KINDS[1];
-      list[index] = { ...list[index], barKind: kind, label: meta.symbol };
+      const cur = list[index];
+      // Passer une barre en « fin de répétition » la fait jouer deux fois par
+      // défaut (signe de notation) ; repasser à une barre simple annule ce
+      // compteur pour éviter une répétition invisible.
+      const repeats =
+        kind === "endRepeat" || kind === "bothRepeat"
+          ? Math.max(2, cur.repeats ?? 1)
+          : 1;
+      list[index] = { ...cur, barKind: kind, label: meta.symbol, repeats };
       upsert({ ...song, diagrams: list });
     },
     [song, upsert]
@@ -1465,7 +1474,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
     let total = 0;
     for (const d of list) {
       if (d.bar) {
-        const loops = Math.max(1, d.repeats ?? 1);
+        const loops = sectionRepeats(d);
         if (loops > 1 && (ending1 > 0 || ending2 > 0)) {
           total += sectionBeats * loops + ending1 * (loops - 1);
         } else {
@@ -2978,7 +2987,9 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                           : d.bar
                             ? (d.repeats ?? 1) === 0
                               ? "Délimite la fin de la section"
-                              : `Rejoue la section précédente ${(d.repeats ?? 1)} fois`
+                              : sectionRepeats(d) > 1
+                                ? `Rejoue la section précédente ${sectionRepeats(d)} fois`
+                                : "Sépare les sections (jouée 1×)"
                             : `Position ${i + 1}`}
                       </p>
                     </div>
@@ -2987,7 +2998,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                         <div className="flex flex-col items-center gap-1.5">
                           <span className="text-[10px] text-zinc-500 font-mono">
                             {BAR_KINDS.find((b) => b.kind === (d.barKind ?? "double"))?.symbol ?? "||"}{" "}
-                            × {(d.repeats ?? 1) === 0 ? 1 : d.repeats}
+                            × {sectionRepeats(d)}
                           </span>
                           <button
                             onClick={() => setExpandedBar(expandedBar === d.id ? null : d.id)}
@@ -3048,8 +3059,14 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                                 </span>
                                 <div className="flex items-center gap-1">
                                   <button
-                                    onClick={() => setRepeats(i, (d.repeats ?? 1) - 1)}
-                                    disabled={(d.repeats ?? 1) <= 0}
+                                    onClick={() => {
+                                      const rep = sectionRepeats(d);
+                                      const closing =
+                                        d.barKind === "endRepeat" || d.barKind === "bothRepeat";
+                                      // Un signe de renvoi ne peut pas jouer 1× : 0 = simple barre.
+                                      setRepeats(i, closing && rep <= 2 ? 0 : Math.max(0, rep - 1));
+                                    }}
+                                    disabled={(d.repeats ?? 1) === 0}
                                     className="w-9 h-9 sm:w-7 sm:h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold"
                                     title="Moins de répétitions"
                                   >
@@ -3059,7 +3076,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                                     type="number"
                                     min={0}
                                     max={32}
-                                    value={d.repeats ?? 1}
+                                    value={sectionRepeats(d)}
                                     onChange={(e) => {
                                       const v = parseInt(e.target.value, 10);
                                       if (!Number.isNaN(v)) setRepeats(i, v);
@@ -3068,8 +3085,8 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                                     title="0 = délimiter la section ; 1+ = répéter la section"
                                   />
                                   <button
-                                    onClick={() => setRepeats(i, (d.repeats ?? 1) + 1)}
-                                    disabled={(d.repeats ?? 1) >= 32}
+                                    onClick={() => setRepeats(i, Math.min(32, sectionRepeats(d) + 1))}
+                                    disabled={sectionRepeats(d) >= 32}
                                     className="w-9 h-9 sm:w-7 sm:h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold"
                                     title="Plus de répétitions"
                                   >
