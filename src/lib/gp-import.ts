@@ -616,6 +616,20 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
   // répétée ; on rapatrie donc la 2e fin avant la barre de fin.
   moveSecondEndingsBeforeRepeat(diagrams);
 
+  // Fichier déjà « déroulé » par son auteur : aucun signe de renvoi, donc rien
+  // ne sera rejoué. On le signale, sinon on cherche une répétition absente du
+  // fichier (c'est le cas de plusieurs transcriptions Songsterr).
+  const repeatSigns = diagrams.filter(
+    (d) =>
+      d.bar &&
+      (d.barKind === "beginRepeat" || d.barKind === "endRepeat" || d.barKind === "bothRepeat")
+  ).length;
+  if (repeatSigns === 0) {
+    warnings.push(
+      `Aucune répétition dans ce fichier : la partition est déjà déroulée (${score.masterBars.length} mesures), donc rien n'est rejoué. Pour faire répéter une section, ajoute une barre « Début répétition » et une barre « Fin répétition » avec le bouton Régler d'une barre.`
+    );
+  }
+
   // Direction des slides de décalage : déduite de l'attaque suivante sur la
   // même corde (les liaisons retirées ne font plus d'attaque parasite).
   resolveSlideDirections(diagrams);
