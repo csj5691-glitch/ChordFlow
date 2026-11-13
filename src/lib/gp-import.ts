@@ -3,6 +3,7 @@
 import type { SavedChordShape, SongTab } from "./types";
 import { importer, midi, model } from "@coderline/alphatab";
 import { getChordShape, parseChordName } from "./chord-data";
+import { sectionRepeats } from "./chord-synth";
 import type { TabNoteEvent } from "./notes-to-tab";
 import { notesToTab } from "./notes-to-tab";
 
@@ -70,6 +71,9 @@ export interface GpImportResult {
   song: SongTab;
   diagrams: SavedChordShape[];
   warnings: string[];
+  // Compte rendu de ce que l'import a repris automatiquement (répétitions,
+  // fins alternatives, sections) : affiché en vert dans le Studio.
+  notices: string[];
   program: number | null;
 }
 
@@ -616,18 +620,36 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
   // répétée ; on rapatrie donc la 2e fin avant la barre de fin.
   moveSecondEndingsBeforeRepeat(diagrams);
 
-  // Fichier déjà « déroulé » par son auteur : aucun signe de renvoi, donc rien
-  // ne sera rejoué. On le signale, sinon on cherche une répétition absente du
-  // fichier (c'est le cas de plusieurs transcriptions Songsterr).
-  const repeatSigns = diagrams.filter(
-    (d) =>
-      d.bar &&
-      (d.barKind === "beginRepeat" || d.barKind === "endRepeat" || d.barKind === "bothRepeat")
-  ).length;
-  if (repeatSigns === 0) {
-    warnings.push(
-      `Aucune répétition dans ce fichier : la partition est déjà déroulée (${score.masterBars.length} mesures), donc rien n'est rejoué. Pour faire répéter une section, ajoute une barre « Début répétition » et une barre « Fin répétition » avec le bouton Régler d'une barre.`
+  // Compte rendu : tout ce que la source porte (renvois, compteurs, fins,
+  // sections) est repris ici, sans intervention de l'utilisateur.
+  const notices: string[] = [];
+  const repeatEnds = diagrams.filter(
+    (d) => d.bar && (d.barKind === "endRepeat" || d.barKind === "bothRepeat")
+  );
+  if (repeatEnds.length > 0) {
+    // Regroupe les compteurs : « 2 sections de 4 passages, 4 sections de 2 ».
+    const byCount = new Map<number, number>();
+    for (const d of repeatEnds) {
+      const n = sectionRepeats(d);
+      byCount.set(n, (byCount.get(n) ?? 0) + 1);
+    }
+    const detail = [...byCount.entries()]
+      .sort((a, b) => b[0] - a[0])
+      .map(([n, sections]) => `${sections} section${sections > 1 ? "s" : ""} de ${n} passage${n > 1 ? "s" : ""}`)
+      .join(", ");
+    notices.push(`Répétitions importées automatiquement : ${repeatEnds.length} renvoi${repeatEnds.length > 1 ? "s" : ""} (${detail}).`);
+  } else {
+    notices.push(
+      `Aucune répétition dans la source : cette partition est déjà déroulée sur ${score.masterBars.length} mesures (aucun signe de renvoi dans le fichier).`
     );
+  }
+  const endingCount = diagrams.filter((d) => d.ending === 1 || d.ending === 2).length;
+  if (endingCount > 0) {
+    notices.push(`Fins alternatives importées : ${endingCount} mesure${endingCount > 1 ? "s" : ""} de fin.`);
+  }
+  const sectionCount = diagrams.filter((d) => d.sectionLabel !== undefined).length;
+  if (sectionCount > 0) {
+    notices.push(`Sections (repères de la partition) : ${sectionCount}.`);
   }
 
   // Direction des slides de décalage : déduite de l'attaque suivante sur la
@@ -662,6 +684,7 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
     song,
     diagrams: merged,
     warnings,
+    notices,
     program: track.playbackInfo?.program ?? null,
   };
 }

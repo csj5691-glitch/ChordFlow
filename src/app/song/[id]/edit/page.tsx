@@ -297,6 +297,9 @@ function EditSongView({ id }: { id: string }) {
   const [gpImporting, setGpImporting] = useState(false);
   const [gpError, setGpError] = useState<string | null>(null);
   const [gpWarnings, setGpWarnings] = useState<string[]>([]);
+  // Compte rendu de l'import (renvois, compteurs, fins, sections) : preuve que
+  // tout a été repris automatiquement, sans travail pour l'utilisateur.
+  const [gpNotices, setGpNotices] = useState<string[]>([]);
   const [gpTracks, setGpTracks] = useState<GpTrackInfo[]>([]);
   const [gpPendingFile, setGpPendingFile] = useState<File | null>(null);
   const [gpImportingTrack, setGpImportingTrack] = useState<number | null>(null);
@@ -1065,6 +1068,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
     setGpImporting(true);
     setGpError(null);
     setGpWarnings([]);
+    setGpNotices([]);
     setGpTracks([]);
     setGpPendingFile(null);
     try {
@@ -1334,6 +1338,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
     }
     setGpError(null);
     setGpWarnings([]);
+    setGpNotices([]);
     let next: SongTab = song;
     let failed = 0;
     for (const t of targets) {
@@ -1342,6 +1347,9 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
         const result = await importGuitarProTrack(gpPendingFile, t.index);
         if (result.warnings.length > 0) setGpWarnings((w) => [...w, ...result.warnings]);
         if (result.diagrams.length === 0) continue;
+        if (result.notices.length > 0) {
+          setGpNotices((n) => [...n, ...result.notices.map((msg) => `« ${t.name} » — ${msg}`)]);
+        }
         next = {
           ...next,
           title: next.title || result.song.title,
@@ -2493,6 +2501,13 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                 <p className="text-[11px] text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-1.5">
                   {gpError}
                 </p>
+              )}
+              {gpNotices.length > 0 && (
+                <ul className="text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-1.5 flex flex-col gap-0.5">
+                  {gpNotices.map((n) => (
+                    <li key={n}>{n}</li>
+                  ))}
+                </ul>
               )}
               {gpWarnings.length > 0 && (
                 <ul className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-1.5 flex flex-col gap-0.5">
