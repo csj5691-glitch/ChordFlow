@@ -152,6 +152,11 @@ export default function LyricsEditorPage({
         }
       }
       console.log("Spectrogramme: frames=", numFrames, "maxMag=", maxMag, "numBins=", numBins);
+      // Sample: magnitude du premier frame, bins 0, 10, 50, 100, 200, 400
+      if (magnitudes.length > 0) {
+        const m0 = magnitudes[0];
+        console.log("Sample magnitudes (frame 0):", [0, 10, 50, 100, 200, 400].map((b) => m0[b]?.toFixed(2)));
+      }
       if (maxMag === 0) maxMag = 1;
 
       // Draw spectrogram
@@ -172,7 +177,7 @@ export default function LyricsEditorPage({
       for (let f = 0; f < numFrames; f++) {
         const mag = magnitudes[f];
         for (let b = 0; b < numBins; b++) {
-          const val = mag[b] / maxMag;
+          const val = Math.pow(mag[b] / maxMag, 0.35); // gamma pour meilleure visibilite
           const y = h - (b / numBins) * h;
           const r = Math.min(255, Math.max(0, val * 510 - 255));
           const g = Math.min(255, Math.max(0, val * 510));
