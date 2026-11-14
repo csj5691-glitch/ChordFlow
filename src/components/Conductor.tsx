@@ -48,11 +48,9 @@ interface ConductorProps {
   /**.décalage de la bande de diagrammes sur la musique, en secondes. */
   bandOffset?: number;
   /**.notifié à chaque réglage du décalage de la bande. */
-  onBandOffsetChange?: (offset: number) => void;
   /**.décalage manuel tablature + paroles / stems, en millisecondes. */
   syncLatency?: number;
   /**.notifié à chaque réglage de la latence de synchro. */
-  onSyncLatencyChange?: (ms: number) => void;
   onClose: () => void;
 }
 
@@ -148,9 +146,7 @@ export default function Conductor({
   lyricOffset: externalLyricOffset,
   lyricAnchorDiagram,
   bandOffset: externalBandOffset,
-  onBandOffsetChange,
   syncLatency: externalSyncLatency,
-  onSyncLatencyChange,
   songId,
   onClose,
 }: ConductorProps) {
@@ -236,37 +232,23 @@ export default function Conductor({
   }, [lyricAnchorDiagram]);
   // Décalage de la bande de diagrammes sur la musique (contrôlé par l'éditeur,
   // comme l'offset des paroles) : c'est le réglage qui rend la synchro malléable.
-  const [localBandOffset, setLocalBandOffset] = useState(0);
+  const [localBandOffset] = useState(0);
   const bandOffset = externalBandOffset ?? localBandOffset;
   const bandOffsetRef = useRef(0);
   useEffect(() => {
     bandOffsetRef.current = bandOffset;
   }, [bandOffset]);
-  const changeBandOffset = (delta: number) => {
-    const next = Math.round(Math.max(-10, Math.min(10, bandOffset + delta)) * 10) / 10;
-    setLocalBandOffset(next);
-    bandOffsetRef.current = next;
-    onBandOffsetChange?.(next);
-  };
   // Latence audio : le son sort des haut-parleurs (ou du casque Bluetooth)
   // après l'instant du graphe audio. On retarde d'autant l'horloge VISUELLE
   // (tablature + paroles) pour qu'elle tombe sur ce qu'on entend. Le Chef
   // ajoute la latence de sortie mesurée par le navigateur ; ce réglage-ci est
   // l'ajustement manuel (ms), sauvegardé par chanson par l'éditeur.
-  const [localSyncLatency, setLocalSyncLatency] = useState(0);
+  const [localSyncLatency] = useState(0);
   const syncLatency = externalSyncLatency ?? localSyncLatency;
   const syncLatencyRef = useRef(0);
   useEffect(() => {
     syncLatencyRef.current = syncLatency;
   }, [syncLatency]);
-  const changeSyncLatency = (delta: number) => {
-    const next = Math.round(
-      Math.max(-1000, Math.min(1000, syncLatency + delta)) / 10
-    ) * 10;
-    setLocalSyncLatency(next);
-    syncLatencyRef.current = next;
-    onSyncLatencyChange?.(next);
-  };
   // Latence de sortie de l'appareil (ms), relue à chaque démarrage du contexte.
   const autoLatencyRef = useRef(0);
   // Alignement automatique (sans curseurs) : le pré-roll détecté dans les
@@ -513,7 +495,7 @@ export default function Conductor({
   // Calcul automatique de l'alignement : onset stems (pré-roll détecté
   // ci-dessus). On ne fait aucun setState depuis l'effet : la valeur affichée
   // est déduite au rendu, le ref n'est mis à jour que pour la lecture.
-  const stemShift = useMemo(() => {
+  useMemo(() => {
     const preRoll = stemStart;
     if (preRoll === null || preRoll === undefined) return savedStemShift;
     return Math.round(Math.max(0, Math.min(10, preRoll)) * 10) / 10;
@@ -1482,119 +1464,7 @@ export default function Conductor({
               </span>
             </div>
           )}
-          {bandEvents.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
-              <span className="text-zinc-500 w-20">Synchro</span>
-              <button
-                onClick={() => changeBandOffset(-1)}
-                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
-                title="Avancer les diagrammes de 1 s par rapport à l'audio"
-              >
-                -1
-              </button>
-              <button
-                onClick={() => changeBandOffset(-0.1)}
-                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-400 transition-colors"
-                title="Avancer de 0,1 s (ajustement fin)"
-              >
-                -.1
-              </button>
-              <span className="font-mono text-amber-400 w-16 text-center">
-                {bandOffset >= 0 ? "+" : ""}
-                {bandOffset.toFixed(1)} s
-              </span>
-              <button
-                onClick={() => changeBandOffset(0.1)}
-                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-400 transition-colors"
-                title="Retarder de 0,1 s (ajustement fin)"
-              >
-                +.1
-              </button>
-              <button
-                onClick={() => changeBandOffset(1)}
-                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
-                title="Retarder les diagrammes de 1 s par rapport à l'audio"
-              >
-                +1
-              </button>
-              {bandOffset !== 0 && (
-                <button
-                  onClick={() => changeBandOffset(-bandOffset)}
-                  className="text-zinc-500 hover:text-zinc-300 underline transition-colors"
-                  title="Remettre la synchro à 0"
-                >
-                  Reset
-                </button>
-              )}
-              <span className="text-[10px] text-zinc-600">
-                diagrammes par rapport à l&apos;audio (sauvegardé par chanson)
-              </span>
-              {stemShift > 0 && (
-                <span
-                  className="text-[10px] text-emerald-400/90"
-                  title="Le silence de tête des stems est sauté automatiquement au démarrage : diagrammes, paroles et stems partent ensemble (affiner avec Sync si besoin)"
-                >
-                  aligné auto +{stemShift.toFixed(1)}s
-                </span>
-              )}
-            </div>
-          )}
         </div>
-        {usesAudio && (
-          <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
-            <span
-              className="text-zinc-500 w-20"
-              title="Latence entre l'horloge audio et le son réellement entendu (haut-parleurs, casque, Bluetooth)"
-            >
-              Sync
-            </span>
-            <button
-              onClick={() => changeSyncLatency(-50)}
-              className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
-              title="Avancer la tablature et les paroles de 50 ms (si elles sont en retard sur le son)"
-            >
-              -50
-            </button>
-            <button
-              onClick={() => changeSyncLatency(-10)}
-              className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-400 transition-colors"
-              title="Avancer de 10 ms (ajustement fin)"
-            >
-              -10
-            </button>
-            <span className="font-mono text-amber-400 w-16 text-center">
-              {syncLatency > 0 ? "+" : ""}
-              {syncLatency} ms
-            </span>
-            <button
-              onClick={() => changeSyncLatency(10)}
-              className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-400 transition-colors"
-              title="Retarder de 10 ms (ajustement fin)"
-            >
-              +10
-            </button>
-            <button
-              onClick={() => changeSyncLatency(50)}
-              className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
-              title="Retarder la tablature et les paroles de 50 ms (si elles sont en avance sur le son)"
-            >
-              +50
-            </button>
-            {syncLatency !== 0 && (
-              <button
-                onClick={() => changeSyncLatency(-syncLatency)}
-                className="text-zinc-500 hover:text-zinc-300 underline transition-colors"
-                title="Revenir à la latence automatique de l'appareil"
-              >
-                Reset
-              </button>
-            )}
-            <span className="text-[10px] text-zinc-600">
-              tablature + paroles par rapport aux stems · 0 = latence auto de
-              l&apos;appareil (sauvegardé par chanson)
-            </span>
-          </div>
-        )}
       </div>
       {instrumentalUrl && (
         <audio

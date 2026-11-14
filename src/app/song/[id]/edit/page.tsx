@@ -27,7 +27,7 @@ import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure,
 import { gmProgramName } from "@/lib/gm-voice";
 import { getSongTab } from "@/lib/mock-data";
 import { useSharedSong } from "@/lib/use-shared-song";
-import { loadGlobalOffset, saveGlobalOffset, loadBandOffset, saveBandOffset, loadSyncLatency, saveSyncLatency } from "@/lib/line-offsets";
+import { loadGlobalOffset, saveGlobalOffset, loadBandOffset, loadSyncLatency } from "@/lib/line-offsets";
 import { loadYouTubeId } from "@/lib/youtube-store";
 import {
   BAR_KINDS,
@@ -391,8 +391,8 @@ function EditSongView({ id }: { id: string }) {
   const [activeSlot, setActiveSlot] = useState<ActiveSlot>({ kind: "main" });
   const [gpMenuOpen, setGpMenuOpen] = useState(false);
   const [lyricsOffset, setLyricsOffset] = useState(() => (id ? loadGlobalOffset(id) : 0));
-  const [bandOffset, setBandOffset] = useState(() => (id ? loadBandOffset(id) : 0));
-  const [syncLatency, setSyncLatency] = useState(() => (id ? loadSyncLatency(id) : 0));
+  const [bandOffset] = useState(() => (id ? loadBandOffset(id) : 0));
+  const [syncLatency] = useState(() => (id ? loadSyncLatency(id) : 0));
   const [lyricAnchorDiagram, setLyricAnchorDiagram] = useState<number | null>(null);
   const instUrlRef = useRef<string | null>(null);
   const vocalsUrlRef = useRef<string | null>(null);
@@ -3573,15 +3573,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
           lyricOffset={lyricsOffset}
           lyricAnchorDiagram={lyricAnchorDiagram ?? song?.lyricAnchorDiagram ?? undefined}
           bandOffset={bandOffset}
-          onBandOffsetChange={(offset) => {
-            setBandOffset(offset);
-            if (id) saveBandOffset(id, offset);
-          }}
           syncLatency={syncLatency}
-          onSyncLatencyChange={(ms) => {
-            setSyncLatency(ms);
-            if (id) saveSyncLatency(id, ms);
-          }}
           songId={id ?? undefined}
           onClose={() => setConductorOpen(false)}
         />
