@@ -152,10 +152,12 @@ export default function LyricsEditorPage({
         }
       }
       console.log("Spectrogramme: frames=", numFrames, "maxMag=", maxMag, "numBins=", numBins);
-      // Sample: magnitude du premier frame, bins 0, 10, 50, 100, 200, 400
       if (magnitudes.length > 0) {
         const m0 = magnitudes[0];
-        console.log("Sample magnitudes (frame 0):", [0, 10, 50, 100, 200, 400].map((b) => m0[b]?.toFixed(2)));
+        console.log("Frame 0 magnitudes (first 10):", Array.from(m0.slice(0, 10)).map((v) => v.toFixed(2)));
+        // Check if FFT is producing non-zero values
+        const nonZero = m0.filter((v) => v > 0.01).length;
+        console.log("Frame 0 non-zero bins:", nonZero, "of", numBins);
       }
       if (maxMag === 0) maxMag = 1;
 
