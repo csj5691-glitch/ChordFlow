@@ -47,6 +47,8 @@ export default function LyricsEditorPage({
   const [dirty, setDirty] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
+  const [syncMode, setSyncMode] = useState(false);
+  const [syncPoints, setSyncPoints] = useState<{ audio: number; lyric: number }[]>([]);
   const timerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -160,6 +162,33 @@ export default function LyricsEditorPage({
     setDirty(true);
   }, [lyricsText]);
 
+  const splitLine = useCallback((idx: number) => {
+    const parsed = parseLyrics(lyricsText);
+    if (idx < 0 || idx >= parsed.length) return;
+    const line = parsed[idx];
+    const words = line.text.trim().split(/\s+/);
+    if (words.length < 2) return;
+    const mid = Math.ceil(words.length / 2);
+    const first = words.slice(0, mid).join(" ");
+    const second = words.slice(mid).join(" ");
+    const nextTime =
+      idx + 1 < parsed.length ? parsed[idx + 1].time : line.time + 2;
+    const splitTime = (line.time + nextTime) / 2;
+    parsed[idx].text = first;
+    parsed.splice(idx + 1, 0, { time: splitTime, text: second });
+    setLyricsText(toLRC(parsed));
+    setDirty(true);
+  }, [lyricsText]);
+
+  const mergeLine = useCallback((idx: number) => {
+    const parsed = parseLyrics(lyricsText);
+    if (idx < 0 || idx >= parsed.length - 1) return;
+    parsed[idx].text = `${parsed[idx].text} ${parsed[idx + 1].text}`.trim();
+    parsed.splice(idx + 1, 1);
+    setLyricsText(toLRC(parsed));
+    setDirty(true);
+  }, [lyricsText]);
+
   const addLine = useCallback(() => {
     const parsed = parseLyrics(lyricsText);
     const lastTime = parsed.length > 0 ? parsed[parsed.length - 1].time + 2 : 0;
@@ -167,6 +196,40 @@ export default function LyricsEditorPage({
     setLyricsText(toLRC(parsed));
     setDirty(true);
   }, [lyricsText]);
+
+  // --- Synchronisation par deux points ---
+  const markSyncPoint = useCallback(
+    (lyricTime: number) => {
+      setSyncPoints((prev) => {
+        if (prev.length >= 2) return [{ audio: time, lyric: lyricTime }];
+        return [...prev, { audio: time, lyric: lyricTime }];
+      });
+    },
+    [time]
+  );
+
+  const applySync = useCallback(() => {
+    if (syncPoints.length < 2) return;
+    const [p1, p2] = syncPoints;
+    const dLyric = p2.lyric - p1.lyric;
+    if (Math.abs(dLyric) < 0.001) return; // evite division par zero
+    const scale = (p2.audio - p1.audio) / dLyric;
+    const offset = p1.audio - scale * p1.lyric;
+    const parsed = parseLyrics(lyricsText);
+    const transformed = parsed.map((l) => ({
+      time: Math.max(0, scale * l.time + offset),
+      text: l.text,
+    }));
+    setLyricsText(toLRC(transformed));
+    setDirty(true);
+    setSyncMode(false);
+    setSyncPoints([]);
+  }, [syncPoints, lyricsText]);
+
+  const cancelSync = useCallback(() => {
+    setSyncMode(false);
+    setSyncPoints([]);
+  }, []);
 
   if (loading) {
     return (
@@ -304,6 +367,44 @@ export default function LyricsEditorPage({
               + Ligne
             </button>
           </div>
+          <div className="flex items-center gap-2 flex-wrap rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+            <button
+              onClick={() => {
+                if (syncMode) cancelSync();
+                else {
+                  setSyncMode(true);
+                  setSyncPoints([]);
+                }
+              }}
+              className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full transition-colors ${
+                syncMode
+                  ? "bg-amber-500 text-black hover:bg-amber-400"
+                  : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+              }`}
+            >
+              {syncMode ? "Annuler la synchro" : "Synchroniser (2 points)"}
+            </button>
+            {syncMode && (
+              <>
+                <span className="text-[11px] text-zinc-500">
+                  Naviguez avec le curseur, puis cliquez Marquer sur deux lignes.
+                </span>
+                {syncPoints.map((p, i) => (
+                  <span key={i} className="text-[11px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-full px-2.5 py-1">
+                    Point {i + 1} : audio {formatTime(p.audio)} vers parole {formatTime(p.lyric)}
+                  </span>
+                ))}
+                {syncPoints.length === 2 && (
+                  <button
+                    onClick={applySync}
+                    className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full bg-emerald-500 text-black hover:bg-emerald-400 transition-colors"
+                  >
+                    Appliquer
+                  </button>
+                )}
+              </>
+            )}
+          </div>
           <div className="flex flex-col gap-2 max-h-[50vh] overflow-y-auto">
             {lines.map((l, i) => (
               <div key={i} className="flex items-center gap-2">
@@ -319,6 +420,31 @@ export default function LyricsEditorPage({
                   onChange={(e) => updateLine(i, "text", e.target.value)}
                   className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1 text-sm text-zinc-200 focus:outline-none focus:border-amber-500/60"
                 />
+                {syncMode && (
+                  <button
+                    onClick={() => markSyncPoint(l.time)}
+                    className="px-2 py-1 rounded-lg bg-amber-500/20 text-amber-300 text-[10px] font-semibold hover:bg-amber-500/30 transition-colors whitespace-nowrap"
+                    title="Marquer ce point (audio courant + ce timestamp)"
+                  >
+                    Marquer
+                  </button>
+                )}
+                <button
+                  onClick={() => splitLine(i)}
+                  className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:bg-zinc-700 transition-colors text-[10px] font-bold"
+                  title="Découper la ligne en deux"
+                >
+                  ✂
+                </button>
+                {i < lines.length - 1 && (
+                  <button
+                    onClick={() => mergeLine(i)}
+                    className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:bg-zinc-700 transition-colors text-[10px] font-bold"
+                    title="Fusionner avec la ligne suivante"
+                  >
+                    ⊕
+                  </button>
+                )}
                 <button
                   onClick={() => removeLine(i)}
                   className="p-1.5 rounded-lg bg-zinc-800 text-red-400 hover:bg-red-500/10 transition-colors"
