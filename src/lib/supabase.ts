@@ -4,6 +4,7 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { SongTab } from "./types";
 import {
   loadLocalSongs,
+  loadLocalSong,
   saveLocalSong,
   deleteLocalSong,
   migrateSong,
@@ -109,6 +110,27 @@ export async function loadSharedSongs(): Promise<SongTab[]> {
     if (rows.length < PAGE) break;
   }
   return migrated;
+}
+
+export async function loadSharedSong(id: string): Promise<SongTab | null> {
+  const sb = getSupabase();
+  if (!sb) return loadLocalSong(id);
+  const { data, error } = await sb
+    .from("songs")
+    .select("data")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) {
+    console.log("[ChordFlow] chanson : erreur Supabase requete", {
+      id,
+      message: error.message,
+      code: error.code,
+    });
+    return loadLocalSong(id);
+  }
+  const s = (data as { data: unknown } | null)?.data as SongTab | undefined;
+  if (!s || typeof s !== "object" || !s.id) return loadLocalSong(id);
+  return migrateSong(s);
 }
 
 export async function saveSharedSong(song: SongTab): Promise<string[]> {

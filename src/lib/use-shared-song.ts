@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { SongTab } from "./types";
-import { loadSharedSongs, saveSharedSong } from "./supabase";
+import { loadSharedSong, saveSharedSong } from "./supabase";
 import { loadLocalSong } from "./custom-songs";
 
 export function useSharedSong(id: string) {
@@ -19,10 +19,10 @@ export function useSharedSong(id: string) {
       if (!active) return;
       setCurrent((prev) => prev ?? local);
     });
-    loadSharedSongs()
-      .then((list) => {
+    loadSharedSong(id)
+      .then((shared) => {
         if (!active) return;
-        setCurrent(list.find((s) => s.id === id) ?? cachedLocal);
+        setCurrent(shared ?? cachedLocal);
       })
       .catch(() => {
         if (!active) return;
