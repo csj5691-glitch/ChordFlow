@@ -8,6 +8,9 @@ const DB_NAME = "chordflow-lyrics-audio";
 const STORE = "audio";
 const DB_VERSION = 1;
 
+// Cache module-level pour eviter les chargements doubles (StrictMode dev).
+const loadCache = new Map<string, Promise<Blob | null>>();
+
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === "undefined") {
@@ -32,6 +35,8 @@ function openDB(): Promise<IDBDatabase> {
 
 export async function saveLyricsAudio(songId: string, blob: Blob | null): Promise<void> {
   console.log("[lyrics-audio] save start", songId, blob?.size);
+  // Invalider le cache pour ce songId
+  loadCache.delete(songId);
   const db = await openDB();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -52,20 +57,42 @@ export async function saveLyricsAudio(songId: string, blob: Blob | null): Promis
   }
 }
 
-export async function loadLyricsAudio(songId: string): Promise<Blob | null> {
-  console.log("[lyrics-audio] load start", songId);
-  const db = await openDB();
-  try {
-    const result = await new Promise<Blob | null>((resolve, reject) => {
-      const tx = db.transaction(STORE, "readonly");
-      const req = tx.objectStore(STORE).get(songId);
-      req.onsuccess = () => resolve((req.result as Blob) || null);
-      req.onerror = () => reject(req.error);
-      tx.onabort = () => reject(tx.error || new Error("tx aborted"));
-    });
-    console.log("[lyrics-audio] load result", songId, result?.size ?? "null");
-    return result;
-  } finally {
-    db.close();
+export function loadLyricsAudio(songId: string): Promise<Blob | null> {
+  const cached = loadCache.get(songId);
+  if (cached) {
+    console.log("[lyrics-audio] load (cached promise)", songId);
+    return cached;
   }
+  const promise = (async () => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      console.log("[lyrics-audio] load start", songId, "attempt", attempt + 1);
+      let db: IDBDatabase | null = null;
+      try {
+        db = await openDB();
+        const result = await new Promise<Blob | null>((resolve, reject) => {
+          const tx = db!.transaction(STORE, "readonly");
+          const req = tx.objectStore(STORE).get(songId);
+          req.onsuccess = () => resolve((req.result as Blob) || null);
+          req.onerror = () => reject(req.error);
+          tx.onabort = () => reject(tx.error || new Error("tx aborted"));
+        });
+        console.log("[lyrics-audio] load result", songId, result?.size ?? "null");
+        return result;
+      } catch (err) {
+        console.error("[lyrics-audio] load attempt failed", songId, err);
+        if (attempt === 1) throw err;
+      } finally {
+        if (db) db.close();
+      }
+    }
+    return null;
+  })();
+  loadCache.set(songId, promise);
+  promise.finally(() => {
+    setTimeout(() => loadCache.delete(songId), 5000);
+  });
+  return promise;
 }
