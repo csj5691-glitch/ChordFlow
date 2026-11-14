@@ -13,6 +13,7 @@ import {
   toVTT,
   toASS,
 } from "@/lib/lyrics";
+import { saveLyricsAudio, loadLyricsAudio } from "@/lib/lyrics-audio";
 
 function formatTime(t: number): string {
   const m = Math.floor(t / 60);
@@ -68,6 +69,25 @@ export default function LyricsEditorPage({
     }
   }, [song]);
 
+  // Chargement de l'audio persiste (IndexedDB) au montage
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const blob = await loadLyricsAudio(id);
+        if (cancelled || !blob) return;
+        const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        const ctx = new Ctx();
+        const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+        if (cancelled) return;
+        setAudioBuffer(buf);
+        setAudioUrl(URL.createObjectURL(blob));
+      } catch {
+        // pas d'audio persiste
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [id]);
   const lines = useMemo(() => parseLyrics(lyricsText), [lyricsText]);
 
   const duration = useMemo(() => {
@@ -153,13 +173,14 @@ export default function LyricsEditorPage({
         const buf = await ctx.decodeAudioData(reader.result as ArrayBuffer);
         setAudioBuffer(buf);
         setAudioUrl(URL.createObjectURL(file));
+        void saveLyricsAudio(id, file);
       } catch (err) {
         console.error('Decodage audio echoue', err);
       }
     };
     reader.readAsArrayBuffer(file);
     e.target.value = '';
-  }, []);
+  }, [id]);
   const handleImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -436,6 +457,19 @@ export default function LyricsEditorPage({
                 <span className="text-[11px] text-zinc-500 font-mono">
                   {audioBuffer.duration.toFixed(1)} s
                 </span>
+              )}
+              {audioBuffer && (
+                <button
+                  onClick={() => {
+                    if (audioUrl) URL.revokeObjectURL(audioUrl);
+                    setAudioBuffer(null);
+                    setAudioUrl(null);
+                    void saveLyricsAudio(id, null);
+                  }}
+                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-zinc-800 text-red-400 hover:bg-red-500/10 transition-colors"
+                >
+                  Retirer l&apos;audio
+                </button>
               )}
             </div>
           </div>
