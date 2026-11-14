@@ -23,7 +23,6 @@ import { getSongTab } from "@/lib/mock-data";
 import { parseChordContent } from "@/lib/chord-parser";
 import { detectKeyFromContent } from "@/lib/key-detection";
 import { loadLineOffsets, saveLineOffset, loadGlobalOffset, saveGlobalOffset } from "@/lib/line-offsets";
-import { saveAudioStem, loadAudioStems } from "@/lib/audio-store";
 import { loadYouTubeId, saveYouTubeId, removeYouTubeId } from "@/lib/youtube-store";
 import { detectBpmFromFile } from "@/lib/bpm-detect";
   import { loadSpotifyId, saveSpotifyId, removeSpotifyId } from "@/lib/spotify-store";
@@ -34,7 +33,7 @@ import { loadPlaylists, loadSession, saveSession, clearSession } from "@/lib/pla
 import { savePlaylistsUiState } from "@/lib/playlists-ui-state";
 import { buildChordLineTimestamps } from "@/lib/lyric-timing";
 import type { Playlist } from "@/lib/playlists";
-import { ArrowLeft, Music, Key, FileText, Music2, Upload, ExternalLink, Wand2, Check, Pencil, X, ChevronLeft, ChevronRight, ListMusic, Square, Shuffle, RefreshCw, Mic2, Loader2, Gauge } from "lucide-react";
+import { ArrowLeft, Music, Key, FileText, Music2, Upload, ExternalLink, Wand2, Check, Pencil, X, ChevronLeft, ChevronRight, ListMusic, Square, Shuffle, RefreshCw, Loader2, Gauge } from "lucide-react";
 
 const GUITAR_KEYS = [
   "C", "G", "D", "A", "E", "F", "B", "Bb", "Eb", "Ab", "Db", "Gb",
@@ -217,19 +216,6 @@ function SongView({ id }: SongViewProps) {
   const [showYoutubeSearch, setShowYoutubeSearch] = useState(false);
   const [showSpotifySearch, setShowSpotifySearch] = useState(false);
   const [youtubeError, setYoutubeError] = useState(false);
-const [extracting, setExtracting] = useState(false);
-  const [extractElapsed, setExtractElapsed] = useState(0);
-  const [extractError, setExtractError] = useState<string | null>(null);
-  const [extractDone, setExtractDone] = useState(false);
-  const [stemsReady, setStemsReady] = useState(false);
-  const [extractProgress, setExtractProgress] = useState<
-    { state: string; percent: number; current: number; total: number; line: string } | null
-  >(null);
-  const progressTimerRef = useRef<number | null>(null);
-  const extractStartRef = useRef(0);
-  // Étapes de l'extraction YouTube : 0 = téléchargement, 1 = voix, 2 = instrumental.
-  const [stemPhase, setStemPhase] = useState(-1);
-  const currentStemRef = useRef<"vocals" | "noVocals" | null>(null);
   const [spotifyError, setSpotifyError] = useState<string | null>(null);
   const [showEdit, setShowEdit] = useState(false);
   const [spotifyTrackUrl, setSpotifyTrackUrl] = useState<string | null>(() =>
@@ -696,110 +682,6 @@ const [extracting, setExtracting] = useState(false);
     setDetectedBpm(null);
     setStandardBpm("");
   }, [audioSource, id, song, isCustom, hydrated, upsert]);
-
-  useEffect(() => {
-    if (!extracting) return;
-    const t = window.setInterval(() => {
-      setExtractElapsed(Math.floor((Date.now() - extractStartRef.current) / 1000));
-    }, 1000);
-    return () => window.clearInterval(t);
-  }, [extracting]);
-
-  // Voix + instrumental déjà stockés (IndexedDB) : le bouton d'extraction est
-  // remplacé par le statut. Recontrôlé après chaque extraction réussie.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const stems = await loadAudioStems(id);
-        if (!cancelled) setStemsReady(!!stems?.vocals && !!stems?.noVocals);
-      } catch {
-        if (!cancelled) setStemsReady(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [id, extractDone]);
-
-  const handleExtractStemsYouTube = async () => {
-    if (!youtubeVideoId) return;
-    // Jeton unique : le service stems pare le flux de progression Demucs et la
-    // page le relit pendant que la séparation tourne (barre tqdm inversée).
-    const token = crypto.randomUUID();
-    setExtracting(true);
-    setExtractError(null);
-    setExtractDone(false);
-    setExtractElapsed(0);
-    setExtractProgress({ state: "waiting", percent: 0, current: 0, total: 0, line: "téléchargement de la vidéo…" });
-    extractStartRef.current = Date.now();
-    currentStemRef.current = null;
-    setStemPhase(0);
-    const poll = async () => {
-      try {
-        const r = await fetch(`/api/stems-progress?token=${encodeURIComponent(token)}`);
-        const data = await r.json().catch(() => null);
-        if (data?.state) {
-          setExtractProgress(data);
-          // Étapes pilotées par l'état du service Demucs :
-          //  running -> Étape 1 (téléchargement) validée, Étape 2 active ;
-          //  done    -> séparation voix terminée : Étape 2 validée, Étape 3 active ;
-          //  done    -> séparation instrumental terminée : Étape 3 validée.
-          const stem = currentStemRef.current;
-          if (data.state === "running")
-            setStemPhase((p) => Math.max(p, stem === "noVocals" ? 2 : 1));
-          else if (data.state === "done")
-            setStemPhase((p) => Math.max(p, stem === "noVocals" ? 3 : 2));
-        }
-      } catch {
-        // Service en pause pendant le redémarrage — on continue de scruter.
-      }
-    };
-    progressTimerRef.current = window.setInterval(() => void poll(), 500);
-    try {
-      for (const stem of ["vocals", "noVocals"] as const) {
-        currentStemRef.current = stem;
-        const res = await fetch("/api/yt-stems", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ videoId: youtubeVideoId, stem, progressToken: token }),
-          // ~9 min de calcul CPU (ou quelques minutes sur GPU CUDA) : au-delà
-          // de 10 min l'extraction était abandonnée avant la fin du morceau.
-          signal: AbortSignal.timeout(1_800_000),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => null);
-          throw new Error(data?.error ?? `erreur ${res.status}`);
-        }
-        const blob = await res.blob();
-        const wav = new File([blob], `${stem}.wav`, { type: "audio/wav" });
-        await saveAudioStem(id, stem, wav);
-        // Voix enregistrée : l'instrumental (déjà en cache côté service) démarre.
-        if (stem === "vocals") setStemPhase(2);
-      }
-      setExtractDone(true);
-      // On laisse le check vert de l'Étape 3 visible un court instant avant
-      // que la fenêtre de progression ne se referme.
-      setStemPhase(3);
-      await new Promise((resolve) => window.setTimeout(resolve, 800));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const low = msg.toLowerCase();
-      setExtractError(
-        low.includes("injoignable") || low.includes("404") || low.includes("not found")
-          ? "Service Demucs absent — lance start-stems.bat (utilisation en local uniquement)"
-          : msg.slice(0, 160),
-      );
-    } finally {
-      if (progressTimerRef.current !== null) {
-        window.clearInterval(progressTimerRef.current);
-        progressTimerRef.current = null;
-      }
-      setExtractProgress(null);
-      setStemPhase(-1);
-      setExtracting(false);
-    }
-  };
 
   useEffect(() => {
     const syncedId = song?.youtubeId;
@@ -1317,115 +1199,6 @@ const [extracting, setExtracting] = useState(false);
                   </span>
                 )}
               </label>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {stemsReady && !extracting ? (
-                <span className="flex items-center gap-2 text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-3 py-1.5 w-fit">
-                  <Mic2 className="w-4 h-4" />
-                  Voix et instruments chargés
-                  <span className="text-emerald-400/80" title="Ouvre l'éditeur pour les réécouter via le Studio">
-                    — dispo dans le Studio (éditeur)
-                  </span>
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => void handleExtractStemsYouTube()}
-                  disabled={extracting || !youtubeVideoId}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors disabled:cursor-wait ${
-                    extracting
-                      ? "bg-amber-500/20 text-amber-300"
-                      : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
-                  }`}
-                  title="Télécharge l'audio de cette vidéo (yt-dlp) et extrait la voix + l'instrumental via Demucs en local — dispo dans le Studio (éditeur)"
-                >
-                  {extracting ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Mic2 className="w-4 h-4" />
-                  )}
-                  {extracting ? `Extraction voix + instrumental… ${extractElapsed}s` : "Extraire voix + instrumental (YouTube)"}
-                </button>
-              )}
-              {extractDone && !extracting && (
-                <span className="text-xs text-purple-300 bg-purple-500/10 border border-purple-500/30 rounded-full px-2.5 py-1">
-                  Voix + instrumental extraits ✓ — disponibles dans le Studio (éditeur)
-                </span>
-              )}
-              {extracting && extractProgress && (
-                <div className="w-full max-w-md flex flex-col gap-1.5">
-                  {([
-                    { label: "Téléchargement de l'audio (YouTube)", icon: Upload },
-                    { label: "Séparation de la voix (Demucs)", icon: Mic2 },
-                    { label: "Séparation de l'instrumental (Demucs)", icon: Music },
-                  ] as const).map((s, i) => {
-                    const done = stemPhase > i;
-                    const active = stemPhase === i;
-                    const pct = done
-                      ? 100
-                      : active
-                        ? Math.min(100, Math.round(extractProgress.percent))
-                        : 0;
-                    const Icon = s.icon;
-                    return (
-                      <div key={i}>
-                        <div
-                          className={`flex items-center gap-2 text-[11px] font-mono ${
-                            active
-                              ? "text-amber-300"
-                              : done
-                                ? "text-emerald-400"
-                                : "text-zinc-600"
-                          }`}
-                        >
-                          <span className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
-                            {done ? (
-                              <Check className="w-3.5 h-3.5" />
-                            ) : active ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <Icon className="w-3.5 h-3.5" />
-                            )}
-                          </span>
-                          <span className="truncate">{`Étape ${i + 1} · ${s.label}`}</span>
-                          <span className="ml-auto tabular-nums">{pct}%</span>
-                        </div>
-                        <div className="ml-5 mt-0.5 relative h-1.5 rounded-full bg-zinc-800 overflow-hidden">
-                          <div
-                            className={`absolute inset-y-0 left-0 rounded-full transition-[width] duration-300 ${
-                              done ? "bg-emerald-400/80" : "bg-amber-400/80"
-                            }`}
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                        {active && extractProgress.line && (
-                          <div
-                            className="ml-5 mt-0.5 text-[10px] font-mono text-zinc-500 truncate"
-                            title={extractProgress.line}
-                          >
-                            {extractProgress.line}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {extractError && (
-                <span className="flex items-center gap-2 text-[11px] text-red-400" title={extractError}>
-                  {extractError}
-                  <button
-                    type="button"
-                    onClick={() => void handleExtractStemsYouTube()}
-                    disabled={extracting}
-                    className="flex items-center gap-1 font-semibold text-amber-300 bg-amber-500/15 border border-amber-500/30 hover:bg-amber-500/25 rounded-full px-2.5 py-1 transition-colors disabled:cursor-wait disabled:opacity-50"
-                    title="Relancer l'extraction de la voix + instrumental (YouTube)"
-                  >
-                    <RefreshCw className="w-3 h-3" />
-                    Réessayer
-                  </button>
-                </span>
-              )}
             </div>
           </>
         )}
