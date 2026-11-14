@@ -45,7 +45,6 @@ interface ConductorProps {
   /**.identifiant de la chanson (persistance de l'alignement automatique). */
   songId?: string;
   /**.appelé à chaque réglage d'offset des paroles (pour le sauvegarder). */
-  onLyricOffsetChange?: (offset: number) => void;
   /**.décalage de la bande de diagrammes sur la musique, en secondes. */
   bandOffset?: number;
   /**.notifié à chaque réglage du décalage de la bande. */
@@ -148,7 +147,6 @@ export default function Conductor({
   program,
   lyricOffset: externalLyricOffset,
   lyricAnchorDiagram,
-  onLyricOffsetChange,
   bandOffset: externalBandOffset,
   onBandOffsetChange,
   syncLatency: externalSyncLatency,
@@ -219,19 +217,9 @@ export default function Conductor({
   // pas dans le Chef (boutons -/+). On garde le reglage local avec sa valeur
   // de depart pour l'abandonner des que la prop change, sans effet de synchro
   // (un setState dans un effet provoquait un rendu en cascade).
-  const [anchorEdit, setAnchorEdit] = useState<{
-    base: number | undefined;
-    value: number;
-  } | null>(null);
-  const anchorDisplay =
-    anchorEdit && anchorEdit.base === lyricAnchorDiagram
-      ? anchorEdit.value
-      : lyricAnchorDiagram !== undefined
-        ? lyricAnchorDiagram + 1
-        : 0;
   const [instVolume, setInstVolume] = useState(1);
   const [vocalsVolume, setVocalsVolume] = useState(0.9);
-  const [localLyricOffset, setLocalLyricOffset] = useState(0);
+  const [localLyricOffset] = useState(0);
   // L'offset est une valeur contrôlée : dès que l'éditeur fournit la prop, c'est
   // lui qui fait foi. Avant, un effet synchronisait l'état local avec la prop et
   // l'éditeur réutilisait la valeur renvoyée → boucle « maximum update depth ».
@@ -246,19 +234,6 @@ export default function Conductor({
       lyricAnchorRef.current = lyricAnchorDiagram;
     }
   }, [lyricAnchorDiagram]);
-  const setAnchorFromDisplay = (val: number) => {
-    const idx = Math.max(0, val - 1);
-    setAnchorEdit({ base: lyricAnchorDiagram, value: val });
-    lyricAnchorRef.current = idx;
-  };
-  const changeLyricOffset = (delta: number) => {
-    const next = Math.round(Math.max(-30, Math.min(30, lyricOffset + delta)) * 10) / 10;
-    // Le parent mémorise l'offset (par chanson) : sans ce rappel, le réglage
-    // était perdu au rechargement. Appelé depuis un handler, donc autorisé.
-    setLocalLyricOffset(next);
-    lyricOffsetRef.current = next;
-    onLyricOffsetChange?.(next);
-  };
   // Décalage de la bande de diagrammes sur la musique (contrôlé par l'éditeur,
   // comme l'offset des paroles) : c'est le réglage qui rend la synchro malléable.
   const [localBandOffset, setLocalBandOffset] = useState(0);
@@ -1618,105 +1593,6 @@ export default function Conductor({
               tablature + paroles par rapport aux stems · 0 = latence auto de
               l&apos;appareil (sauvegardé par chanson)
             </span>
-          </div>
-        )}
-        {usesAudio && (
-          <div className="flex flex-col gap-1 text-xs text-zinc-400">
-            <span className="text-zinc-500">Paroles</span>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => changeLyricOffset(-5)}
-                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
-                title="-5 s"
-              >
-                -5
-              </button>
-              <button
-                onClick={() => changeLyricOffset(-1)}
-                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
-                title="-1 s"
-              >
-                -1
-              </button>
-              <button
-                onClick={() => changeLyricOffset(-0.1)}
-                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-400 transition-colors"
-                title="-0,1 s (ajustement fin)"
-              >
-                -.1
-              </button>
-              <span className="font-mono text-amber-400 w-16 text-center">
-                {lyricOffset >= 0 ? "+" : ""}
-                {lyricOffset.toFixed(1)} s
-              </span>
-              <button
-                onClick={() => changeLyricOffset(0.1)}
-                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-400 transition-colors"
-                title="+0,1 s (ajustement fin)"
-              >
-                +.1
-              </button>
-              <button
-                onClick={() => changeLyricOffset(1)}
-                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
-                title="+1 s"
-              >
-                +1
-              </button>
-              <button
-                onClick={() => changeLyricOffset(5)}
-                className="w-9 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 font-bold text-zinc-300 transition-colors"
-                title="+5 s"
-              >
-                +5
-              </button>
-              {lyricOffset !== 0 && (
-                <button
-                  onClick={() => changeLyricOffset(-lyricOffset)}
-                  className="text-zinc-500 hover:text-zinc-300 underline transition-colors"
-                  title="Remettre l'offset des paroles à 0"
-                >
-                  Reset
-                </button>
-              )}
-              <div className="flex items-center gap-2 ml-3 border-l border-zinc-700 pl-3">
-                <span className="text-[10px] text-zinc-500">Ancrage</span>
-                <button
-                  onClick={() => setAnchorFromDisplay(anchorDisplay - 1)}
-                  className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold"
-                >
-                  −
-                </button>
-                <input
-                  type="number"
-                  min={1}
-                  value={anchorDisplay}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value);
-                    if (!isNaN(v) && v >= 1) setAnchorFromDisplay(v);
-                  }}
-                  className="w-14 h-6 rounded bg-zinc-800 border border-zinc-600 text-center text-zinc-200 text-xs font-mono"
-                  title="Numéro du diagramme d'ancrage (1 = premier)"
-                />
-                <button
-                  onClick={() => setAnchorFromDisplay(anchorDisplay + 1)}
-                  className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold"
-                >
-                  +
-                </button>
-              </div>
-            </div>
-            {stemStart === null && (instrumentalUrl || vocalsUrl) ? (
-              <span className="text-[10px] text-zinc-500 animate-pulse">
-                Détection du premier son de la piste…
-              </span>
-            ) : (
-              <span className="text-[10px] text-zinc-600">
-                {stemStart !== null && stemStart > 0
-                  ? `1re parole à ${stemStart.toFixed(2)} s (début sonore de la piste)`
-                  : "1re parole au début de la lecture"}
-              </span>
-            )}
           </div>
         )}
       </div>

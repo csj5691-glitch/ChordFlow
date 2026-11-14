@@ -3572,10 +3572,6 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
           program={song?.gpTracks?.[0]?.program ?? null}
           lyricOffset={lyricsOffset}
           lyricAnchorDiagram={lyricAnchorDiagram ?? song?.lyricAnchorDiagram ?? undefined}
-          onLyricOffsetChange={(offset) => {
-            setLyricsOffset(offset);
-            if (id) saveGlobalOffset(id, offset);
-          }}
           bandOffset={bandOffset}
           onBandOffsetChange={(offset) => {
             setBandOffset(offset);
