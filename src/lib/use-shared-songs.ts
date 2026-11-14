@@ -33,11 +33,21 @@ export function useSharedSongs() {
   const [importError, setImportError] = useState<string | null>(null);
 
   const loadFromAnywhere = useCallback(async (): Promise<SongTab[]> => {
+    const local = await loadLocalSongs();
+    let server: SongTab[] = [];
     try {
-      return await withTimeout(loadSharedSongs(), 8000);
+      server = await withTimeout(loadSharedSongs(), 8000);
     } catch {
-      return loadLocalSongs();
+      // on garde le repertoire local
     }
+    // Fusion repertoire local + serveur : le local fait foi (cote appareil),
+    // le serveur enrichit (chansons issues d'ailleurs). Sans fusion, un repertoire
+    // serveur incomplet masquait les chansons locales jusqu'au "Importer mon
+    // repertoire" manuel.
+    const byId = new Map<string, SongTab>();
+    for (const s of server) byId.set(s.id, s);
+    for (const s of local) byId.set(s.id, s);
+    return [...byId.values()];
   }, []);
 
   const refresh = useCallback(async () => {
