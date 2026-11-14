@@ -223,8 +223,9 @@ export default function LyricsEditorPage({
           real[i + j + len / 2] = uRe - vRe;
           imag[i + j + len / 2] = uIm - vIm;
           const nwr = wr * wRe - wi * wIm;
-          wi = wr * wIm + wi * wRe;
+          const nwi = wr * wIm + wi * wRe;
           wr = nwr;
+          wi = nwi;
         }
       }
     }
