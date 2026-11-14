@@ -49,6 +49,9 @@ export default function LyricsEditorPage({
   const [time, setTime] = useState(0);
   const [syncMode, setSyncMode] = useState(false);
   const [syncPoints, setSyncPoints] = useState<{ audio: number; lyric: number }[]>([]);
+  const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
+  const waveformRef = useRef<HTMLCanvasElement>(null);
   const timerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -65,6 +68,44 @@ export default function LyricsEditorPage({
     if (lines.length === 0) return 60;
     return Math.max(60, lines[lines.length - 1].time + 8);
   }, [lines]);
+  // Dessin de la waveform audio pour caler les paroles au ms pres
+  useEffect(() => {
+    const canvas = waveformRef.current;
+    if (!canvas || !audioBuffer) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth;
+    const h = canvas.height;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.fillStyle = "#18181b";
+    ctx.fillRect(0, 0, w, h);
+    const data = audioBuffer.getChannelData(0);
+    const step = Math.ceil(data.length / w);
+    const mid = h / 2;
+    ctx.strokeStyle = "#f59e0b";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = 0; x < w; x++) {
+      let min = 1, max = -1;
+      for (let j = 0; j < step; j++) {
+        const v = data[x * step + j] || 0;
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+      ctx.moveTo(x, mid + min * mid);
+      ctx.lineTo(x, mid + max * mid);
+    }
+    ctx.stroke();
+    const pct = time / audioBuffer.duration;
+    ctx.strokeStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.moveTo(pct * w, 0);
+    ctx.lineTo(pct * w, h);
+    ctx.stroke();
+  }, [audioBuffer, time]);
 
   // Lecture auto (temps lineaire) pour l'apercu karaoke
   // Lecture auto (temps lineaire) pour l'apercu karaoke
@@ -100,6 +141,23 @@ export default function LyricsEditorPage({
     return idx;
   }, [lines, time]);
 
+  const handleLoadAudio = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new Ctx();
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const buf = await ctx.decodeAudioData(reader.result as ArrayBuffer);
+        setAudioBuffer(buf);
+      } catch (err) {
+        console.error('Decodage audio echoue', err);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
+  }, []);
   const handleImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -309,6 +367,49 @@ export default function LyricsEditorPage({
       </header>
 
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 flex flex-col gap-6">
+        {/* Forme d'onde audio */}
+        <section className="flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-zinc-300 flex items-center gap-2">
+              Forme d&apos;onde
+            </h2>
+            <div className="flex items-center gap-2">
+              <input
+                ref={audioInputRef}
+                type="file"
+                accept="audio/*"
+                className="hidden"
+                onChange={handleLoadAudio}
+              />
+              <button
+                onClick={() => audioInputRef.current?.click()}
+                className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
+              >
+                Charger audio
+              </button>
+              {audioBuffer && (
+                <span className="text-[11px] text-zinc-500 font-mono">
+                  {audioBuffer.duration.toFixed(1)} s
+                </span>
+              )}
+            </div>
+          </div>
+          {audioBuffer ? (
+            <canvas
+              ref={waveformRef}
+              className="w-full h-24 rounded-lg cursor-pointer"
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const pct = (e.clientX - rect.left) / rect.width;
+                setTime(Math.max(0, Math.min(audioBuffer.duration, pct * audioBuffer.duration)));
+              }}
+            />
+          ) : (
+            <p className="text-xs text-zinc-600 text-center py-6">
+              Charge un fichier audio pour afficher la forme d&apos;onde et caler les paroles.
+            </p>
+          )}
+        </section>
         {/* Aperçu karaoké */}
         <section className="flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
           <div className="flex items-center justify-between">
