@@ -22,7 +22,14 @@ export function useSharedSong(id: string) {
     loadSharedSong(id)
       .then((shared) => {
         if (!active) return;
-        setCurrent(shared ?? cachedLocal);
+        // Fusion : le local fait foi si le serveur n'a pas les paroles
+        // synchronisees (cas typique apres une sauvegarde locale reussie mais
+        // un upsert Supabase encore en cours ou echoue).
+        if (shared && cachedLocal && !shared.officialSynced && cachedLocal.officialSynced) {
+          setCurrent(cachedLocal);
+        } else {
+          setCurrent(shared ?? cachedLocal);
+        }
       })
       .catch(() => {
         if (!active) return;
