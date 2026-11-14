@@ -556,7 +556,7 @@ export default function Conductor({
     t0Ref.current = null;
     setPaused(false);
     seekRef.current = 0;
-    if (ctxRef.current && ctxRef.current.state === "running") {
+    if (ctxRef.current) {
       ctxRef.current.close().catch(() => {});
     }
     ctxRef.current = null;
@@ -674,6 +674,11 @@ export default function Conductor({
   const play = useCallback(async (fromSec = 0) => {
     stop();
     if (events.length === 0 && totalMs <= 0) return;
+    // Jeton de lecture : un arrêt (pause, fermeture, changement de source)
+    // survenu pendant les `await` ci-dessous doit annuler cette lecture.
+    // Sans ce garde-fou, la grille synthétisée continuait de se planifier
+    // après un « pause » cliqué pendant le démarrage du contexte audio.
+    const token = playTokenRef.current;
 
     // Lu depuis le ref : le basculement « Grille » redémarre la lecture dans le
     // même geste, avant que l'état React ne soit re-rendu.
@@ -707,14 +712,30 @@ export default function Conductor({
         (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!Ctor) return;
       ctx = new Ctor();
-      try {
-        await ctx.resume();
-        if (ctx.state !== "running") await ctx.resume();
-      } catch {
-        // L'état est relu juste en dessous.
+      // Attente BORNÉE de la reprise : sans geste utilisateur (automatique du
+      // Studio), certains navigateurs laissent `resume()` en attente. Sans
+      // borne, même l'horloge visuelle ne démarrerait pas.
+      const resumeWait = async () => {
+        await Promise.race([
+          ctx !== null ? ctx.resume().catch(() => {}) : Promise.resolve(),
+          new Promise<void>((resolve) => window.setTimeout(resolve, 600)),
+        ]);
+      };
+      await resumeWait();
+      if (ctx.state !== "running") await resumeWait();
+      if (playTokenRef.current !== token) {
+        // Lecture annulée pendant la reprise du contexte : on ne planifie rien.
+        ctx.close().catch(() => {});
+        return;
       }
-      if (ctx.state !== "running") {
-        console.warn(`[Chef] contexte audio "${ctx.state}" — son possiblement muet`);
+      // `canSound` : le contexte tourne vraiment. Sinon (autoplay sans geste),
+      // on lit la partition à l'écran sans planifier de notes ; le prochain
+      // clic sur « Jouer » partira d'un contexte autorisé.
+      const canSound = ctx.state === "running";
+      if (!canSound) {
+        console.warn(
+          `[Chef] contexte audio "${ctx.state}" — lecture visuelle seulement : cliquez sur Jouer pour activer le son`
+        );
       }
       ctxRef.current = ctx;
       // Alias non-null : les fermetures (pompe, bus) gardent un typage sûr.
@@ -727,7 +748,7 @@ export default function Conductor({
       // contexte audio (échantillon-verrouillés) ; la piste <audio> ne sert plus
       // que de repli si le décodage échoue. En mode « Grille », on ne décode
       // aucun stem : la synthèse joue la partition, répétitions comprises.
-      if (usesAudio && !grid) {
+      if (canSound && usesAudio && !grid) {
         let stemsOnCtx = false;
         const shift = stemShiftRef.current;
         const [instBuf, vocBuf] = await Promise.all([
@@ -782,12 +803,18 @@ export default function Conductor({
         }
       }
 
+      // Lecture annulée pendant le décodage des stems : rien à planifier.
+      if (playTokenRef.current !== token) {
+        ctx.close().catch(() => {});
+        return;
+      }
+
       // ---------- GRILLE SYNTHÉTISÉE (répétitions) ----------
       // Joue la séquence rendue par `renderSequence`, donc chaque passage des
       // sections répétées et les fins alternatives : c'est le seul moyen
       // d'ENTENDRE une répétition de la partition (un enregistrement de stems
       // est linéaire et ne contient pas les renvois).
-      if (grid && events.length > 0) {
+      if (canSound && grid && events.length > 0) {
         t0 = ctxSafe.currentTime + 0.15 - seek;
         t0Ref.current = t0;
         tempoRatioRef.current = 1;
@@ -934,7 +961,7 @@ export default function Conductor({
   const currentPosSec = useCallback((): number => {
     const t0 = t0Ref.current;
     const ctx = ctxRef.current;
-    if (t0 !== null && ctx) {
+    if (t0 !== null && ctx && ctx.state === "running") {
       const audioSec = Math.max(0, ctx.currentTime - t0);
       const ratio = tempoRatioRef.current;
       // La position audio doit être ramenée en temps de grille, sinon une
