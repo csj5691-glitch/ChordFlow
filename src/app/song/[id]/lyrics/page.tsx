@@ -110,47 +110,52 @@ export default function LyricsEditorPage({
     if (!audioBuffer) return;
     setComputingSpec(true);
     try {
-      const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-      const source = ctx.createBufferSource();
-      source.buffer = audioBuffer;
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 2048;
-      analyser.smoothingTimeConstant = 0;
-      source.connect(analyser);
-      const gain = ctx.createGain();
-      gain.gain.value = 0;
-      analyser.connect(gain);
-      gain.connect(ctx.destination);
+      const data = audioBuffer.getChannelData(0);
+      const frameSize = 1024;
+      const hopSize = 512;
+      const numFrames = Math.floor((data.length - frameSize) / hopSize) + 1;
+      const numBins = frameSize / 2;
 
-      const binCount = analyser.frequencyBinCount;
-      const frameInterval = 0.04;
-      const totalFrames = Math.ceil(audioBuffer.duration / frameInterval);
-      const frames: Uint8Array[] = [];
-
-      const startCtx = ctx.currentTime;
-      source.start(startCtx);
-      await new Promise<void>((resolve) => {
-        const interval = setInterval(() => {
-          const elapsed = ctx.currentTime - startCtx;
-          const expectedFrame = Math.floor(elapsed / frameInterval);
-          while (frames.length < expectedFrame && frames.length < totalFrames) {
-            const data = new Uint8Array(binCount);
-            analyser.getByteFrequencyData(data);
-            frames.push(new Uint8Array(data));
-          }
-          if (elapsed >= audioBuffer.duration + 0.1) {
-            clearInterval(interval);
-            try { source.stop(); } catch { /* ignore */ }
-            resolve();
-          }
-        }, 30);
-      });
-
-      const canvas = waveformRef.current;
-      if (!canvas || frames.length === 0) {
-        console.warn("Spectrogramme: aucun frame capture");
-        return;
+      // Pre-compute Hann window
+      const hannWindow = new Float32Array(frameSize);
+      for (let i = 0; i < frameSize; i++) {
+        hannWindow[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (frameSize - 1)));
       }
+
+      // Compute magnitude spectrum for each frame
+      const magnitudes: Float32Array[] = [];
+      for (let f = 0; f < numFrames; f++) {
+        const offset = f * hopSize;
+        const real = new Float32Array(frameSize);
+        const imag = new Float32Array(frameSize);
+        for (let i = 0; i < frameSize; i++) {
+          real[i] = (data[offset + i] || 0) * hannWindow[i];
+        }
+        // FFT (radix-2 Cooley-Tukey)
+        fft(real, imag);
+        const mag = new Float32Array(numBins);
+        for (let b = 0; b < numBins; b++) {
+          mag[b] = Math.sqrt(real[b] * real[b] + imag[b] * imag[b]);
+        }
+        magnitudes.push(mag);
+        // Yield to UI every 100 frames
+        if (f % 100 === 0) {
+          await new Promise((r) => setTimeout(r, 0));
+        }
+      }
+
+      // Find max magnitude for normalization
+      let maxMag = 0;
+      for (const mag of magnitudes) {
+        for (let b = 0; b < numBins; b++) {
+          if (mag[b] > maxMag) maxMag = mag[b];
+        }
+      }
+      if (maxMag === 0) maxMag = 1;
+
+      // Draw spectrogram
+      const canvas = waveformRef.current;
+      if (!canvas) return;
       const dpr = window.devicePixelRatio || 1;
       const w = canvas.clientWidth;
       const h = canvas.height;
@@ -162,25 +167,62 @@ export default function LyricsEditorPage({
       ctx2d.fillStyle = "#18181b";
       ctx2d.fillRect(0, 0, w, h);
 
-      const numFrames = frames.length;
       const frameWidth = w / numFrames;
       for (let f = 0; f < numFrames; f++) {
-        const data = frames[f];
-        for (let b = 0; b < binCount; b++) {
-          const val = data[b] / 255;
-          const y = h - (b / binCount) * h;
+        const mag = magnitudes[f];
+        for (let b = 0; b < numBins; b++) {
+          const val = mag[b] / maxMag;
+          const y = h - (b / numBins) * h;
           const r = Math.min(255, Math.max(0, val * 510 - 255));
           const g = Math.min(255, Math.max(0, val * 510));
           const bl = Math.min(255, Math.max(0, 255 - val * 510));
           ctx2d.fillStyle = "rgb(" + r + "," + g + "," + bl + ")";
-          ctx2d.fillRect(f * frameWidth, y, Math.ceil(frameWidth) + 1, h / binCount + 1);
+          ctx2d.fillRect(f * frameWidth, y, Math.ceil(frameWidth) + 1, h / numBins + 1);
         }
       }
-      ctx.close();
     } finally {
       setComputingSpec(false);
     }
   }, [audioBuffer]);
+
+  // FFT radix-2 (Cooley-Tukey)
+  function fft(real: Float32Array, imag: Float32Array): void {
+    const n = real.length;
+    // Bit-reversal
+    for (let i = 1, j = 0; i < n; i++) {
+      let bit = n >> 1;
+      for (; j & bit; bit >>= 1) {
+        j ^= bit;
+      }
+      j ^= bit;
+      if (i < j) {
+        const tr = real[i]; real[i] = real[j]; real[j] = tr;
+        const ti = imag[i]; imag[i] = imag[j]; imag[j] = ti;
+      }
+    }
+    // Butterfly
+    for (let len = 2; len <= n; len <<= 1) {
+      const ang = (-2 * Math.PI) / len;
+      const wRe = Math.cos(ang);
+      const wIm = Math.sin(ang);
+      for (let i = 0; i < n; i += len) {
+        let wr = 1, wi = 0;
+        for (let j = 0; j < len / 2; j++) {
+          const uRe = real[i + j];
+          const uIm = imag[i + j];
+          const vRe = real[i + j + len / 2] * wr - imag[i + j + len / 2] * wi;
+          const vIm = real[i + j + len / 2] * wi + imag[i + j + len / 2] * wr;
+          real[i + j] = uRe + vRe;
+          imag[i + j] = uIm + vIm;
+          real[i + j + len / 2] = uRe - vRe;
+          imag[i + j + len / 2] = uIm - vIm;
+          const nwr = wr * wRe - wi * wIm;
+          wi = wr * wIm + wi * wRe;
+          wr = nwr;
+        }
+      }
+    }
+  }
 
   // Dessin de la waveform audio (une seule fois par fichier)
   useEffect(() => {
