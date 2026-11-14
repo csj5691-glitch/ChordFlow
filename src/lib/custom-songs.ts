@@ -121,8 +121,10 @@ export async function loadLocalSongs(): Promise<SongTab[]> {
   try {
     const db = await openDB();
     const all = await getAllSongs(db);
+    console.log("[custom-songs] loadLocalSongs:", all.length, "songs, officialSynced:", all.map((s) => s.officialSynced?.slice(0, 20) || "(vide)"));
     return all.map(migrateSong);
-  } catch {
+  } catch (err) {
+    console.error("[custom-songs] loadLocalSongs error:", err);
     return [];
   }
 }
@@ -142,6 +144,7 @@ export async function saveLocalSong(song: SongTab): Promise<string[]> {
   for (;;) {
     try {
       await putSong(db, migrateSong(song));
+      console.log("[custom-songs] saveLocalSong OK:", song.id);
       return drops;
     } catch (err) {
       if (!isQuotaError(err)) throw err;
