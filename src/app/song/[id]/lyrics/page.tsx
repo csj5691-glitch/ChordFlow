@@ -50,9 +50,10 @@ export default function LyricsEditorPage({
   const [syncMode, setSyncMode] = useState(false);
   const [syncPoints, setSyncPoints] = useState<{ audio: number; lyric: number }[]>([]);
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const waveformRef = useRef<HTMLCanvasElement>(null);
-  const timerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -107,30 +108,31 @@ export default function LyricsEditorPage({
     ctx.stroke();
   }, [audioBuffer, time]);
 
-  // Lecture auto (temps lineaire) pour l'apercu karaoke
-  // Lecture auto (temps lineaire) pour l'apercu karaoke
+  // Lecture audio synchronisee avec le karaoke
   useEffect(() => {
-    if (!playing) {
-      if (timerRef.current) window.clearInterval(timerRef.current);
-      timerRef.current = null;
-      return;
+    const audio = audioRef.current;
+    if (!audio || !audioUrl) return;
+    const onTime = () => setTime(audio.currentTime);
+    const onEnd = () => setPlaying(false);
+    audio.addEventListener("timeupdate", onTime);
+    audio.addEventListener("ended", onEnd);
+    if (playing) {
+      audio.play().catch(() => setPlaying(false));
+    } else {
+      audio.pause();
     }
-    const startOffset = time;
-    const startTime = Date.now();
-    timerRef.current = window.setInterval(() => {
-      const t = startOffset + (Date.now() - startTime) / 1000;
-      if (t >= duration) {
-        setPlaying(false);
-        setTime(duration);
-      } else {
-        setTime(t);
-      }
-    }, 50);
     return () => {
-      if (timerRef.current) window.clearInterval(timerRef.current);
+      audio.removeEventListener("timeupdate", onTime);
+      audio.removeEventListener("ended", onEnd);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, duration]);
+  }, [playing, audioUrl]);
+
+  // Synchronisation du curseur avec l'audio quand on le deplace manuellement
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !audioUrl || playing) return;
+    audio.currentTime = time;
+  }, [time, playing, audioUrl]);
 
   const currentIndex = useMemo(() => {
     let idx = -1;
@@ -151,6 +153,7 @@ export default function LyricsEditorPage({
       try {
         const buf = await ctx.decodeAudioData(reader.result as ArrayBuffer);
         setAudioBuffer(buf);
+        setAudioUrl(URL.createObjectURL(file));
       } catch (err) {
         console.error('Decodage audio echoue', err);
       }
@@ -367,6 +370,7 @@ export default function LyricsEditorPage({
       </header>
 
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 flex flex-col gap-6">
+        {audioUrl && <audio ref={audioRef} src={audioUrl} preload="auto" className="hidden" />}
         {/* Forme d'onde audio */}
         <section className="flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
           <div className="flex items-center justify-between">
