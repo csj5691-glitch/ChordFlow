@@ -74,11 +74,9 @@ export default function LyricsEditorPage({
 
   // Chargement de l'audio persiste (IndexedDB) au montage
   useEffect(() => {
-    let cancelled = false;
     (async () => {
       try {
         const blob = await loadLyricsAudio(id);
-        if (cancelled) return;
         if (!blob) {
           console.log("[ChordFlow] lyrics-audio : aucun audio persiste pour", id);
           return;
@@ -86,14 +84,12 @@ export default function LyricsEditorPage({
         const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
         const ctx = new Ctx();
         const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
-        if (cancelled) return;
         setAudioBuffer(buf);
         setAudioUrl(URL.createObjectURL(blob));
       } catch (err) {
         console.error("[ChordFlow] lyrics-audio : echec de chargement", err);
       }
     })();
-    return () => { cancelled = true; };
   }, [id]);
   const lines = useMemo(() => parseLyrics(lyricsText), [lyricsText]);
 
