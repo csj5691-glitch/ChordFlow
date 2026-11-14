@@ -3,7 +3,7 @@
 
 import { use, useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Upload, Download, Save, Music2, Play, Pause } from "lucide-react";
+import { ArrowLeft, Upload, Save, Music2, Play, Pause } from "lucide-react";
 import { useSharedSong } from "@/lib/use-shared-song";
 import { SongTab } from "@/lib/types";
 import {
@@ -212,23 +212,23 @@ export default function LyricsEditorPage({
               <Upload className="w-3.5 h-3.5" />
               Importer
             </button>
-            <div className="relative group">
-              <button className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors">
-                <Download className="w-3.5 h-3.5" />
-                Exporter
-              </button>
-              <div className="absolute right-0 top-full mt-1 hidden group-hover:flex flex-col bg-zinc-900 border border-zinc-700 rounded-lg overflow-hidden z-20">
-                {(["lrc", "srt", "vtt", "ass"] as const).map((f) => (
-                  <button
-                    key={f}
-                    onClick={() => handleExport(f)}
-                    className="px-4 py-2 text-xs text-left text-zinc-300 hover:bg-zinc-800 uppercase"
-                  >
-                    {f}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                const f = e.target.value as "lrc" | "srt" | "vtt" | "ass";
+                if (f) handleExport(f);
+                e.target.value = "";
+              }}
+              className="text-xs font-medium px-3 py-1.5 rounded-full bg-zinc-800 text-zinc-300 border border-zinc-700 cursor-pointer focus:outline-none focus:border-amber-500/60"
+            >
+              <option value="" disabled>
+                Exporter…
+              </option>
+              <option value="lrc">LRC</option>
+              <option value="srt">SRT</option>
+              <option value="vtt">VTT</option>
+              <option value="ass">ASS</option>
+            </select>
             <button
               onClick={handleSave}
               disabled={!dirty}
