@@ -117,42 +117,40 @@ export default function LyricsEditorPage({
       analyser.fftSize = 2048;
       analyser.smoothingTimeConstant = 0;
       source.connect(analyser);
-      analyser.connect(ctx.destination);
       const gain = ctx.createGain();
       gain.gain.value = 0;
-      analyser.disconnect();
       analyser.connect(gain);
       gain.connect(ctx.destination);
 
       const binCount = analyser.frequencyBinCount;
-      const frames: Uint8Array[] = [];
-      const frameInterval = 0.05; // 50ms par frame
+      const frameInterval = 0.04;
       const totalFrames = Math.ceil(audioBuffer.duration / frameInterval);
-      let frameIdx = 0;
+      const frames: Uint8Array[] = [];
 
-      source.start(0);
-      const startTime = ctx.currentTime;
+      const startCtx = ctx.currentTime;
+      source.start(startCtx);
       await new Promise<void>((resolve) => {
         const interval = setInterval(() => {
-          const elapsed = ctx.currentTime - startTime;
+          const elapsed = ctx.currentTime - startCtx;
           const expectedFrame = Math.floor(elapsed / frameInterval);
-          while (frameIdx < expectedFrame && frameIdx < totalFrames) {
+          while (frames.length < expectedFrame && frames.length < totalFrames) {
             const data = new Uint8Array(binCount);
             analyser.getByteFrequencyData(data);
-            frames.push(data);
-            frameIdx++;
+            frames.push(new Uint8Array(data));
           }
-          if (elapsed >= audioBuffer.duration) {
+          if (elapsed >= audioBuffer.duration + 0.1) {
             clearInterval(interval);
-            source.stop();
+            try { source.stop(); } catch { /* ignore */ }
             resolve();
           }
-        }, 25);
+        }, 30);
       });
 
-      // Dessiner le spectrogramme
       const canvas = waveformRef.current;
-      if (!canvas) return;
+      if (!canvas || frames.length === 0) {
+        console.warn("Spectrogramme: aucun frame capture");
+        return;
+      }
       const dpr = window.devicePixelRatio || 1;
       const w = canvas.clientWidth;
       const h = canvas.height;
@@ -165,19 +163,17 @@ export default function LyricsEditorPage({
       ctx2d.fillRect(0, 0, w, h);
 
       const numFrames = frames.length;
-      if (numFrames === 0) return;
       const frameWidth = w / numFrames;
       for (let f = 0; f < numFrames; f++) {
         const data = frames[f];
         for (let b = 0; b < binCount; b++) {
           const val = data[b] / 255;
           const y = h - (b / binCount) * h;
-          // Couleur : noir → bleu → cyan → vert → jaune → rouge
           const r = Math.min(255, Math.max(0, val * 510 - 255));
           const g = Math.min(255, Math.max(0, val * 510));
           const bl = Math.min(255, Math.max(0, 255 - val * 510));
-          ctx2d.fillStyle = `rgb(${r},${g},${bl})`;
-          ctx2d.fillRect(f * frameWidth, y, Math.ceil(frameWidth), h / binCount + 1);
+          ctx2d.fillStyle = "rgb(" + r + "," + g + "," + bl + ")";
+          ctx2d.fillRect(f * frameWidth, y, Math.ceil(frameWidth) + 1, h / binCount + 1);
         }
       }
       ctx.close();
