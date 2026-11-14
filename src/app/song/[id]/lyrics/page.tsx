@@ -654,7 +654,7 @@ export default function LyricsEditorPage({
                   <button
                     onClick={() => {
                       setViewMode("spectrogram");
-                      if (viewMode === "spectrogram") void computeSpectrogram();
+                      void computeSpectrogram();
                     }}
                     className={`text-[10px] font-semibold px-2 py-1 rounded-full transition-colors ${
                       viewMode === "spectrogram"
