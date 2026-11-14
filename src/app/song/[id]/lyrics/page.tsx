@@ -151,6 +151,7 @@ export default function LyricsEditorPage({
           if (mag[b] > maxMag) maxMag = mag[b];
         }
       }
+      console.log("Spectrogramme: frames=", numFrames, "maxMag=", maxMag, "numBins=", numBins);
       if (maxMag === 0) maxMag = 1;
 
       // Draw spectrogram
