@@ -54,6 +54,7 @@ export default function LyricsEditorPage({
   const [syncPoints, setSyncPoints] = useState<{ audio: number; lyric: number }[]>([]);
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [savingAudio, setSavingAudio] = useState(false);
   const [searchMode, setSearchMode] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [replaceTerm, setReplaceTerm] = useState("");
@@ -77,15 +78,19 @@ export default function LyricsEditorPage({
     (async () => {
       try {
         const blob = await loadLyricsAudio(id);
-        if (cancelled || !blob) return;
+        if (cancelled) return;
+        if (!blob) {
+          console.log("[ChordFlow] lyrics-audio : aucun audio persiste pour", id);
+          return;
+        }
         const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
         const ctx = new Ctx();
         const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
         if (cancelled) return;
         setAudioBuffer(buf);
         setAudioUrl(URL.createObjectURL(blob));
-      } catch {
-        // pas d'audio persiste
+      } catch (err) {
+        console.error("[ChordFlow] lyrics-audio : echec de chargement", err);
       }
     })();
     return () => { cancelled = true; };
@@ -175,9 +180,12 @@ export default function LyricsEditorPage({
         const buf = await ctx.decodeAudioData(reader.result as ArrayBuffer);
         setAudioBuffer(buf);
         setAudioUrl(URL.createObjectURL(file));
-        void saveLyricsAudio(id, file);
+        setSavingAudio(true);
+        await saveLyricsAudio(id, file);
+        setSavingAudio(false);
       } catch (err) {
-        console.error('Decodage audio echoue', err);
+        setSavingAudio(false);
+        console.error('Decodage/sauvegarde audio echoue', err);
       }
     };
     reader.readAsArrayBuffer(file);
@@ -469,6 +477,9 @@ export default function LyricsEditorPage({
               >
                 Charger audio
               </button>
+              {savingAudio && (
+                <span className="text-[11px] text-amber-400">Sauvegarde audio…</span>
+              )}
               {audioBuffer && (
                 <span className="text-[11px] text-zinc-500 font-mono">
                   {audioBuffer.duration.toFixed(1)} s
