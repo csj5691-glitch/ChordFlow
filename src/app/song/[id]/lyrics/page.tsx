@@ -46,6 +46,8 @@ export default function LyricsEditorPage({
 
   const [lyricsText, setLyricsText] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [syncMode, setSyncMode] = useState(false);
@@ -219,9 +221,20 @@ export default function LyricsEditorPage({
 
   const handleSave = useCallback(async () => {
     if (!song) return;
-    const updated: SongTab = { ...song, officialSynced: lyricsText.trim() };
-    await upsert(updated);
-    setDirty(false);
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const updated: SongTab = { ...song, officialSynced: lyricsText.trim() };
+      await upsert(updated);
+      setDirty(false);
+      setSaveMsg("Sauvegardé ✓");
+      window.setTimeout(() => setSaveMsg(null), 3000);
+    } catch (err) {
+      setSaveMsg("Erreur de sauvegarde");
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
   }, [song, lyricsText, upsert]);
 
   const updateLine = useCallback((idx: number, field: "time" | "text", value: string) => {
@@ -417,16 +430,19 @@ export default function LyricsEditorPage({
             </select>
             <button
               onClick={handleSave}
-              disabled={!dirty}
+              disabled={!dirty || saving}
               className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full transition-colors ${
-                dirty
+                dirty && !saving
                   ? "bg-amber-500 text-black hover:bg-amber-400"
                   : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
               }`}
             >
               <Save className="w-3.5 h-3.5" />
-              Enregistrer
+              {saving ? "Sauvegarde…" : "Enregistrer"}
             </button>
+            {saveMsg && (
+              <span className="text-xs text-emerald-400">{saveMsg}</span>
+            )}
           </div>
         </div>
       </header>

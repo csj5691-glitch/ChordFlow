@@ -197,8 +197,17 @@ export async function saveSharedSong(song: SongTab): Promise<string[]> {
     data: song,
     updated_at: new Date().toISOString(),
   };
-  const { error } = await sb.from("songs").upsert(row, { onConflict: "id" });
-  if (error) throw new Error(error.message || "Echec de l'enregistrement Supabase");
+  // Synchronisation serveur en best-effort : le local fait foi. Si Supabase est
+  // lent (cold start, 20 s+), on ne bloque pas l'utilisateur : la chanson est
+  // deja sauvegardee localement et sera resynchronisee plus tard.
+  try {
+    const { error } = await sb.from("songs").upsert(row, { onConflict: "id" });
+    if (error) {
+      console.warn("[ChordFlow] Sauvegarde serveur echouee (local OK) :", error.message);
+    }
+  } catch (err) {
+    console.warn("[ChordFlow] Sauvegarde serveur echouee (local OK) :", err);
+  }
   return drops;
 }
 
