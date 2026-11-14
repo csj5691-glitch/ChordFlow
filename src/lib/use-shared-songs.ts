@@ -40,7 +40,7 @@ export function useSharedSongs() {
     // est souvent transiente, la seconde tente reussit en general.
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        server = await withTimeout(loadSharedSongs(), 20000);
+        server = await withTimeout(loadSharedSongs(), 90000);
         lastError = null;
         break;
       } catch (e) {
