@@ -390,6 +390,26 @@ function EditSongView({ id }: { id: string }) {
     return map;
   }, [sequenceTab.bars]);
 
+  // Sections répétées, en mesures affichées (1-based) : « mesures 5–8 ×4 ».
+  // Sert de compte rendu lisible au-dessus de la portée, pour vérifier d'un
+  // coup d'œil que la partition est bien lue avec ses renvois.
+  const sequenceRepeatList = useMemo(() => {
+    const out: { start: number; end: number; repeats: number }[] = [];
+    let pendingStart: number | null = null;
+    const ordered = [...sequenceTab.bars].sort(
+      (a, b) => a.measure - b.measure || (a.side === "start" ? -1 : 1)
+    );
+    for (const b of ordered) {
+      if (b.side === "start") {
+        pendingStart = b.measure;
+      } else {
+        out.push({ start: (pendingStart ?? b.measure) + 1, end: b.measure + 1, repeats: b.repeats });
+        pendingStart = null;
+      }
+    }
+    return out;
+  }, [sequenceTab.bars]);
+
   // Clic sur un signe de renvoi de la tablature : bascule sur les cartes, ouvre
   // le réglage de la barre et l'amène à l'écran (mêmes commandes que la carte).
   const revealDiagramCard = useCallback(
@@ -1341,6 +1361,11 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
     setGpNotices([]);
     let next: SongTab = song;
     let failed = 0;
+    // La séquence ACTIVE reste celle de la première piste importée : avant, la
+    // dernière piste cochée écrasait les autres, ce qui pouvait remplacer une
+    // guitare (avec ses renvois) par une basse ou une percussion sans signe de
+    // répétition.
+    let activeSequenceSet = false;
     for (const t of targets) {
       setGpImportingTrack(t.index);
       try {
@@ -1367,7 +1392,10 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
         // The re-imported track's fresh diagrams always replace the active
         // sequence so the riff/diagram view reflects the new import right away
         // (otherwise song.diagrams keeps stale diagrams after a re-import).
-        next = { ...next, diagrams: result.diagrams };
+        if (!activeSequenceSet) {
+          next = { ...next, diagrams: result.diagrams };
+          activeSequenceSet = true;
+        }
         const drops = await upsert(next);
         if (drops.length > 0) {
           setGpWarnings((w) => [
@@ -2933,6 +2961,27 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                       {v === "cards" ? "Diagrammes" : "Tablature"}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    onClick={() => (playingAll ? stopAll() : playAll())}
+                    className={`flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-md transition-colors ml-auto ${
+                      playingAll
+                        ? "bg-amber-500 text-black hover:bg-amber-400"
+                        : "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
+                    }`}
+                    title={
+                      playingAll
+                        ? "Arrêter la lecture"
+                        : "Jouer la partition avec ses répétitions et ses fins alternatives"
+                    }
+                  >
+                    {playingAll ? (
+                      <Square className="w-3 h-3" />
+                    ) : (
+                      <Play className="w-3 h-3" />
+                    )}
+                    {playingAll ? "Arrêter" : "Jouer"}
+                  </button>
                 </div>
                 {seqView === "tab" ? (
                   <div className="rounded-xl border border-zinc-700/50 bg-zinc-900/40 p-3">
@@ -2952,6 +3001,23 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                     ) : (
                       <p className="text-[11px] text-zinc-600">
                         Aucune note à afficher en tablature.
+                      </p>
+                    )}
+                    {sequenceRepeatList.length > 0 ? (
+                      <p className="text-[11px] text-amber-300/90 mt-2 px-1">
+                        Répétitions de la partition :{" "}
+                        {sequenceRepeatList
+                          .map(
+                            (r) =>
+                              `mesures ${r.start}–${r.end} ×${r.repeats}`
+                          )
+                          .join(" · ")}
+                        .
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-zinc-600 mt-2 px-1">
+                        Aucune répétition dans cette chanson : la partition est
+                        déjà déroulée, rien n&apos;est rejoué.
                       </p>
                     )}
                   </div>
@@ -3372,6 +3438,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
           officialSynced={song?.officialSynced}
           instrumentalUrl={instUrl}
           vocalsUrl={vocalsUrl}
+          program={song?.gpTracks?.[0]?.program ?? null}
           lyricOffset={lyricsOffset}
           lyricAnchorDiagram={lyricAnchorDiagram ?? song?.lyricAnchorDiagram ?? undefined}
           onLyricOffsetChange={(offset) => {
