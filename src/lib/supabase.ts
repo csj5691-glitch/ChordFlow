@@ -10,6 +10,8 @@ import {
   migrateSong,
 } from "./custom-songs";
 
+const PAGE = 1000;
+
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -61,32 +63,62 @@ export interface SharedRow {
   updated_at: string;
 }
 
+// Une page Supabase (max 1000 lignes) avec reprises automatiques : une declaration
+// de timeout serveur (statement timeout, code 57014) est souvent transiente
+// (projet en veille / surcharge momentanee), une nouvelle tentative reussit en
+// general. Backoff exponentiel pour laisser le temps au projet de se reveiller.
+async function fetchSongsPage(
+  sb: SupabaseClient,
+  from: number,
+  ordered: boolean
+): Promise<{ data: { data: unknown }[] | null; error: { message: string; code: string } | null }> {
+  const MAX_ATTEMPTS = 5;
+  let lastError: { message: string; code: string } | null = null;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, 2000 * Math.pow(2, attempt - 1)));
+    }
+    let q = sb.from("songs").select("data");
+    if (ordered) {
+      q = q.order("updated_at", { ascending: false }).order("id", { ascending: true });
+    }
+    const { data, error } = await q.range(from, from + PAGE - 1);
+    if (!error) {
+      return { data: (data as { data: unknown }[] | null) ?? [], error: null };
+    }
+    lastError = { message: error.message, code: error.code };
+    console.log("[ChordFlow] repertoire : erreur Supabase requete", {
+      from,
+      message: error.message,
+      code: error.code,
+      attempt: attempt + 1,
+      ordered,
+    });
+  }
+  return { data: null, error: lastError };
+}
+
 export async function loadSharedSongs(): Promise<SongTab[]> {
   const sb = getSupabase();
   if (!sb) return loadLocalSongs();
-  // Supabase plafonne une requête à 1000 lignes : paginer pour ne pas
-  // tronquer le répertoire (les chansons au-delà de 1000 disparaissaient).
-  const PAGE = 1000;
   const migrated: SongTab[] = [];
   const seen = new Set<string>();
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await sb
-      .from("songs")
-      .select("data")
-      .order("updated_at", { ascending: false })
-      .order("id", { ascending: true })
-      .range(from, from + PAGE - 1);
-    if (error) {
-      console.log("[ChordFlow] repertoire : erreur Supabase requete", {
-        from,
-        message: error.message,
-        code: error.code,
-      });
-      if (from === 0) return loadLocalSongs();
-      break;
-    }
-    const rows = (data as { data: unknown }[] | null) ?? [];
-    if (rows.length === 0) break;
+
+  // Première page : tentative ordonnée, puis repli sans tri (le tri se fait
+  // alors cote client) si toutes les tentatives ordonnees echouent.
+  let ordered = true;
+  let first = await fetchSongsPage(sb, 0, true);
+  if (first.error) {
+    console.log("[ChordFlow] repertoire : tentative sans tri...");
+    first = await fetchSongsPage(sb, 0, false);
+    ordered = false;
+  }
+  if (first.error || !first.data) {
+    // Echec total : repli sur le repertoire local.
+    return loadLocalSongs();
+  }
+
+  const processPage = async (rows: { data: unknown }[]) => {
     for (const r of rows) {
       const s = r.data as SongTab;
       if (typeof s !== "object" || s === null || !s.id) continue;
@@ -107,8 +139,21 @@ export async function loadSharedSongs(): Promise<SongTab[]> {
         );
       }
     }
-    if (rows.length < PAGE) break;
+  };
+
+  await processPage(first.data);
+
+  // Pages suivantes (meme mode de tri que la premiere).
+  let from = PAGE;
+  let lastSize = first.data.length;
+  while (lastSize === PAGE) {
+    const { data, error } = await fetchSongsPage(sb, from, ordered);
+    if (error || !data || data.length === 0) break;
+    await processPage(data);
+    lastSize = data.length;
+    from += PAGE;
   }
+
   return migrated;
 }
 
