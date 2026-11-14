@@ -69,7 +69,7 @@ export default function LyricsEditorPage({
     if (lines.length === 0) return 60;
     return Math.max(60, lines[lines.length - 1].time + 8);
   }, [lines]);
-  // Dessin de la waveform audio pour caler les paroles au ms pres
+  // Dessin de la waveform audio (une seule fois par fichier)
   useEffect(() => {
     const canvas = waveformRef.current;
     if (!canvas || !audioBuffer) return;
@@ -100,13 +100,7 @@ export default function LyricsEditorPage({
       ctx.lineTo(x, mid + max * mid);
     }
     ctx.stroke();
-    const pct = time / audioBuffer.duration;
-    ctx.strokeStyle = "#ffffff";
-    ctx.beginPath();
-    ctx.moveTo(pct * w, 0);
-    ctx.lineTo(pct * w, h);
-    ctx.stroke();
-  }, [audioBuffer, time]);
+  }, [audioBuffer]);
 
   // Lecture audio synchronisee avec le karaoke
   useEffect(() => {
@@ -399,15 +393,21 @@ export default function LyricsEditorPage({
             </div>
           </div>
           {audioBuffer ? (
-            <canvas
-              ref={waveformRef}
-              className="w-full h-24 rounded-lg cursor-pointer"
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const pct = (e.clientX - rect.left) / rect.width;
-                setTime(Math.max(0, Math.min(audioBuffer.duration, pct * audioBuffer.duration)));
-              }}
-            />
+            <div className="relative w-full h-24">
+              <canvas
+                ref={waveformRef}
+                className="w-full h-24 rounded-lg cursor-pointer"
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const pct = (e.clientX - rect.left) / rect.width;
+                  setTime(Math.max(0, Math.min(audioBuffer.duration, pct * audioBuffer.duration)));
+                }}
+              />
+              <div
+                className="absolute top-0 bottom-0 w-0.5 bg-white pointer-events-none"
+                style={{ left: `${(time / audioBuffer.duration) * 100}%` }}
+              />
+            </div>
           ) : (
             <p className="text-xs text-zinc-600 text-center py-6">
               Charge un fichier audio pour afficher la forme d&apos;onde et caler les paroles.
