@@ -166,20 +166,27 @@ export function useSharedSongs() {
   const importLocal = useCallback(async () => {
     setImporting(true);
     setImportError(null);
-    try {
-      const count = await withTimeout(importAllLocalSongs(), 20000);
-      await withTimeout(refresh(), 20000);
-      return count;
-    } catch (e) {
-      setImportError(
-        e instanceof Error && e.message === "Délai dépassé"
-          ? "Import trop lent pour joindre Supabase. Réessayez."
-          : "Erreur pendant l'import."
-      );
-      return 0;
-    } finally {
-      setImporting(false);
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 3000 * attempt));
+      }
+      try {
+        const count = await withTimeout(importAllLocalSongs(), 30000);
+        await withTimeout(refresh(), 20000);
+        setImporting(false);
+        return count;
+      } catch (e) {
+        lastError = e;
+      }
     }
+    setImportError(
+      lastError instanceof Error && lastError.message === "Délai dépassé"
+        ? "Import trop lent pour joindre Supabase. Réessayez."
+        : "Erreur pendant l'import."
+    );
+    setImporting(false);
+    return 0;
   }, [refresh]);
 
   return useMemo(
