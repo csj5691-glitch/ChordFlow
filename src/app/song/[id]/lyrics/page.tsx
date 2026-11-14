@@ -179,7 +179,8 @@ export default function LyricsEditorPage({
       for (let f = 0; f < numFrames; f++) {
         const mag = magnitudes[f];
         for (let b = 0; b < numBins; b++) {
-          const val = Math.pow(mag[b] / maxMag, 0.35); // gamma pour meilleure visibilite
+          // Echelle logarithmique (dB) pour une meilleure visibilite
+          const val = Math.log10(1 + mag[b]) / Math.log10(1 + maxMag);
           const y = h - (b / numBins) * h;
           const r = Math.min(255, Math.max(0, val * 510 - 255));
           const g = Math.min(255, Math.max(0, val * 510));
