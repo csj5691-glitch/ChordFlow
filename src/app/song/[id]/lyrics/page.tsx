@@ -58,6 +58,7 @@ export default function LyricsEditorPage({
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [savingAudio, setSavingAudio] = useState(false);
   const [viewMode, setViewMode] = useState<"waveform" | "spectrogram">("waveform");
+  const [zoom, setZoom] = useState(1);
   const [computingSpec, setComputingSpec] = useState(false);
   const [searchMode, setSearchMode] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -234,22 +235,18 @@ export default function LyricsEditorPage({
     }
   }
 
-  // Dessin de la waveform audio (une seule fois par fichier)
+  // Dessin de la waveform audio (avec zoom)
   useEffect(() => {
     if (viewMode !== "waveform") return;
     const canvas = waveformRef.current;
     if (!canvas || !audioBuffer) return;
     const draw = () => {
-      const c = waveformRef.current;
-      if (!c || !audioBuffer) return;
+      const c = canvas;
       const ctx = c.getContext("2d");
       if (!ctx) return;
       const dpr = window.devicePixelRatio || 1;
       const w = c.clientWidth;
-      if (w === 0) {
-        requestAnimationFrame(draw);
-        return;
-      }
+      if (w === 0) { requestAnimationFrame(draw); return; }
       const h = c.height;
       c.width = w * dpr;
       c.height = h * dpr;
@@ -257,25 +254,41 @@ export default function LyricsEditorPage({
       ctx.fillStyle = "#18181b";
       ctx.fillRect(0, 0, w, h);
       const data = audioBuffer.getChannelData(0);
-      const step = Math.ceil(data.length / w);
+      const totalDur = audioBuffer.duration;
+      const visDur = totalDur / zoom;
+      const start = Math.max(0, Math.min(totalDur - visDur, time - visDur / 2));
       const mid = h / 2;
       ctx.strokeStyle = "#f59e0b";
       ctx.lineWidth = 1;
       ctx.beginPath();
       for (let x = 0; x < w; x++) {
+        const t0 = start + (x / w) * visDur;
+        const t1 = start + ((x + 1) / w) * visDur;
+        const i0 = Math.floor(t0 * audioBuffer.sampleRate);
+        const i1 = Math.floor(t1 * audioBuffer.sampleRate);
         let min = 1, max = -1;
-        for (let j = 0; j < step; j++) {
-          const v = data[x * step + j] || 0;
+        for (let i = i0; i < i1 && i < data.length; i++) {
+          const v = data[i] || 0;
           if (v < min) min = v;
           if (v > max) max = v;
         }
+        if (min === 1) { min = 0; max = 0; }
         ctx.moveTo(x, mid + min * mid);
         ctx.lineTo(x, mid + max * mid);
       }
       ctx.stroke();
+      const cursorX = ((time - start) / visDur) * w;
+      if (cursorX >= 0 && cursorX <= w) {
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cursorX, 0);
+        ctx.lineTo(cursorX, h);
+        ctx.stroke();
+      }
     };
     requestAnimationFrame(draw);
-  }, [audioBuffer, viewMode]);
+  }, [audioBuffer, viewMode, zoom, time]);
 
   // Lecture audio synchronisee avec le karaoke
   useEffect(() => {
@@ -725,6 +738,29 @@ export default function LyricsEditorPage({
                 </div>
               )}
               {audioBuffer && (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setZoom((z) => Math.max(1, z / 2))}
+                    disabled={zoom <= 1}
+                    className="text-[10px] font-bold px-2 py-1 rounded-full bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title="Dézoomer"
+                  >
+                    −
+                  </button>
+                  <span className="text-[10px] font-mono text-zinc-500 w-8 text-center">
+                    {zoom}×
+                  </span>
+                  <button
+                    onClick={() => setZoom((z) => Math.min(16, z * 2))}
+                    disabled={zoom >= 16}
+                    className="text-[10px] font-bold px-2 py-1 rounded-full bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title="Zoomer"
+                  >
+                    +
+                  </button>
+                </div>
+              )}
+              {audioBuffer && (
                 <button
                   onClick={() => {
                     if (audioUrl) URL.revokeObjectURL(audioUrl);
@@ -747,7 +783,10 @@ export default function LyricsEditorPage({
                 onClick={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
                   const pct = (e.clientX - rect.left) / rect.width;
-                  setTime(Math.max(0, Math.min(audioBuffer.duration, pct * audioBuffer.duration)));
+                  const totalDur = audioBuffer.duration;
+                  const visDur = totalDur / zoom;
+                  const start = Math.max(0, Math.min(totalDur - visDur, time - visDur / 2));
+                  setTime(Math.max(0, Math.min(totalDur, start + pct * visDur)));
                 }}
               />
               <div
