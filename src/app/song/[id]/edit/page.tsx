@@ -1940,6 +1940,14 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
               Studio
             </button>
             <button
+              onClick={() => router.push(`/song/${id}/lyrics`)}
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-purple-600/10 border border-purple-600/30 text-purple-400 hover:bg-purple-600/20 transition-colors"
+              title="Éditer les paroles synchronisées (LRC/SRT/VTT/ASS) et aperçu karaoké"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Paroles
+            </button>
+            <button
               onClick={() => {
                 window.open(
                   `https://www.songsterr.com/a/wa/search?pattern=${encodeURIComponent(`${song.artist} ${song.title}`)}`,

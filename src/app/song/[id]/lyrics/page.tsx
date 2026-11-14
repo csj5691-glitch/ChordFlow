@@ -1,0 +1,348 @@
+"use client";
+// Copyright (c) 2026 Claude St-Jean. All rights reserved.
+
+import { use, useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, Upload, Download, Save, Music2, Play, Pause } from "lucide-react";
+import { useSharedSong } from "@/lib/use-shared-song";
+import { SongTab } from "@/lib/types";
+import {
+  parseLyrics,
+  toLRC,
+  toSRT,
+  toVTT,
+  toASS,
+} from "@/lib/lyrics";
+
+function formatTime(t: number): string {
+  const m = Math.floor(t / 60);
+  const s = Math.floor(t % 60);
+  const cs = Math.round((t - Math.floor(t)) * 100);
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
+}
+
+function parseTime(str: string): number {
+  const m = str.match(/^(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?$/);
+  if (!m) return 0;
+  const mm = parseInt(m[1], 10);
+  const ss = parseInt(m[2], 10);
+  let frac = 0;
+  if (m[3]) {
+    const f = m[3];
+    frac = f.length === 3 ? parseInt(f, 10) / 1000 : parseInt(f, 10) / 100;
+  }
+  return mm * 60 + ss + frac;
+}
+
+export default function LyricsEditorPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = use(params);
+  const router = useRouter();
+  const { current: song, loading, upsert } = useSharedSong(id);
+
+  const [lyricsText, setLyricsText] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [time, setTime] = useState(0);
+  const timerRef = useRef<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (song) {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDirty(false);
+    }
+  }, [song]);
+
+  const lines = useMemo(() => parseLyrics(lyricsText), [lyricsText]);
+
+  const duration = useMemo(() => {
+    if (lines.length === 0) return 60;
+    return Math.max(60, lines[lines.length - 1].time + 8);
+  }, [lines]);
+
+  // Lecture auto (temps lineaire) pour l'apercu karaoke
+  // Lecture auto (temps lineaire) pour l'apercu karaoke
+  useEffect(() => {
+    if (!playing) {
+      if (timerRef.current) window.clearInterval(timerRef.current);
+      timerRef.current = null;
+      return;
+    }
+    const startOffset = time;
+    const startTime = Date.now();
+    timerRef.current = window.setInterval(() => {
+      const t = startOffset + (Date.now() - startTime) / 1000;
+      if (t >= duration) {
+        setPlaying(false);
+        setTime(duration);
+      } else {
+        setTime(t);
+      }
+    }, 50);
+    return () => {
+      if (timerRef.current) window.clearInterval(timerRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, duration]);
+
+  const currentIndex = useMemo(() => {
+    let idx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].time <= time) idx = i;
+      else break;
+    }
+    return idx;
+  }, [lines, time]);
+
+  const handleImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result || "");
+      const parsed = parseLyrics(text);
+      if (parsed.length > 0) {
+        setLyricsText(toLRC(parsed));
+      } else {
+        setLyricsText(text);
+      }
+      setDirty(true);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }, []);
+
+  const handleExport = useCallback((format: "lrc" | "srt" | "vtt" | "ass") => {
+    const parsed = parseLyrics(lyricsText);
+    let content = "";
+    const ext = format;
+    let mime = "text/plain";
+    if (format === "lrc") { content = toLRC(parsed); mime = "text/plain"; }
+    else if (format === "srt") { content = toSRT(parsed); mime = "text/srt"; }
+    else if (format === "vtt") { content = toVTT(parsed); mime = "text/vtt"; }
+    else if (format === "ass") { content = toASS(parsed, song?.title || "ChordFlow"); mime = "text/x-ssa"; }
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${(song?.title || "lyrics").replace(/[^a-z0-9]/gi, "_")}.${ext}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [lyricsText, song?.title]);
+
+  const handleSave = useCallback(async () => {
+    if (!song) return;
+    const updated: SongTab = { ...song, officialSynced: lyricsText.trim() };
+    await upsert(updated);
+    setDirty(false);
+  }, [song, lyricsText, upsert]);
+
+  const updateLine = useCallback((idx: number, field: "time" | "text", value: string) => {
+    const parsed = parseLyrics(lyricsText);
+    if (idx < 0 || idx >= parsed.length) return;
+    if (field === "time") {
+      parsed[idx].time = parseTime(value);
+    } else {
+      parsed[idx].text = value;
+    }
+    setLyricsText(toLRC(parsed));
+    setDirty(true);
+  }, [lyricsText]);
+
+  const removeLine = useCallback((idx: number) => {
+    const parsed = parseLyrics(lyricsText);
+    parsed.splice(idx, 1);
+    setLyricsText(toLRC(parsed));
+    setDirty(true);
+  }, [lyricsText]);
+
+  const addLine = useCallback(() => {
+    const parsed = parseLyrics(lyricsText);
+    const lastTime = parsed.length > 0 ? parsed[parsed.length - 1].time + 2 : 0;
+    parsed.push({ time: lastTime, text: "" });
+    setLyricsText(toLRC(parsed));
+    setDirty(true);
+  }, [lyricsText]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <p className="text-zinc-500">Chargement…</p>
+      </div>
+    );
+  }
+  if (!song) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+        <p className="text-zinc-500 text-lg">Chanson introuvable</p>
+        <button onClick={() => router.push("/")} className="text-amber-400 hover:text-amber-300">
+          Retour
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col min-h-screen bg-black text-zinc-200">
+      <header className="sticky top-0 z-10 bg-black/80 backdrop-blur-lg border-b border-zinc-800/50">
+        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3">
+          <button onClick={() => router.push(`/song/${id}`)} className="p-2 hover:bg-zinc-800 rounded-lg">
+            <ArrowLeft className="w-5 h-5 text-zinc-400" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-lg font-bold text-white truncate">Paroles synchronisées</h1>
+            <p className="text-sm text-zinc-400 truncate">{song.title} — {song.artist}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".lrc,.srt,.vtt,.ass,.ssa,.txt"
+              className="hidden"
+              onChange={handleImport}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              Importer
+            </button>
+            <div className="relative group">
+              <button className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors">
+                <Download className="w-3.5 h-3.5" />
+                Exporter
+              </button>
+              <div className="absolute right-0 top-full mt-1 hidden group-hover:flex flex-col bg-zinc-900 border border-zinc-700 rounded-lg overflow-hidden z-20">
+                {(["lrc", "srt", "vtt", "ass"] as const).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => handleExport(f)}
+                    className="px-4 py-2 text-xs text-left text-zinc-300 hover:bg-zinc-800 uppercase"
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button
+              onClick={handleSave}
+              disabled={!dirty}
+              className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full transition-colors ${
+                dirty
+                  ? "bg-amber-500 text-black hover:bg-amber-400"
+                  : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
+              }`}
+            >
+              <Save className="w-3.5 h-3.5" />
+              Enregistrer
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 flex flex-col gap-6">
+        {/* Aperçu karaoké */}
+        <section className="flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-zinc-300 flex items-center gap-2">
+              <Music2 className="w-4 h-4 text-amber-400" />
+              Aperçu karaoké
+            </h2>
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min={0}
+                max={duration}
+                step={0.1}
+                value={time}
+                onChange={(e) => setTime(parseFloat(e.target.value))}
+                className="w-48 accent-amber-500"
+              />
+              <button
+                onClick={() => setPlaying((p) => !p)}
+                className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+              >
+                {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+              </button>
+              <span className="font-mono text-xs text-zinc-500 w-12 text-right">
+                {formatTime(time)}
+              </span>
+            </div>
+          </div>
+          <div className="min-h-24 flex flex-col items-center justify-center gap-2 text-center">
+            {currentIndex > 0 && lines[currentIndex - 1] && (
+              <p className="text-base text-zinc-600 leading-relaxed">
+                {lines[currentIndex - 1].text}
+              </p>
+            )}
+            <p className="text-2xl font-bold text-white leading-tight">
+              {currentIndex >= 0 ? lines[currentIndex].text : "—"}
+            </p>
+            {currentIndex < lines.length - 1 && lines[currentIndex + 1] && (
+              <p className="text-base text-zinc-600 leading-relaxed">
+                {lines[currentIndex + 1].text}
+              </p>
+            )}
+          </div>
+        </section>
+
+        {/* Éditeur */}
+        <section className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-zinc-300">
+              Paroles synchronisées ({lines.length} lignes)
+            </h2>
+            <button
+              onClick={addLine}
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
+            >
+              + Ligne
+            </button>
+          </div>
+          <div className="flex flex-col gap-2 max-h-[50vh] overflow-y-auto">
+            {lines.map((l, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={formatTime(l.time)}
+                  onChange={(e) => updateLine(i, "time", e.target.value)}
+                  className="w-20 bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1 font-mono text-xs text-amber-400 focus:outline-none focus:border-amber-500/60"
+                />
+                <input
+                  type="text"
+                  value={l.text}
+                  onChange={(e) => updateLine(i, "text", e.target.value)}
+                  className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1 text-sm text-zinc-200 focus:outline-none focus:border-amber-500/60"
+                />
+                <button
+                  onClick={() => removeLine(i)}
+                  className="p-1.5 rounded-lg bg-zinc-800 text-red-400 hover:bg-red-500/10 transition-colors"
+                  title="Supprimer"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+          <details className="text-xs text-zinc-500">
+            <summary className="cursor-pointer hover:text-zinc-300">Éditeur brut (LRC)</summary>
+            <textarea
+              value={lyricsText}
+              onChange={(e) => {
+                setLyricsText(e.target.value);
+                setDirty(true);
+              }}
+              spellCheck={false}
+              className="w-full h-40 mt-2 bg-zinc-950 border border-zinc-700 rounded-xl p-3 font-mono text-xs text-zinc-200 focus:outline-none focus:border-amber-500/60 resize-y"
+            />
+          </details>
+        </section>
+      </main>
+    </div>
+  );
+}
