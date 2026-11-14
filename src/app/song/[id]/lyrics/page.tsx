@@ -68,6 +68,7 @@ export default function LyricsEditorPage({
   useEffect(() => {
     if (song) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLyricsText(song.officialSynced || '');
       setDirty(false);
     }
   }, [song]);
