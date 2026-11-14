@@ -51,6 +51,11 @@ export default function LyricsEditorPage({
   const [syncPoints, setSyncPoints] = useState<{ audio: number; lyric: number }[]>([]);
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [searchMode, setSearchMode] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [replaceTerm, setReplaceTerm] = useState("");
+  const [translateLang, setTranslateLang] = useState("en");
+  const [translating, setTranslating] = useState(false);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const waveformRef = useRef<HTMLCanvasElement>(null);
@@ -243,6 +248,48 @@ export default function LyricsEditorPage({
     setLyricsText(toLRC(parsed));
     setDirty(true);
   }, [lyricsText]);
+
+  // --- Recherche / Remplacement ---
+  const replaceAll = useCallback(() => {
+    if (!searchTerm) return;
+    const parsed = parseLyrics(lyricsText);
+    const transformed = parsed.map((l) => {
+      if (l.text.includes(searchTerm)) {
+        return { ...l, text: l.text.split(searchTerm).join(replaceTerm) };
+      }
+      return l;
+    });
+    setLyricsText(toLRC(transformed));
+    setDirty(true);
+    setSearchTerm("");
+    setReplaceTerm("");
+  }, [lyricsText, searchTerm, replaceTerm]);
+
+  const handleTranslate = useCallback(async () => {
+    const parsed = parseLyrics(lyricsText);
+    if (parsed.length === 0) return;
+    setTranslating(true);
+    try {
+      const translated = await Promise.all(
+        parsed.map(async (l) => {
+          if (!l.text.trim()) return l;
+          try {
+            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(translateLang)}&dt=t&q=${encodeURIComponent(l.text)}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            const text = (data?.[0] || []).map((x: [string]) => x[0]).join("").trim();
+            return { time: l.time, text: text || l.text };
+          } catch {
+            return l;
+          }
+        })
+      );
+      setLyricsText(toLRC(translated));
+      setDirty(true);
+    } finally {
+      setTranslating(false);
+    }
+  }, [lyricsText, translateLang]);
 
   const addLine = useCallback(() => {
     const parsed = parseLyrics(lyricsText);
@@ -449,7 +496,11 @@ export default function LyricsEditorPage({
               </p>
             )}
             <p className="text-2xl font-bold text-white leading-tight">
-              {currentIndex >= 0 ? lines[currentIndex].text : "—"}
+              {currentIndex >= 0
+                ? lines[currentIndex].text
+                : lines.length > 0
+                ? lines[0].text
+                : "—"}
             </p>
             {currentIndex < lines.length - 1 && lines[currentIndex + 1] && (
               <p className="text-base text-zinc-600 leading-relaxed">
@@ -471,6 +522,69 @@ export default function LyricsEditorPage({
             >
               + Ligne
             </button>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+            <button
+              onClick={() => setSearchMode((v) => !v)}
+              className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full transition-colors ${
+                searchMode
+                  ? "bg-amber-500 text-black hover:bg-amber-400"
+                  : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+              }`}
+            >
+              Rechercher
+            </button>
+            {searchMode && (
+              <>
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Rechercher…"
+                  className="flex-1 min-w-[120px] bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-500/60"
+                />
+                <input
+                  type="text"
+                  value={replaceTerm}
+                  onChange={(e) => setReplaceTerm(e.target.value)}
+                  placeholder="Remplacer par…"
+                  className="flex-1 min-w-[120px] bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-500/60"
+                />
+                <button
+                  onClick={replaceAll}
+                  disabled={!searchTerm}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full bg-emerald-500 text-black hover:bg-emerald-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Remplacer tout
+                </button>
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+            <select
+              value={translateLang}
+              onChange={(e) => setTranslateLang(e.target.value)}
+              className="text-xs font-medium px-3 py-1.5 rounded-full bg-zinc-800 text-zinc-300 border border-zinc-700 cursor-pointer focus:outline-none focus:border-amber-500/60"
+            >
+              <option value="en">EN</option>
+              <option value="fr">FR</option>
+              <option value="es">ES</option>
+              <option value="de">DE</option>
+              <option value="it">IT</option>
+              <option value="pt">PT</option>
+              <option value="ja">JA</option>
+              <option value="ko">KO</option>
+            </select>
+            <button
+              onClick={handleTranslate}
+              disabled={translating || lines.length === 0}
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full bg-purple-600 text-white hover:bg-purple-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {translating ? "Traduction..." : "Traduire"}
+            </button>
+            <span className="text-[11px] text-zinc-500">
+              Traduit les paroles via Google Translate (auto-detection de la langue source).
+            </span>
           </div>
           <div className="flex items-center gap-2 flex-wrap rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
             <button
