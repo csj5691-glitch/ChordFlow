@@ -57,6 +57,8 @@ export default function LyricsEditorPage({
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [savingAudio, setSavingAudio] = useState(false);
+  const [viewMode, setViewMode] = useState<"waveform" | "spectrogram">("waveform");
+  const [computingSpec, setComputingSpec] = useState(false);
   const [searchMode, setSearchMode] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [replaceTerm, setReplaceTerm] = useState("");
@@ -104,8 +106,89 @@ export default function LyricsEditorPage({
     if (lines.length === 0) return 60;
     return Math.max(60, lines[lines.length - 1].time + 8);
   }, [lines]);
+  const computeSpectrogram = useCallback(async () => {
+    if (!audioBuffer) return;
+    setComputingSpec(true);
+    try {
+      const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0;
+      source.connect(analyser);
+      analyser.connect(ctx.destination);
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      analyser.disconnect();
+      analyser.connect(gain);
+      gain.connect(ctx.destination);
+
+      const binCount = analyser.frequencyBinCount;
+      const frames: Uint8Array[] = [];
+      const frameInterval = 0.05; // 50ms par frame
+      const totalFrames = Math.ceil(audioBuffer.duration / frameInterval);
+      let frameIdx = 0;
+
+      source.start(0);
+      const startTime = ctx.currentTime;
+      await new Promise<void>((resolve) => {
+        const interval = setInterval(() => {
+          const elapsed = ctx.currentTime - startTime;
+          const expectedFrame = Math.floor(elapsed / frameInterval);
+          while (frameIdx < expectedFrame && frameIdx < totalFrames) {
+            const data = new Uint8Array(binCount);
+            analyser.getByteFrequencyData(data);
+            frames.push(data);
+            frameIdx++;
+          }
+          if (elapsed >= audioBuffer.duration) {
+            clearInterval(interval);
+            source.stop();
+            resolve();
+          }
+        }, 25);
+      });
+
+      // Dessiner le spectrogramme
+      const canvas = waveformRef.current;
+      if (!canvas) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth;
+      const h = canvas.height;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      const ctx2d = canvas.getContext("2d");
+      if (!ctx2d) return;
+      ctx2d.scale(dpr, dpr);
+      ctx2d.fillStyle = "#18181b";
+      ctx2d.fillRect(0, 0, w, h);
+
+      const numFrames = frames.length;
+      if (numFrames === 0) return;
+      const frameWidth = w / numFrames;
+      for (let f = 0; f < numFrames; f++) {
+        const data = frames[f];
+        for (let b = 0; b < binCount; b++) {
+          const val = data[b] / 255;
+          const y = h - (b / binCount) * h;
+          // Couleur : noir → bleu → cyan → vert → jaune → rouge
+          const r = Math.min(255, Math.max(0, val * 510 - 255));
+          const g = Math.min(255, Math.max(0, val * 510));
+          const bl = Math.min(255, Math.max(0, 255 - val * 510));
+          ctx2d.fillStyle = `rgb(${r},${g},${bl})`;
+          ctx2d.fillRect(f * frameWidth, y, Math.ceil(frameWidth), h / binCount + 1);
+        }
+      }
+      ctx.close();
+    } finally {
+      setComputingSpec(false);
+    }
+  }, [audioBuffer]);
+
   // Dessin de la waveform audio (une seule fois par fichier)
   useEffect(() => {
+    if (viewMode !== "waveform") return;
     const canvas = waveformRef.current;
     if (!canvas || !audioBuffer) return;
     const ctx = canvas.getContext("2d");
@@ -135,7 +218,7 @@ export default function LyricsEditorPage({
       ctx.lineTo(x, mid + max * mid);
     }
     ctx.stroke();
-  }, [audioBuffer]);
+  }, [audioBuffer, viewMode]);
 
   // Lecture audio synchronisee avec le karaoke
   useEffect(() => {
@@ -557,6 +640,34 @@ export default function LyricsEditorPage({
                 </span>
               )}
               {audioBuffer && (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setViewMode("waveform")}
+                    className={`text-[10px] font-semibold px-2 py-1 rounded-full transition-colors ${
+                      viewMode === "waveform"
+                        ? "bg-amber-500 text-black"
+                        : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                    }`}
+                  >
+                    Waveform
+                  </button>
+                  <button
+                    onClick={() => {
+                      setViewMode("spectrogram");
+                      if (viewMode === "spectrogram") void computeSpectrogram();
+                    }}
+                    className={`text-[10px] font-semibold px-2 py-1 rounded-full transition-colors ${
+                      viewMode === "spectrogram"
+                        ? "bg-amber-500 text-black"
+                        : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                    }`}
+                    disabled={computingSpec}
+                  >
+                    {computingSpec ? "Calcul…" : "Spectrogramme"}
+                  </button>
+                </div>
+              )}
+              {audioBuffer && (
                 <button
                   onClick={() => {
                     if (audioUrl) URL.revokeObjectURL(audioUrl);
@@ -811,6 +922,7 @@ export default function LyricsEditorPage({
                   type="text"
                   value={l.text}
                   onChange={(e) => updateLine(i, "text", e.target.value)}
+                  spellCheck={true}
                   className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1 text-sm text-zinc-200 focus:outline-none focus:border-amber-500/60"
                 />
                 {syncMode && (
@@ -856,7 +968,7 @@ export default function LyricsEditorPage({
                 setLyricsText(e.target.value);
                 setDirty(true);
               }}
-              spellCheck={false}
+              spellCheck={true}
               className="w-full h-40 mt-2 bg-zinc-950 border border-zinc-700 rounded-xl p-3 font-mono text-xs text-zinc-200 focus:outline-none focus:border-amber-500/60 resize-y"
             />
           </details>
