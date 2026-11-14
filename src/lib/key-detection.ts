@@ -22,12 +22,16 @@ interface ParsedChord {
 }
 
 function parseChord(chord: string): ParsedChord | null {
-  const m = chord.match(/^([A-G][#b]?)(.*)$/);
+  const normalized = chord.replace(/♯/g, "#").replace(/♭/g, "b");
+  const m = normalized.match(/^([A-G][#b]?)(.*)$/);
   if (!m) return null;
-  const root = NOTE_INDEX[m[1].toUpperCase()];
+  const rootKey = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+  const root = NOTE_INDEX[rootKey];
   if (root === undefined) return null;
   const rest = m[2];
-  const minor = /^(m|min|m7|maj7|m6|m9|m11|madd|m7b5|m6add9)/.test(rest);
+  // "m" = mineur, mais "maj…" = majeur : le lookahead évite de classer
+  // maj7/maj9 comme mineurs (l'ancien test commençait par "m").
+  const minor = /^m(?!aj)/.test(rest);
   return { root, minor };
 }
 

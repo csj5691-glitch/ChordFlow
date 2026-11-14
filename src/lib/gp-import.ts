@@ -3,6 +3,7 @@
 import type { SavedChordShape, SongTab } from "./types";
 import { importer, midi, model } from "@coderline/alphatab";
 import { getChordShape, parseChordName } from "./chord-data";
+import { sectionRepeats } from "./chord-synth";
 import type { TabNoteEvent } from "./notes-to-tab";
 import { notesToTab } from "./notes-to-tab";
 
@@ -70,6 +71,9 @@ export interface GpImportResult {
   song: SongTab;
   diagrams: SavedChordShape[];
   warnings: string[];
+  // Compte rendu de ce que l'import a repris automatiquement (répétitions,
+  // fins alternatives, sections) : affiché en vert dans le Studio.
+  notices: string[];
   program: number | null;
 }
 
@@ -95,9 +99,41 @@ function durationToBeats(duration: model.Duration, dots: number, tupletNumerator
   let beats = DURATION_TO_BEATS[duration] ?? 1;
   for (let i = 0; i < dots; i++) beats += beats * 0.5;
   if (tupletNumerator > 0 && tupletDenominator > 0) {
-    beats = beats * ((3 * tupletDenominator) / tupletNumerator);
+    // Triolet 3:2 : une croche écrite vaut 1/3 de temps, pas 1 temps. Le
+    // facteur est denominator / numerator (et non 3 × denominator / numerator,
+    // qui doublait la durée).
+    beats = beats * (tupletDenominator / tupletNumerator);
   }
   return +beats.toFixed(4);
+}
+
+// alphaTab compte 960 ticks par noire ; ChordFlow compte 1 beat par noire.
+const ALPHATAB_TICKS_PER_BEAT = 960;
+
+// Durée réelle d'une mesure, en beats. `calculateDuration` tient compte des
+// levées (anacrusis) et des changements de signature ; on retombe sur la
+// signature courante si alphaTab n'a pas encore calculé la durée.
+function masterBarBeats(masterBar: model.MasterBar | undefined): number {
+  if (masterBar) {
+    const calculated = masterBar.calculateDuration() / ALPHATAB_TICKS_PER_BEAT;
+    if (Number.isFinite(calculated) && calculated > 0) return calculated;
+    return (4 * masterBar.timeSignatureNumerator) / masterBar.timeSignatureDenominator;
+  }
+  return 4;
+}
+
+// Position d'un beat dans sa mesure, en beats, telle qu'elle est ÉCRITE.
+// `displayStart` ignore le décalage de lecture causé par une note d'agrément
+// (une note principale après un appoggiature reste sur le temps).
+function beatDisplayStartInBar(beat: model.Beat): number {
+  return beat.displayStart / ALPHATAB_TICKS_PER_BEAT;
+}
+
+// Position de lecture réelle d'un beat dans sa mesure, en beats. Sert à la
+// synchronisation des paroles et à l'instant de la première note, où une note
+// d'agrément décale réellement le son.
+function beatPlaybackStartInBar(beat: model.Beat): number {
+  return beat.playbackStart / ALPHATAB_TICKS_PER_BEAT;
 }
 
 // Libellé d'accordage de la portée, tel qu'affiché dans l'en-tête de la
@@ -165,26 +201,16 @@ function getFirstNoteTime(score: model.Score, trackIndex: number): number | null
   let currentBeat = 0;
   for (let mbIdx = 0; mbIdx < score.masterBars.length; mbIdx++) {
     const bar = staff.bars[mbIdx];
-    if (!bar) continue;
     const masterBar = score.masterBars[mbIdx];
-    const numerator = masterBar?.timeSignatureNumerator ?? 4;
-    const denominator = masterBar?.timeSignatureDenominator ?? 4;
-    const barBeats = (4 * numerator) / denominator;
+    const barBeats = masterBarBeats(masterBar);
 
-    const voice = bar.voices.find((v) => v.beats.length > 0);
+    const voice = bar?.voices.find((v) => v.beats.length > 0);
     if (voice) {
-      let barPos = 0;
       for (const beat of voice.beats) {
+        if (beat.graceType) continue;
         if (!beat.isRest && !beat.isEmpty && beat.notes.length > 0) {
-          return (currentBeat + barPos) * secondsPerBeat;
+          return (currentBeat + beatPlaybackStartInBar(beat)) * secondsPerBeat;
         }
-        const duration = durationToBeats(
-          beat.duration,
-          beat.dots,
-          beat.tupletNumerator,
-          beat.tupletDenominator
-        );
-        barPos += duration;
       }
     }
 
@@ -224,17 +250,14 @@ function collectLyricSyllables(score: model.Score, trackIndex: number): GpLyricS
   let currentBeat = 0;
   for (let mbIdx = 0; mbIdx < score.masterBars.length; mbIdx++) {
     const bar = staff.bars[mbIdx];
-    if (!bar) continue;
     const masterBar = score.masterBars[mbIdx];
-    const numerator = masterBar?.timeSignatureNumerator ?? 4;
-    const denominator = masterBar?.timeSignatureDenominator ?? 4;
-    const barBeats = (4 * numerator) / denominator;
+    const barBeats = masterBarBeats(masterBar);
 
     // The lyric voice is always voices[0] (applyLyrics walks its beat chain).
-    const voice = bar.voices[0];
+    const voice = bar?.voices[0];
     if (voice) {
-      let barPos = 0;
       for (const beat of voice.beats) {
+        if (beat.graceType) continue;
         const syllables = beat.lyrics;
         if (syllables) {
           for (let li = 0; li < syllables.length; li++) {
@@ -242,18 +265,12 @@ function collectLyricSyllables(score: model.Score, trackIndex: number): GpLyricS
             if (!syllable) continue;
             while (rows.length <= li) rows.push([]);
             rows[li].push({
-              time: (currentBeat + barPos) * secondsPerBeat,
+              time: (currentBeat + beatPlaybackStartInBar(beat)) * secondsPerBeat,
               barIndex: mbIdx,
               syllable,
             });
           }
         }
-        barPos += durationToBeats(
-          beat.duration,
-          beat.dots,
-          beat.tupletNumerator,
-          beat.tupletDenominator
-        );
       }
     }
     currentBeat += barBeats;
@@ -428,9 +445,19 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
     if (!bar) continue;
     const masterBar = score.masterBars[mbIdx];
 
-    if (masterBar.isRepeatStart) {
+    // Répétitions : la barre de fin porte le nombre total de passages
+    // (`repeatCount`), que `renderSequence` rejoue. Une barre qui est à la fois
+    // fin et début ferme la section précédente avant d'ouvrir la suivante.
+    const repeatStart = masterBar.isRepeatStart;
+    const repeatEnd = masterBar.isRepeatEnd;
+    const repeatCount = Math.max(1, Math.min(32, masterBar.repeatCount || 1));
+    if (repeatEnd && repeatStart) {
+      diagrams.push(barShape("endRepeat", repeatCount));
+      diagrams.push(barShape("beginRepeat"));
+    } else if (repeatStart) {
       diagrams.push(barShape("beginRepeat"));
     }
+    const ending = repeatEnding(masterBar);
     const section = masterBar.section;
     if (section?.marker) {
       diagrams.push(sectionShape(section.marker));
@@ -582,14 +609,54 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
       }
     }
 
-    if (masterBar.isRepeatEnd) {
-      diagrams.push(barShape("endRepeat"));
+    // Les accords de la mesure précèdent la barre de fin : le signe de renvoi
+    // ferme la mesure (et donc la section rejouée), il ne l'ouvre pas.
+    if (ending) {
+      for (const d of barChords) d.ending = ending;
     }
-
-    // Flush bar-level chords after repeat marks so measure flow reads clearly.
     if (barChords.length > 0) {
       diagrams.push(...barChords);
     }
+    if (repeatEnd && !repeatStart) {
+      diagrams.push(barShape("endRepeat", repeatCount));
+    }
+  }
+
+  // Fins alternatives : dans une partition, la 2e fin est écrite APRÈS le signe
+  // de renvoi. Le modèle ChordFlow place toutes les fins dans la section
+  // répétée ; on rapatrie donc la 2e fin avant la barre de fin.
+  moveSecondEndingsBeforeRepeat(diagrams);
+
+  // Compte rendu : tout ce que la source porte (renvois, compteurs, fins,
+  // sections) est repris ici, sans intervention de l'utilisateur.
+  const notices: string[] = [];
+  const repeatEnds = diagrams.filter(
+    (d) => d.bar && (d.barKind === "endRepeat" || d.barKind === "bothRepeat")
+  );
+  if (repeatEnds.length > 0) {
+    // Regroupe les compteurs : « 2 sections de 4 passages, 4 sections de 2 ».
+    const byCount = new Map<number, number>();
+    for (const d of repeatEnds) {
+      const n = sectionRepeats(d);
+      byCount.set(n, (byCount.get(n) ?? 0) + 1);
+    }
+    const detail = [...byCount.entries()]
+      .sort((a, b) => b[0] - a[0])
+      .map(([n, sections]) => `${sections} section${sections > 1 ? "s" : ""} de ${n} passage${n > 1 ? "s" : ""}`)
+      .join(", ");
+    notices.push(`Répétitions importées automatiquement : ${repeatEnds.length} renvoi${repeatEnds.length > 1 ? "s" : ""} (${detail}).`);
+  } else {
+    notices.push(
+      `Aucune répétition dans la source : cette partition est déjà déroulée sur ${score.masterBars.length} mesures (aucun signe de renvoi dans le fichier).`
+    );
+  }
+  const endingCount = diagrams.filter((d) => d.ending === 1 || d.ending === 2).length;
+  if (endingCount > 0) {
+    notices.push(`Fins alternatives importées : ${endingCount} mesure${endingCount > 1 ? "s" : ""} de fin.`);
+  }
+  const sectionCount = diagrams.filter((d) => d.sectionLabel !== undefined).length;
+  if (sectionCount > 0) {
+    notices.push(`Sections (repères de la partition) : ${sectionCount}.`);
   }
 
   // Direction des slides de décalage : déduite de l'attaque suivante sur la
@@ -624,6 +691,7 @@ export async function importGuitarProTrack(file: File, trackIndex: number): Prom
     song,
     diagrams: merged,
     warnings,
+    notices,
     program: track.playbackInfo?.program ?? null,
   };
 }
@@ -670,45 +738,60 @@ export async function importGuitarProNotationAsTab(
 
   // Ticks = 480 par temps (même étalon que le parseur de tablatures ASCII).
   const events: TabNoteEvent[] = [];
+  // Dernière note ouverte par hauteur : une note liée (tie destination) doit
+  // prolonger cette note au lieu d'être ignorée ou re-attaquée.
+  const openByPitch = new Map<number, TabNoteEvent>();
+  // Bornes réelles des mesures (levées et signatures irrégulières incluses) :
+  // notesToTab peut ainsi rendre une première mesure de 3 temps au lieu de
+  // fusionner la levée avec la mesure suivante dans une grille 4/4 fixe.
+  const measureTicks: { startTick: number; durationTicks: number }[] = [];
   let currentBeats = 0;
   for (let mbIdx = 0; mbIdx < score.masterBars.length; mbIdx++) {
     const bar = staff.bars[mbIdx];
     const masterBar = score.masterBars[mbIdx];
-    if (!bar) continue;
-    const voice = pickVoice(bar);
+    const barBeats = masterBarBeats(masterBar);
+    measureTicks.push({
+      startTick: Math.round(currentBeats * 480),
+      durationTicks: Math.max(1, Math.round(barBeats * 480)),
+    });
+    const voice = bar ? pickVoice(bar) : null;
     if (voice) {
-      let barPos = 0;
       for (const beat of voice.beats) {
-        if (beat.isRest || beat.isEmpty || beat.notes.length === 0) {
-          barPos += durationToBeats(
-            beat.duration,
-            beat.dots,
-            beat.tupletNumerator,
-            beat.tupletDenominator
-          );
-          continue;
-        }
-        const startTick = Math.round((currentBeats + barPos) * 480);
-        const durationTicks = Math.round(
-          durationToBeats(beat.duration, beat.dots, beat.tupletNumerator, beat.tupletDenominator) * 480
-        );
+        // Les notes d'agrément sont décoratives : elles ne doivent ni créer
+        // d'événement ni décaler la grille rythmique.
+        if (beat.graceType) continue;
+        if (beat.isRest || beat.isEmpty || beat.notes.length === 0) continue;
+        const startTick = Math.round((currentBeats + beatDisplayStartInBar(beat)) * 480);
+        // Durée écrite (et non de lecture) : une note d'agrément ne doit pas
+        // raccourcir la note précédente dans la tablature.
+        const beatBeats =
+          beat.displayDuration > 0
+            ? beat.displayDuration / ALPHATAB_TICKS_PER_BEAT
+            : durationToBeats(
+                beat.duration,
+                beat.dots,
+                beat.tupletNumerator,
+                beat.tupletDenominator
+              );
+        const durationTicks = Math.max(1, Math.round(beatBeats * 480));
         for (const note of beat.notes) {
-          if (note.isTieDestination) continue;
           const pitch = note.realValue;
           if (typeof pitch !== "number" || !Number.isFinite(pitch)) continue;
-          events.push({ pitch, startTick, durationTicks });
+          if (note.isTieDestination) {
+            const open = openByPitch.get(pitch);
+            // Une liaison commence exactement à la fin de la note précédente.
+            if (open && open.startTick + open.durationTicks === startTick) {
+              open.durationTicks += durationTicks;
+              continue;
+            }
+          }
+          const ev: TabNoteEvent = { pitch, startTick, durationTicks };
+          events.push(ev);
+          openByPitch.set(pitch, ev);
         }
-        barPos += durationToBeats(
-          beat.duration,
-          beat.dots,
-          beat.tupletNumerator,
-          beat.tupletDenominator
-        );
       }
     }
-    const numerator = masterBar?.timeSignatureNumerator ?? 4;
-    const denominator = masterBar?.timeSignatureDenominator ?? 4;
-    currentBeats += (4 * numerator) / denominator;
+    currentBeats += barBeats;
   }
 
   if (events.length === 0) {
@@ -716,7 +799,7 @@ export async function importGuitarProNotationAsTab(
   }
 
   const warnings: string[] = [];
-  const converted = notesToTab(events, { title, bpm });
+  const converted = notesToTab(events, { title, bpm, measureTicks });
   if (converted.measures === 0) {
     throw new Error("Aucune note convertible (gamme guitare) dans cette piste.");
   }
@@ -914,7 +997,10 @@ function drumShape(label: string, hits: number, duration: number): SavedChordSha
   };
 }
 
-function barShape(kind: "beginRepeat" | "endRepeat"): SavedChordShape {
+function barShape(
+  kind: "beginRepeat" | "endRepeat",
+  repeats = 1
+): SavedChordShape {
   return {
     id: gpId("gp-bar"),
     label: kind === "beginRepeat" ? "Répétition début" : "Répétition fin",
@@ -926,8 +1012,38 @@ function barShape(kind: "beginRepeat" | "endRepeat"): SavedChordShape {
     capo: 0,
     bar: true,
     barKind: kind,
-    repeats: 1,
+    repeats,
   };
+}
+
+// Fin alternative d'une mesure (`alternateEndings` est un drapeau : bit 0 =
+// 1re fin, bit 1 = 2e fin). ChordFlow ne modélise que les fins 1 et 2.
+function repeatEnding(mb: model.MasterBar): 1 | 2 | undefined {
+  const bits = mb.alternateEndings;
+  if (!bits) return undefined;
+  if (bits === 2) return 2;
+  // 1, ou 1+2 quand la 1re fin couvre les deux premiers passages.
+  return 1;
+}
+
+// Rapatrie la 2e fin (écrite après le signe de renvoi) dans la section
+// répétée, avant la barre de fin, pour que `renderSequence` la joue au dernier
+// passage seulement.
+function moveSecondEndingsBeforeRepeat(diagrams: SavedChordShape[]): void {
+  for (let i = 0; i < diagrams.length; i++) {
+    const bar = diagrams[i];
+    if (!bar.bar || bar.barKind !== "endRepeat" || (bar.repeats ?? 1) < 2) continue;
+    let end = i + 1;
+    while (end < diagrams.length) {
+      const d = diagrams[end];
+      if (d.bar || d.ending !== 2) break;
+      end++;
+    }
+    if (end === i + 1) continue;
+    const second = diagrams.splice(i + 1, end - i - 1);
+    diagrams.splice(i, 0, ...second);
+    i += second.length;
+  }
 }
 
 function sectionShape(marker: string): SavedChordShape {
@@ -970,6 +1086,11 @@ function shapeKey(d: SavedChordShape): string {
     d.barreCount,
     d.baseFret,
     d.capo,
+    d.sounding,
+    // Deux accords piano/keys peuvent avoir le même libellé (« 4 notes ») mais
+    // des hauteurs différentes : sans ces fréquences, la fusion détruisait
+    // l'un des deux accords.
+    d.pitchFrequencies,
     d.slides,
     d.graceBefore,
   ]);

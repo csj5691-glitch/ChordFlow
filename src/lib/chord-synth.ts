@@ -25,6 +25,20 @@ export function beatsForShape(d: SavedChordShape): number {
   return d.dotted ? base * 1.5 : base;
 }
 
+// Nombre de passages d'une barre qui ferme une section. Un signe de renvoi
+// (`endRepeat` / `bothRepeat`) sans compteur explicite vaut 2 passages, comme
+// en notation : les répétitions posées dans le Studio sont ainsi lues même
+// quand le compteur n'a pas été touché.
+export function sectionRepeats(d: SavedChordShape): number {
+  if (!d.bar) return 1;
+  const repeats = d.repeats ?? 1;
+  if (repeats <= 0) return 1;
+  if (repeats === 1 && (d.barKind === "endRepeat" || d.barKind === "bothRepeat")) {
+    return 2;
+  }
+  return repeats;
+}
+
 const STRING_NAMES = ["E", "A", "D", "G", "B", "e"];
 
 export function fretForString(d: SavedChordShape, s: number): number {
@@ -100,18 +114,24 @@ export function renderSequence(
 ): SynthEvent[] {
   const beatSec = 60 / bpm;
   const events: SynthEvent[] = [];
-  let section: SavedChordShape[] = [];
+  // Chaque forme retient le repère de section en vigueur (« Intro », « Refrain »)
+  // au moment où elle est écrite. Un repère ne ferme donc pas la section en
+  // cours : placé dans une répétition, il ne coupe plus le renvoi en deux.
+  type Item = { shape: SavedChordShape; label?: string };
+  let section: Item[] = [];
+  let currentLabel: string | undefined;
   let cursor = 0;
 
-  const pushSection = (repeats: number, label?: string, barKind?: BarKind) => {
+  const pushSection = (repeats: number, barKind?: BarKind) => {
     if (repeats < 0) return;
     const loops = Math.max(1, repeats);
-    const hasEndings = section.some((d) => d.ending != null);
+    const hasEndings = section.some((it) => it.shape.ending != null);
     const useEndings = loops > 1 && hasEndings;
     for (let r = 0; r < loops; r++) {
       const isLast = r === loops - 1;
       let prevShape: SavedChordShape | null = null;
-      for (const d of section) {
+      for (const it of section) {
+        const d = it.shape;
         if (useEndings) {
           if (d.ending === 1 && isLast) continue;
           if (d.ending === 2 && !isLast) continue;
@@ -127,7 +147,7 @@ export function renderSequence(
           duration: dur,
           silence: d.silence === true,
           shape: d,
-          sectionLabel: r === 0 ? label : undefined,
+          sectionLabel: r === 0 ? it.label : undefined,
           barKind: r === 0 ? barKind : undefined,
           drumHits: d.drumHits,
         };
@@ -148,9 +168,13 @@ export function renderSequence(
       continue;
     }
     if (d.bar) {
-      pushSection(d.repeats ?? 1, d.sectionLabel, d.barKind);
+      if (d.sectionLabel !== undefined) currentLabel = d.sectionLabel;
+      // Repère de section sans signe de renvoi : purement indicatif (aucun
+      // temps, aucune barre de répétition), il ne ferme pas la section.
+      if (d.sectionLabel !== undefined && !d.barKind) continue;
+      pushSection(sectionRepeats(d), d.barKind);
     } else {
-      section.push(d);
+      section.push({ shape: d, label: currentLabel });
     }
   }
   pushSection(1);

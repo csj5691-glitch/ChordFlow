@@ -9,13 +9,15 @@ import {
   useState,
   type SyntheticEvent,
 } from "react";
-import { ChevronLeft, ChevronRight, Pause, Square, Play, RotateCcw, X } from "lucide-react";
-import { renderSequence, beatsForShape, legatoStringName, measureInfoFromSignature, measureForBeat, beatInMeasure, type SynthEvent } from "@/lib/chord-synth";
+import { ChevronLeft, ChevronRight, Music, Pause, Square, Play, RotateCcw, X } from "lucide-react";
+import { renderSequence, beatsForShape, legatoStringName, measureInfoFromSignature, measureForBeat, beatInMeasure, repeatPasses, sectionRepeats, type SynthEvent } from "@/lib/chord-synth";
+import { playGmEvent } from "@/lib/gm-voice";
 import { soundingNotes } from "@/lib/articulation";
 import { parseChordContent } from "@/lib/chord-parser";
 import { decodeHtmlEntities } from "@/lib/ug-scraper";
 import { loadStemShift, saveStemShift } from "@/lib/line-offsets";
 import type { SavedChordShape, SongTab } from "@/lib/types";
+import type { PlayerBar, PlayerMeasure, PlayerTrack, TabPlayerSong, TempoPoint } from "@/lib/tab-player/types";
 import ChordShapeView from "@/components/ChordShapeView";
 import TabStaffView from "@/components/TabStaffView";
 import TabPlaybackView from "@/components/TabPlaybackView";
@@ -35,6 +37,9 @@ interface ConductorProps {
   officialSynced?: string;
   instrumentalUrl?: string | null;
   vocalsUrl?: string | null;
+  // Instrument GS de la piste (programme MIDI) : timbre de la lecture de la
+  // grille synthétisée (sans stems). Aucun effet sur les stems.
+  program?: number | null;
   lyricOffset?: number;
   lyricAnchorDiagram?: number;
   /**.identifiant de la chanson (persistance de l'alignement automatique). */
@@ -128,7 +133,7 @@ function strumDirection(startBeat: number, beats: number): "D" | "U" {
 // Numéro du build affiché dans l'en-tête du Chef : si l'interface ne change pas
 // après un déploiement, c'est qu'un bundle périmé est encore servi — ce tag le
 // rend visible immédiatement. À mettre à jour à chaque déploiement.
-const BUILD_TAG = "sans-midi";
+const BUILD_TAG = "tab-repetitions";
 
 export default function Conductor({
   diagrams,
@@ -140,6 +145,7 @@ export default function Conductor({
   officialSynced,
   instrumentalUrl,
   vocalsUrl,
+  program,
   lyricOffset: externalLyricOffset,
   lyricAnchorDiagram,
   onLyricOffsetChange,
@@ -153,16 +159,42 @@ export default function Conductor({
   const events = useMemo(() => renderSequence(diagrams, bpm), [diagrams, bpm]);
   // Tablature animée du morceau, dérivée de la grille : elle remplace l'ancien
   // panneau Riff/Harmonique du Chef. Le moteur ne possède pas d'horloge, elle
-  // lui est fournie via gridMsRef plus bas.
+  // lui est fournie via gridMsRef plus bas. Les répétitions (et fins alternatives)
+  // sont étendues passage par passage, dans l'ordre de lecture du son : chaque
+  // passage possède ses propres mesures, la tablature ainsi construite couvre
+  // toute la durée jouée et le suivi via gridMsRef la ramène sur le bon passage.
   const tabSong = useMemo(() => {
     if (diagrams.length === 0) return null;
-    const result = fromChords(diagrams, {
+    const bars: PlayerBar[] = [];
+    const measures: PlayerMeasure[] = [];
+    const tracks: PlayerTrack[] = [];
+    const tempo: TempoPoint[] = [{ beat: 0, bpm }];
+    const buildPass = (shapes: SavedChordShape[]) => {
+      const result = fromChords(shapes, {
+        title: "",
+        bpm,
+        timeSignature,
+        tuning,
+      });
+      const track = result.song.tracks[0];
+      if (track.measures.length === 0) return;
+      bars.push(...result.song.bars);
+      measures.push(...track.measures);
+      tracks.push(track);
+    };
+    for (const shapes of repeatPasses(diagrams)) {
+      buildPass(shapes);
+    }
+    if (bars.length === 0 || tracks.length === 0) return null;
+    const song: TabPlayerSong = {
       title: "",
-      bpm,
-      timeSignature,
-      tuning,
-    });
-    return result.song.bars.length > 0 ? result.song : null;
+      artist: "",
+      source: "",
+      bars,
+      tempo,
+      tracks: [{ meta: tracks[0].meta, measures }],
+    };
+    return song;
   }, [diagrams, bpm, timeSignature, tuning]);
   const measureInfo = useMemo(
     () => measureInfoFromSignature(timeSignature),
@@ -309,6 +341,10 @@ export default function Conductor({
   const timerRef = useRef<number | null>(null);
 
   const [stemStart, setStemStart] = useState<number | null>(null);
+  // Vrai quand la détection du pré-roll est terminée (ou qu'il n'y a pas
+  // d'audio) : l'autolecture attend ce signal pour démarrer avec le bon
+  // alignement, au lieu de partir avant la fin de `detectFirstSound`.
+  const [stemProbeDone, setStemProbeDone] = useState(!(instrumentalUrl || vocalsUrl));
   const [stemDuration, setStemDuration] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const stemStartRef = useRef<number | null>(null);
@@ -317,6 +353,14 @@ export default function Conductor({
   // et plus de latence de démarrage du lecteur média.
   const stemSourcesRef = useRef<{ inst?: AudioBufferSourceNode; vocals?: AudioBufferSourceNode }>({});
   const stemGainRefs = useRef<{ inst?: GainNode; vocals?: GainNode }>({});
+  // Lecture de la GRILLE synthétisée (répétitions comprises) : c'est elle qui
+  // fait ENTENDRE les renvois. Elle prend le relais automatiquement quand aucun
+  // stem n'est chargé ; avec des stems (enregistrement linéaire, sans renvois),
+  // le bouton « Grille » de l'en-tête permet de l'écouter à la place.
+  const gridPumpRef = useRef<number | null>(null);
+  const gridPlayingRef = useRef(false);
+  const gridOnlyRef = useRef(false);
+  const [gridOnly, setGridOnly] = useState(false);
   const stemCacheRef = useRef<Map<string, AudioBuffer>>(new Map());
   const stemLoadRef = useRef<Record<string, Promise<AudioBuffer | null>>>({});
   const decodeStemBuffer = useCallback(
@@ -349,6 +393,26 @@ export default function Conductor({
     e.currentTarget.volume = volume;
   };
   const usesAudio = useMemo(() => Boolean(instrumentalUrl || vocalsUrl), [instrumentalUrl, vocalsUrl]);
+  // Sons de la grille : sans stems, c'est la seule source audible ; avec des
+  // stems, le mode « Grille » remplace l'enregistrement pour faire sonner les
+  // répétitions de la partition.
+  const playsGrid = !usesAudio || gridOnly;
+  // Compte rendu des renvois de la partition : sections et nombre de passages.
+  const repeatSummary = useMemo(() => {
+    const ends = diagrams.filter(
+      (d) => d.bar && (d.barKind === "endRepeat" || d.barKind === "bothRepeat")
+    );
+    const byCount = new Map<number, number>();
+    for (const d of ends) {
+      const n = sectionRepeats(d);
+      byCount.set(n, (byCount.get(n) ?? 0) + 1);
+    }
+    const detail = [...byCount.entries()]
+      .sort((a, b) => b[0] - a[0])
+      .map(([n, count]) => `${count}×${n}`)
+      .join(" ");
+    return { count: ends.length, detail };
+  }, [diagrams]);
   const totalSequenceMs = useMemo(
     () => events.reduce((a, e) => a + e.duration, 0) * 1000,
     [events]
@@ -365,10 +429,15 @@ export default function Conductor({
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
     }
+    if (gridPumpRef.current !== null) {
+      window.clearInterval(gridPumpRef.current);
+      gridPumpRef.current = null;
+    }
+    gridPlayingRef.current = false;
     t0Ref.current = null;
     setPaused(false);
     seekRef.current = 0;
-    if (ctxRef.current && ctxRef.current.state === "running") {
+    if (ctxRef.current) {
       ctxRef.current.close().catch(() => {});
     }
     ctxRef.current = null;
@@ -435,7 +504,10 @@ export default function Conductor({
     let cancelled = false;
     const refUrl = instrumentalUrl ?? vocalsUrl;
     void Promise.resolve().then(() => {
-      if (!cancelled) setStemDuration(null);
+      if (!cancelled) {
+        setStemDuration(null);
+        setStemProbeDone(!refUrl);
+      }
     });
     if (refUrl) {
       void detectFirstSound(refUrl).then((d) => {
@@ -447,11 +519,15 @@ export default function Conductor({
           setStemStart(d);
           stemStartRef.current = d;
         }
+        setStemProbeDone(true);
       });
     } else {
       stemStartRef.current = null;
       void Promise.resolve().then(() => {
-        if (!cancelled) setStemStart(null);
+        if (!cancelled) {
+          setStemStart(null);
+          setStemProbeDone(true);
+        }
       });
     }
     return () => {
@@ -479,6 +555,15 @@ export default function Conductor({
   const play = useCallback(async (fromSec = 0) => {
     stop();
     if (events.length === 0 && totalMs <= 0) return;
+    // Jeton de lecture : un arrêt (pause, fermeture, changement de source)
+    // survenu pendant les `await` ci-dessous doit annuler cette lecture.
+    // Sans ce garde-fou, la grille synthétisée continuait de se planifier
+    // après un « pause » cliqué pendant le démarrage du contexte audio.
+    const token = playTokenRef.current;
+
+    // Lu depuis le ref : le basculement « Grille » redémarre la lecture dans le
+    // même geste, avant que l'état React ne soit re-rendu.
+    const grid = !usesAudio || gridOnlyRef.current;
 
     const seek = Math.max(0, fromSec);
     seekRef.current = seek;
@@ -496,11 +581,11 @@ export default function Conductor({
     const primary = pickPrimary();
     const firstVocals = pickVocals();
 
-    // Les stems audio (enregistrements importés) sont joués SUR le même
-    // contexte audio (échantillon-verrouillés) ; la piste <audio> ne sert plus
-    // que de repli si le décodage échoue. Le Studio ne joue aucun son
-    // synthétisé (aucun son MIDI).
-    const needCtx = usesAudio;
+    // Deux sources possibles : les stems (enregistrement importé, linéaire) ou
+    // la GRILLE synthétisée (respecte les répétitions et les fins alternatives).
+    // La grille prend le relais quand aucun stem n'est chargé, ou quand le mode
+    // « Grille » est demandé pour entendre les renvois.
+    const needCtx = usesAudio || (grid && events.length > 0);
     let ctx: AudioContext | null = null;
     let t0 = 0;
     if (needCtx) {
@@ -509,14 +594,30 @@ export default function Conductor({
         (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!Ctor) return;
       ctx = new Ctor();
-      try {
-        await ctx.resume();
-        if (ctx.state !== "running") await ctx.resume();
-      } catch {
-        // L'état est relu juste en dessous.
+      // Attente BORNÉE de la reprise : sans geste utilisateur (automatique du
+      // Studio), certains navigateurs laissent `resume()` en attente. Sans
+      // borne, même l'horloge visuelle ne démarrerait pas.
+      const resumeWait = async () => {
+        await Promise.race([
+          ctx !== null ? ctx.resume().catch(() => {}) : Promise.resolve(),
+          new Promise<void>((resolve) => window.setTimeout(resolve, 600)),
+        ]);
+      };
+      await resumeWait();
+      if (ctx.state !== "running") await resumeWait();
+      if (playTokenRef.current !== token) {
+        // Lecture annulée pendant la reprise du contexte : on ne planifie rien.
+        ctx.close().catch(() => {});
+        return;
       }
-      if (ctx.state !== "running") {
-        console.warn(`[Chef] contexte audio "${ctx.state}" — son possiblement muet`);
+      // `canSound` : le contexte tourne vraiment. Sinon (autoplay sans geste),
+      // on lit la partition à l'écran sans planifier de notes ; le prochain
+      // clic sur « Jouer » partira d'un contexte autorisé.
+      const canSound = ctx.state === "running";
+      if (!canSound) {
+        console.warn(
+          `[Chef] contexte audio "${ctx.state}" — lecture visuelle seulement : cliquez sur Jouer pour activer le son`
+        );
       }
       ctxRef.current = ctx;
       // Latence de sortie de l'appareil : le navigateur la mesure
@@ -533,7 +634,11 @@ export default function Conductor({
       // juste avant de démarrer les sources : la planification sample-verrouillée
       // (t0 + position) reste exacte quelle que soit la durée du décodage, et les
       // diagrammes suivent la musique sans lag ni dérive.
-      if (usesAudio) {
+      // Les stems audio (enregistrements importés) sont joués SUR le même
+      // contexte audio (échantillon-verrouillés) ; la piste <audio> ne sert plus
+      // que de repli si le décodage échoue. En mode « Grille », on ne décode
+      // aucun stem : la synthèse joue la partition, répétitions comprises.
+      if (canSound && usesAudio && !grid) {
         let stemsOnCtx = false;
         const shift = stemShiftRef.current;
         const [instBuf, vocBuf] = await Promise.all([
@@ -587,6 +692,53 @@ export default function Conductor({
           }
         }
       }
+
+      // Lecture annulée pendant le décodage des stems : rien à planifier.
+      if (playTokenRef.current !== token) {
+        ctx.close().catch(() => {});
+        return;
+      }
+
+      // ---------- GRILLE SYNTHÉTISÉE (répétitions) ----------
+      // Joue la séquence rendue par `renderSequence`, donc chaque passage des
+      // sections répétées et les fins alternatives : c'est le seul moyen
+      // d'ENTENDRE une répétition de la partition (un enregistrement de stems
+      // est linéaire et ne contient pas les renvois).
+      if (canSound && grid && events.length > 0) {
+        t0 = ctxSafe.currentTime + 0.15 - seek;
+        t0Ref.current = t0;
+        tempoRatioRef.current = 1;
+        gridPlayingRef.current = true;
+        const bus = ctxSafe.createGain();
+        bus.gain.value = 0.5;
+        bus.connect(ctxSafe.destination);
+        // Planification progressive (fenêtre glissante) : les voix ne sont
+        // créées qu'au moment de jouer, sinon une longue séquence saturerait le
+        // graphe audio.
+        let ptr = 0;
+        while (ptr < events.length && events[ptr].start + events[ptr].duration <= seek) {
+          ptr++;
+        }
+        const pumpGrid = () => {
+          if (!gridPlayingRef.current || ctxRef.current !== ctxSafe) return;
+          const horizon = ctxSafe.currentTime - t0 + 0.4;
+          while (ptr < events.length && events[ptr].start <= horizon) {
+            const ev = events[ptr++];
+            if (ev.silence) continue;
+            // Événement à cheval sur le point de reprise : on ne joue que le
+            // reste.
+            const left = ev.start + ev.duration - seek;
+            if (left <= 0) continue;
+            const at = Math.max(ctxSafe.currentTime, t0 + ev.start);
+            const dur = Math.max(0.12, Math.min(ev.duration, left));
+            playGmEvent(ctxSafe, { ...ev, duration: dur }, bus, at, program, {
+              strum: "down",
+            });
+          }
+        };
+        pumpGrid();
+        gridPumpRef.current = window.setInterval(pumpGrid, 60);
+      }
     }
 
     let startedAt = 0;
@@ -597,10 +749,12 @@ export default function Conductor({
       // Avec des stems décodées sur le contexte audio, l'horloge VISUELLE est
       // calée sur ctx.currentTime (échantillon-verrouillée) : la durée de
       // décodage et la latence des timers ne peuvent plus décaler les
-      // diagrammes derrière la musique. Repli sur performance.now() quand aucun
-      // stem ne tourne sur le contexte (aucune piste, ou décodage échoué).
+      // diagrammes derrière la musique. Idem pour la grille synthétisée, qui
+      // planifie ses notes sur ce même contexte. Repli sur performance.now().
       const t =
-        ctx && ctx.state === "running" && (stemSourcesRef.current.inst || stemSourcesRef.current.vocals)
+        ctx &&
+        ctx.state === "running" &&
+        (stemSourcesRef.current.inst || stemSourcesRef.current.vocals || gridPlayingRef.current)
           ? (ctx.currentTime - t0) * 1000
           : performance.now() - startedAt;
       // Horloge d'affichage : on retire la latence de sortie de l'appareil (et
@@ -616,20 +770,24 @@ export default function Conductor({
       const seekMs = seek * 1000;
       const gridClock =
         (ratioTempo === 1 ? t : seekMs + (t - seekMs) * ratioTempo) - latencyMs;
+      // En lecture de grille, la musique EST la grille : le décalage de synchro
+      // (prévu pour caler des stems) n'a plus lieu d'être, sinon les cartes
+      // seraient décalées par rapport au son.
+      const bandShiftMs = gridPlayingRef.current
+        ? 0
+        : Math.max(0, bandOffsetRef.current) * 1000;
       // Le décalage de synchro peut repousser la fin : on ne doit pas arrêter
       // avant lui. Avec étalonnage, la fin de grille arrive à la fin réelle des
       // stems (t = seek + (totalMs - seek) / rapport).
       const limit =
         ratioTempo === 1
-          ? Math.max(totalMs, Math.max(0, bandOffsetRef.current) * 1000)
-          : Math.max(
-              seekMs + (totalMs - seekMs) / ratioTempo,
-              Math.max(0, bandOffsetRef.current) * 1000
-            );
+          ? Math.max(totalMs, bandShiftMs)
+          : Math.max(seekMs + (totalMs - seekMs) / ratioTempo, bandShiftMs);
       if (bandEvents.length === 0) setElapsedMs(t);
       // Le décalage de bande rend la synchro malléable : un décalage positif
       // retarde l'affichage des diagrammes par rapport à la musique.
-      const tb = gridClock + bandOffsetRef.current * 1000;
+      const tb =
+        gridClock + (gridPlayingRef.current ? 0 : bandOffsetRef.current * 1000);
       gridMsRef.current = tb;
       let i = bandEvents.findIndex(
         (e) => e.start * 1000 <= tb && tb < (e.start + e.duration) * 1000
@@ -688,6 +846,7 @@ export default function Conductor({
     flatLyrics,
     bandEvents,
     usesAudio,
+    program,
     instrumentalUrl,
     vocalsUrl,
     decodeStemBuffer,
@@ -698,7 +857,16 @@ export default function Conductor({
   const currentPosSec = useCallback((): number => {
     const t0 = t0Ref.current;
     const ctx = ctxRef.current;
-    if (t0 !== null && ctx) return Math.max(0, ctx.currentTime - t0);
+    if (t0 !== null && ctx && ctx.state === "running") {
+      const audioSec = Math.max(0, ctx.currentTime - t0);
+      const ratio = tempoRatioRef.current;
+      // La position audio doit être ramenée en temps de grille, sinon une
+      // pause/reprise ou un saut repart sur la position audio brute et dérive
+      // dès que l'étalonnage tempo est différent de 1.
+      if (ratio === 1) return audioSec;
+      const seek = seekRef.current;
+      return seek + (audioSec - seek) * ratio;
+    }
     return seekRef.current;
   }, []);
 
@@ -730,12 +898,28 @@ export default function Conductor({
     void play(paused ? seekRef.current : 0);
   }, [playing, paused, play, stop, currentPosSec]);
 
+  // Bascule sonore : « Audio » (stems, enregistrement linéaire) ou « Grille »
+  // (partition synthétisée, répétitions comprises). Le redémarrage immédiat
+  // évite que la lecture continue avec l'ancienne source.
+  const toggleGridSound = useCallback(() => {
+    const next = !gridOnlyRef.current;
+    gridOnlyRef.current = next;
+    setGridOnly(next);
+    if (playing || paused) {
+      const pos = currentPosSec();
+      stop();
+      seekRef.current = pos;
+      void play(pos);
+    }
+  }, [playing, paused, play, stop, currentPosSec]);
+
   // Diagramme précédent / suivant : saute la lecture au début de ce diagramme.
   const jumpDiagram = useCallback(
     (dir: -1 | 1) => {
       const list = bandEvents;
       if (list.length === 0) return;
-      const shift = bandOffsetRef.current;
+      // La grille synthétisée n'utilise pas le décalage de synchro des stems.
+      const shift = !usesAudio || gridOnlyRef.current ? 0 : bandOffsetRef.current;
       const tSec = currentPosSec() + shift;
       let target: number;
       if (dir === 1) {
@@ -757,9 +941,10 @@ export default function Conductor({
         setElapsedMs(start * 1000);
       }
     },
-    [bandEvents, currentPosSec, play, playing, paused]
+    [bandEvents, currentPosSec, play, playing, paused, usesAudio]
   );
   useEffect(() => {
+    if (!stemProbeDone) return;
     if (playedRef.current || events.length === 0) return;
     playedRef.current = true;
     const t = window.setTimeout(() => void play(0), 50);
@@ -768,11 +953,12 @@ export default function Conductor({
       stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events]);
+  }, [events, stemProbeDone]);
 
   // Autolecture sans accords : les stems se lisent seuls dès que la durée
   // audio est connue (les accords restent gérés par l'effet ci-dessus).
   useEffect(() => {
+    if (!stemProbeDone) return;
     if (events.length > 0) return;
     if (playedRef.current || stemDuration === null) return;
     playedRef.current = true;
@@ -782,9 +968,11 @@ export default function Conductor({
       stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events, stemDuration]);
+  }, [events, stemDuration, stemProbeDone]);
 
-  const totalBeat = diagrams.reduce((a, d) => a + (d.bar ? 0 : beatsForShape(d)), 0);
+  // Temps réellement joués (répétitions et fins alternatives comprises) :
+  // c'est la durée lue de la grille, pas la somme brute des formes.
+  const totalBeat = events.reduce((a, e) => a + e.duration, 0) * (bpm / 60);
   const cur = bandEvents[index];
   const curBeats = cur ? beatsForShape(cur.shape) : 0;
   const curNv = cur ? noteValueInfo(curBeats) : null;
@@ -943,8 +1131,16 @@ export default function Conductor({
             Studio
           </h2>
           <span className="text-[11px] text-zinc-500 font-mono">
-            {usesAudio ? `${bpm} BPM · stems` : `${bpm} BPM`} · {totalBeat.toFixed(2)} temps ·{" "}
-            {dur2.toFixed(1)} s
+            {playsGrid ? `${bpm} BPM · grille` : `${bpm} BPM · audio`} ·{" "}
+            {totalBeat.toFixed(2)} temps · {dur2.toFixed(1)} s
+            {repeatSummary.count > 0 ? (
+              <span className="text-amber-400/90">
+                {" "}
+                · {repeatSummary.count} répétition{repeatSummary.count > 1 ? "s" : ""} ({repeatSummary.detail} passages)
+              </span>
+            ) : (
+              <span className="text-zinc-600"> · aucune répétition</span>
+            )}
             {flatLyrics.length > 0 && <> · {flatLyrics.length} lignes de paroles</>}
           </span>
             <span
@@ -975,6 +1171,24 @@ export default function Conductor({
           >
             {playing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
           </button>
+          {usesAudio && (
+            <button
+              onClick={toggleGridSound}
+              className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-colors ${
+                gridOnly
+                  ? "bg-amber-400 text-black hover:bg-amber-300"
+                  : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+              }`}
+              title={
+                gridOnly
+                  ? "Revenir à l'enregistrement (stems)"
+                  : "Écouter la grille synthétisée : les répétitions et les fins alternatives sont jouées"
+              }
+            >
+              <Music className="w-3.5 h-3.5" />
+              {gridOnly ? "Audio (stems)" : "Grille (répétitions)"}
+            </button>
+          )}
           <button
             onClick={() => jumpDiagram(1)}
             className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"

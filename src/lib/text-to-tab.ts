@@ -51,7 +51,7 @@ function measureLayout(chords: string[]): { slots: number; strumToChord: number[
   const n = chords.length;
   if (n === 0) return null;
   if (n === 1) {
-    // Ronde : 1 strum sur 4 colonnes (le parseur lit 1 token → 2 temps, le reste en silence).
+    // Ronde : 1 token par corde → 4 temps (le reste des colonnes est vide).
     return { slots: 4, strumToChord: [0] };
   }
   if (n === 2) {
@@ -163,12 +163,17 @@ export function textToTab(data: string): TextToTabResult {
     if (rendered) renderedMeasures.push(rendered);
   }
 
-  // Portées de 4 mesures maximum, séparées par `|`.
+  // Portées de 4 mesures maximum, séparées par `|`. Une portée à une seule
+  // mesure est doublée d'une mesure vide : sans barreau, le parseur ASCII
+  // (`isTabRow` exige un `|`) ignore complètement la ligne.
+  const emptyMeasure = Array(4).fill("-  ").join("");
   const staffLines: string[][] = [];
   for (let i = 0; i < renderedMeasures.length; i += 4) {
+    let group = renderedMeasures.slice(i, i + 4);
+    if (group.length === 1) group = [...group, Array(6).fill(emptyMeasure)];
     const staff: string[] = Array(6).fill("");
     for (let r = 0; r < 6; r++) {
-      staff[r] = renderedMeasures.slice(i, i + 4).map((m) => m[r]).join("|");
+      staff[r] = group.map((m) => m[r]).join("|");
     }
     staffLines.push(staff);
   }

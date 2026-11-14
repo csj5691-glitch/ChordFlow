@@ -181,12 +181,16 @@ export interface AsciiTabModel {
   bpm: number;
   staffs: TabToken[][][][];
   measures: TabToken[][][];
+  // Durée de chaque mesure en temps (1 temps = noire). Vide si la tablature
+  // n'a pas d'en-tête `Meters:` : le parseur retombe alors sur 4/4.
+  barBeats: number[];
 }
 
 export function parseAsciiTabModel(data: string): AsciiTabModel {
   const lines = data.split(/\r?\n/);
   let bpm = DEFAULT_BPM;
   let title = "MIDI";
+  const barBeats: number[] = [];
 
   for (const line of lines) {
     const t = line.trim();
@@ -194,6 +198,16 @@ export function parseAsciiTabModel(data: string): AsciiTabModel {
     if (mT) bpm = Math.min(400, Math.max(20, parseInt(mT[1], 10)));
     const mTitle = t.match(/Title\s*[=:]\s*(.+)/i);
     if (mTitle && mTitle[1].trim().length > 0) title = mTitle[1].trim();
+    const mMeters = t.match(/Meters?\s*[=:]\s*(.+)/i);
+    if (mMeters) {
+      for (const part of mMeters[1].split(/[,;\s]+/)) {
+        const m = part.match(/^(\d+)\/(\d+)$/);
+        if (m) {
+          const beats = (parseInt(m[1], 10) * 4) / parseInt(m[2], 10);
+          if (beats > 0) barBeats.push(beats);
+        }
+      }
+    }
   }
 
   const staffs: TabToken[][][][] = [];
@@ -211,11 +225,11 @@ export function parseAsciiTabModel(data: string): AsciiTabModel {
   const measures: TabToken[][][] = [];
   for (const staff of staffs) measures.push(...staff);
 
-  return { title, bpm, staffs, measures };
+  return { title, bpm, staffs, measures, barBeats };
 }
 
 export function parseAsciiTab(data: string): AsciiTabParseResult {
-  const { title, bpm, staffs } = parseAsciiTabModel(data);
+  const { title, bpm, staffs, barBeats } = parseAsciiTabModel(data);
   const ppq = 480;
   const events: AsciiTabEvent[] = [];
   // Dernier dépôt par corde : permet les liaisons inter-mesures (croche tenue).
@@ -223,15 +237,20 @@ export function parseAsciiTab(data: string): AsciiTabParseResult {
   const lastMeasureByString: number[] = Array(6).fill(-1);
 
   let measureIdx = 0;
+  // Position absolue accumulée : une levée de 3 temps décale bien la mesure
+  // suivante de 3 temps, pas de 4 (en-tête `Meters:` absent → 4/4 historique).
+  let measureStart = 0;
   for (const staff of staffs) {
     for (const m of staff) {
       const strings = m;
       const numSlots = Math.max(0, ...strings.map((toks) => toks.length));
+      const measureBeats = barBeats[measureIdx] ?? 4;
+      const measureTicks = Math.max(1, Math.round(measureBeats * ppq));
+      // Un seul token doit durer toute la mesure (ronde en 4/4), pas 2.
       const unit =
         numSlots > 0
-          ? Math.min(2 * ppq, Math.max(60, Math.round((4 * ppq) / numSlots)))
-          : 4 * ppq;
-      const measureStart = measureIdx * 4 * ppq;
+          ? Math.min(measureTicks, Math.max(60, Math.round(measureTicks / numSlots)))
+          : measureTicks;
 
       for (let sIdx = 0; sIdx < 6; sIdx++) {
         const toks = strings[sIdx];
@@ -241,8 +260,10 @@ export function parseAsciiTab(data: string): AsciiTabParseResult {
           const tok = toks[s];
           const start = measureStart + s * unit;
           const end = start + unit;
-          // Liaison interne : même manche, token précédent lié → prolonger.
-          if (prevEvent && prevTok && prevTok.tie && tok.fret === prevTok.fret) {
+          // Liaison interne : c'est le token COURANT qui porte `l` (comme dans
+          // les exports Guitar Pro : « -3-|-3l- »). Vérifier `prevTok.tie`
+          // empêchait toute liaison et assimilait une ré-attaque à une tenue.
+          if (prevEvent && prevTok && tok.tie && tok.fret === prevTok.fret) {
             prevEvent.durationTicks = end - prevEvent.startTick;
             prevTok = tok;
             continue;
@@ -260,6 +281,12 @@ export function parseAsciiTab(data: string): AsciiTabParseResult {
           ) {
             lastEventByString[sIdx]!.durationTicks =
               end - lastEventByString[sIdx]!.startTick;
+            // La tenue peut couvrir plusieurs slots de la nouvelle mesure : sans
+            // ce `prevEvent`, chaque token lié suivant créerait une ré-attaque.
+            prevEvent = lastEventByString[sIdx];
+            // Et elle peut traverser plusieurs mesures : la mesure courante doit
+            // devenir la référence pour la liaison de la mesure suivante.
+            lastMeasureByString[sIdx] = measureIdx;
             prevTok = tok;
             continue;
           }
@@ -281,6 +308,7 @@ export function parseAsciiTab(data: string): AsciiTabParseResult {
           prevEvent = ev;
         }
       }
+      measureStart += measureTicks;
       measureIdx++;
     }
   }

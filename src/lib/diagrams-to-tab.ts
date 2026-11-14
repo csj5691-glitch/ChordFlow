@@ -6,7 +6,8 @@
 // place/organise le manche et rend la portée. Les marqueurs neutres (barre,
 // renvoi, section) ne consomment pas de temps ; un silence en consomme.
 
-import type { SavedChordShape } from "./types";
+import type { BarKind, SavedChordShape } from "./types";
+import { sectionRepeats } from "./chord-synth";
 import { notesToTab, type TabNoteEvent, type TabPosition, type TabRest } from "./notes-to-tab";
 
 // index 0 = corde grave (mi grave 40) → index 5 = mi aigu 64.
@@ -100,6 +101,19 @@ export interface TabGraceMark {
   fret: number;
 }
 
+// Signe de barre rendu dans la portée : côté « start » (bord gauche de la
+// mesure) ou « end » (bord droit). `diagramIndex` retrouve la carte du Studio
+// pour ouvrir son réglage au clic (mêmes commandes que la bande de cartes).
+export interface TabBarMark {
+  measure: number;
+  side: "start" | "end";
+  kind: BarKind;
+  // Passages effectifs (même règle que la lecture : un renvoi sans compteur
+  // explicite vaut 2 passages).
+  repeats: number;
+  diagramIndex: number;
+}
+
 export function diagramsToTab(
   diagrams: SavedChordShape[],
   options: { title?: string; bpm?: number; originTick?: number } = {}
@@ -125,9 +139,14 @@ export function diagramsToTabWithPositions(
   slides: TabSlideMark[];
   // Notes d'agrément rendues (petites cases avant l'attaque), pour le dessin réduit.
   graces: TabGraceMark[];
+  // Signes de repetition (debut/fin) places aux barres de mesure de la portee.
+  bars: TabBarMark[];
 } {
   const events: TabNoteEvent[] = [];
   const columnOfDiagram: number[] = [];
+  const bars: TabBarMark[] = [];
+  const measureTicks = 4 * TICKS_PER_BEAT; // meme grille 4/4 que notesToTab
+  const originTick = options.originTick ?? 0;
   let beats = 0;
   let produced = 0;
 
@@ -136,6 +155,21 @@ export function diagramsToTabWithPositions(
     // Marqueurs structurels : aucun temps, aucune note.
     if (shape.bar || shape.navKind || shape.sectionLabel !== undefined) {
       columnOfDiagram.push(-1);
+      if (shape.bar) {
+        const kind = shape.barKind ?? "double";
+        const absTick = originTick + Math.round(beats * TICKS_PER_BEAT);
+        const measure = Math.floor(absTick / measureTicks);
+        // Un signe pile sur une barre de mesure ferme la mesure precedente ;
+        // ailleurs (milieu de mesure) il ferme la mesure qui le contient.
+        const endMeasure = absTick % measureTicks === 0 ? Math.max(0, measure - 1) : measure;
+        const repeats = sectionRepeats(shape);
+        if (kind === "beginRepeat" || kind === "bothRepeat") {
+          bars.push({ measure, side: "start", kind, repeats, diagramIndex: k });
+        }
+        if (kind === "endRepeat" || kind === "bothRepeat") {
+          bars.push({ measure: endMeasure, side: "end", kind, repeats, diagramIndex: k });
+        }
+      }
       continue;
     }
 
@@ -197,6 +231,7 @@ export function diagramsToTabWithPositions(
       measureOffset: Math.floor((options.originTick ?? 0) / (4 * TICKS_PER_BEAT)),
       slides: [],
       graces: [],
+      bars,
     };
 
   const result = notesToTab(events, {
@@ -235,5 +270,6 @@ export function diagramsToTabWithPositions(
     measureOffset: result.measureOffset,
     slides,
     graces,
+    bars,
   };
 }

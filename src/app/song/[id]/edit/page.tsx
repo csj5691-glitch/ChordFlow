@@ -23,7 +23,7 @@ import {
 } from "@/lib/gp-import";
 import { importMidi } from "@/lib/midi-import";
 import { asciiTabToMidi } from "@/lib/ascii-tab-midi";
-import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure, renderSequence } from "@/lib/chord-synth";
+import { legatoBetween, measureInfoFromSignature, measureForBeat, beatInMeasure, renderSequence, sectionRepeats } from "@/lib/chord-synth";
 import { gmProgramName } from "@/lib/gm-voice";
 import { getSongTab } from "@/lib/mock-data";
 import { useSharedSong } from "@/lib/use-shared-song";
@@ -45,7 +45,7 @@ import {
   articulationByIndex,
   detectArticulationSequences,
 } from "@/lib/articulation";
-import { diagramsToTabWithPositions } from "@/lib/diagrams-to-tab";
+import { diagramsToTabWithPositions, type TabBarMark } from "@/lib/diagrams-to-tab";
 import { parseChordContent } from "@/lib/chord-parser";
 import { decodeHtmlEntities } from "@/lib/ug-scraper";
 import { buildChordLineTimestamps } from "@/lib/lyric-timing";
@@ -355,6 +355,9 @@ function EditSongView({ id }: { id: string }) {
   const [gpImporting, setGpImporting] = useState(false);
   const [gpError, setGpError] = useState<string | null>(null);
   const [gpWarnings, setGpWarnings] = useState<string[]>([]);
+  // Compte rendu de l'import (renvois, compteurs, fins, sections) : preuve que
+  // tout a été repris automatiquement, sans travail pour l'utilisateur.
+  const [gpNotices, setGpNotices] = useState<string[]>([]);
   const [gpTracks, setGpTracks] = useState<GpTrackInfo[]>([]);
   const [gpPendingFile, setGpPendingFile] = useState<File | null>(null);
   const [gpImportingTrack, setGpImportingTrack] = useState<number | null>(null);
@@ -451,6 +454,54 @@ function EditSongView({ id }: { id: string }) {
       clock.running = false;
     }
   }, []);
+
+  // Signes de renvoi par mesure pour la vue Tablature (côté début / fin).
+  const sequenceBarMarks = useMemo(() => {
+    const map = new Map<number, { start?: TabBarMark; end?: TabBarMark }>();
+    for (const b of sequenceTab.bars) {
+      const entry = map.get(b.measure) ?? {};
+      entry[b.side] = b;
+      map.set(b.measure, entry);
+    }
+    return map;
+  }, [sequenceTab.bars]);
+
+  // Sections répétées, en mesures affichées (1-based) : « mesures 5–8 ×4 ».
+  // Sert de compte rendu lisible au-dessus de la portée, pour vérifier d'un
+  // coup d'œil que la partition est bien lue avec ses renvois.
+  const sequenceRepeatList = useMemo(() => {
+    const out: { start: number; end: number; repeats: number }[] = [];
+    let pendingStart: number | null = null;
+    const ordered = [...sequenceTab.bars].sort(
+      (a, b) => a.measure - b.measure || (a.side === "start" ? -1 : 1)
+    );
+    for (const b of ordered) {
+      if (b.side === "start") {
+        pendingStart = b.measure;
+      } else {
+        out.push({ start: (pendingStart ?? b.measure) + 1, end: b.measure + 1, repeats: b.repeats });
+        pendingStart = null;
+      }
+    }
+    return out;
+  }, [sequenceTab.bars]);
+
+  // Clic sur un signe de renvoi de la tablature : bascule sur les cartes, ouvre
+  // le réglage de la barre et l'amène à l'écran (mêmes commandes que la carte).
+  const revealDiagramCard = useCallback(
+    (index: number) => {
+      const d = diagrams[index];
+      if (!d) return;
+      setSeqView("cards");
+      if (d.bar) setExpandedBar(d.id);
+      requestAnimationFrame(() => {
+        document
+          .getElementById(`diagram-card-${d.id}`)
+          ?.scrollIntoView({ block: "center", behavior: "smooth" });
+      });
+    },
+    [diagrams]
+  );
 
   // Lecture continue de TOUTES les étapes (1 → N) de la piste avec le son doux.
   const stopAll = useCallback(() => {
@@ -794,7 +845,8 @@ function EditSongView({ id }: { id: string }) {
       duration: 0,
       bar: true,
       barKind: kind,
-      repeats: 1,
+      // Un signe de renvoi vaut deux passages par défaut (notation standard).
+      repeats: kind === "endRepeat" || kind === "bothRepeat" ? 2 : 1,
       sectionLabel: "Intro",
     };
     upsert({ ...song, diagrams: [...(song.diagrams ?? []), bar] });
@@ -806,7 +858,15 @@ function EditSongView({ id }: { id: string }) {
       const list = [...(song.diagrams ?? [])];
       if (!list[index]) return;
       const meta = BAR_KINDS.find((b) => b.kind === kind) ?? BAR_KINDS[1];
-      list[index] = { ...list[index], barKind: kind, label: meta.symbol };
+      const cur = list[index];
+      // Passer une barre en « fin de répétition » la fait jouer deux fois par
+      // défaut (signe de notation) ; repasser à une barre simple annule ce
+      // compteur pour éviter une répétition invisible.
+      const repeats =
+        kind === "endRepeat" || kind === "bothRepeat"
+          ? Math.max(2, cur.repeats ?? 1)
+          : 1;
+      list[index] = { ...cur, barKind: kind, label: meta.symbol, repeats };
       upsert({ ...song, diagrams: list });
     },
     [song, upsert]
@@ -1112,6 +1172,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
     setGpImporting(true);
     setGpError(null);
     setGpWarnings([]);
+    setGpNotices([]);
     setGpTracks([]);
     setGpPendingFile(null);
     try {
@@ -1384,14 +1445,23 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
     }
     setGpError(null);
     setGpWarnings([]);
+    setGpNotices([]);
     let next: SongTab = song;
     let failed = 0;
+    // La séquence ACTIVE reste celle de la première piste importée : avant, la
+    // dernière piste cochée écrasait les autres, ce qui pouvait remplacer une
+    // guitare (avec ses renvois) par une basse ou une percussion sans signe de
+    // répétition.
+    let activeSequenceSet = false;
     for (const t of targets) {
       setGpImportingTrack(t.index);
       try {
         const result = await importGuitarProTrack(gpPendingFile, t.index);
         if (result.warnings.length > 0) setGpWarnings((w) => [...w, ...result.warnings]);
         if (result.diagrams.length === 0) continue;
+        if (result.notices.length > 0) {
+          setGpNotices((n) => [...n, ...result.notices.map((msg) => `« ${t.name} » — ${msg}`)]);
+        }
         next = {
           ...next,
           title: next.title || result.song.title,
@@ -1409,7 +1479,10 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
         // The re-imported track's fresh diagrams always replace the active
         // sequence so the riff/diagram view reflects the new import right away
         // (otherwise song.diagrams keeps stale diagrams after a re-import).
-        next = { ...next, diagrams: result.diagrams };
+        if (!activeSequenceSet) {
+          next = { ...next, diagrams: result.diagrams };
+          activeSequenceSet = true;
+        }
         const drops = await upsert(next);
         if (drops.length > 0) {
           setGpWarnings((w) => [
@@ -1663,17 +1736,21 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
     let ending1 = 0;
     let ending2 = 0;
     let total = 0;
+    // Même logique que renderSequence : avec répétition, la 1re fin joue à
+    // chaque passage sauf le dernier, la 2e fin seulement au dernier ; sans
+    // répétition, toutes les fins jouent une fois.
+    const flush = (loops: number) => {
+      total +=
+        loops > 1
+          ? sectionBeats * loops + ending1 * (loops - 1) + ending2
+          : sectionBeats + ending1 + ending2;
+      sectionBeats = 0;
+      ending1 = 0;
+      ending2 = 0;
+    };
     for (const d of list) {
       if (d.bar) {
-        const loops = Math.max(1, d.repeats ?? 1);
-        if (loops > 1 && (ending1 > 0 || ending2 > 0)) {
-          total += sectionBeats * loops + ending1 * (loops - 1);
-        } else {
-          total += sectionBeats * loops;
-        }
-        sectionBeats = 0;
-        ending1 = 0;
-        ending2 = 0;
+        flush(sectionRepeats(d));
       } else if (d.navKind) {
         // marqueur sans durée
       } else if (d.ending === 1) {
@@ -1684,7 +1761,8 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
         sectionBeats += beatsFor(d);
       }
     }
-    return total + sectionBeats;
+    flush(1);
+    return total;
   })();
 
   const measureState = (() => {
@@ -2646,6 +2724,13 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                   {gpError}
                 </p>
               )}
+              {gpNotices.length > 0 && (
+                <ul className="text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-1.5 flex flex-col gap-0.5">
+                  {gpNotices.map((n) => (
+                    <li key={n}>{n}</li>
+                  ))}
+                </ul>
+              )}
               {gpWarnings.length > 0 && (
                 <ul className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-1.5 flex flex-col gap-0.5">
                   {gpWarnings.map((w) => (
@@ -3070,6 +3155,27 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                       {v === "cards" ? "Diagrammes" : "Tablature"}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    onClick={() => (playingAll ? stopAll() : playAll())}
+                    className={`flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-md transition-colors ml-auto ${
+                      playingAll
+                        ? "bg-amber-500 text-black hover:bg-amber-400"
+                        : "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
+                    }`}
+                    title={
+                      playingAll
+                        ? "Arrêter la lecture"
+                        : "Jouer la partition avec ses répétitions et ses fins alternatives"
+                    }
+                  >
+                    {playingAll ? (
+                      <Square className="w-3 h-3" />
+                    ) : (
+                      <Play className="w-3 h-3" />
+                    )}
+                    {playingAll ? "Arrêter" : "Jouer"}
+                  </button>
                 </div>
                 {seqView === "tab" ? (
                   <div className="rounded-xl border border-zinc-700/50 bg-zinc-900/40 p-3">
@@ -3083,10 +3189,29 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                         graces={gracesMap}
                         measures={sequenceTab.grid.length}
                         tuning={song?.tuning}
+                        barMarks={sequenceBarMarks}
+                        onBarMarkClick={revealDiagramCard}
                       />
                     ) : (
                       <p className="text-[11px] text-zinc-600">
                         Aucune note à afficher en tablature.
+                      </p>
+                    )}
+                    {sequenceRepeatList.length > 0 ? (
+                      <p className="text-[11px] text-amber-300/90 mt-2 px-1">
+                        Répétitions de la partition :{" "}
+                        {sequenceRepeatList
+                          .map(
+                            (r) =>
+                              `mesures ${r.start}–${r.end} ×${r.repeats}`
+                          )
+                          .join(" · ")}
+                        .
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-zinc-600 mt-2 px-1">
+                        Aucune répétition dans cette chanson : la partition est
+                        déjà déroulée, rien n&apos;est rejoué.
                       </p>
                     )}
                   </div>
@@ -3117,6 +3242,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                   {diagrams.map((d, i) => (
                   <div
                     key={d.id}
+                    id={`diagram-card-${d.id}`}
                     className={`bg-zinc-900 border border-zinc-700 rounded-xl p-3 flex flex-col sm:flex-row items-center gap-4 ${
                       articulationMap.has(i)
                         ? `border-l-4 ${ARTICULATION_BORDER[articulationMap.get(i)!]}`
@@ -3172,7 +3298,9 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                           : d.bar
                             ? (d.repeats ?? 1) === 0
                               ? "Délimite la fin de la section"
-                              : `Rejoue la section précédente ${(d.repeats ?? 1)} fois`
+                              : sectionRepeats(d) > 1
+                                ? `Rejoue la section précédente ${sectionRepeats(d)} fois`
+                                : "Sépare les sections (jouée 1×)"
                             : `Position ${i + 1}`}
                       </p>
                     </div>
@@ -3181,7 +3309,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                         <div className="flex flex-col items-center gap-1.5">
                           <span className="text-[10px] text-zinc-500 font-mono">
                             {BAR_KINDS.find((b) => b.kind === (d.barKind ?? "double"))?.symbol ?? "||"}{" "}
-                            × {(d.repeats ?? 1) === 0 ? 1 : d.repeats}
+                            × {sectionRepeats(d)}
                           </span>
                           <button
                             onClick={() => setExpandedBar(expandedBar === d.id ? null : d.id)}
@@ -3242,8 +3370,14 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                                 </span>
                                 <div className="flex items-center gap-1">
                                   <button
-                                    onClick={() => setRepeats(i, (d.repeats ?? 1) - 1)}
-                                    disabled={(d.repeats ?? 1) <= 0}
+                                    onClick={() => {
+                                      const rep = sectionRepeats(d);
+                                      const closing =
+                                        d.barKind === "endRepeat" || d.barKind === "bothRepeat";
+                                      // Un signe de renvoi ne peut pas jouer 1× : 0 = simple barre.
+                                      setRepeats(i, closing && rep <= 2 ? 0 : Math.max(0, rep - 1));
+                                    }}
+                                    disabled={(d.repeats ?? 1) === 0}
                                     className="w-9 h-9 sm:w-7 sm:h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold"
                                     title="Moins de répétitions"
                                   >
@@ -3253,7 +3387,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                                     type="number"
                                     min={0}
                                     max={32}
-                                    value={d.repeats ?? 1}
+                                    value={sectionRepeats(d)}
                                     onChange={(e) => {
                                       const v = parseInt(e.target.value, 10);
                                       if (!Number.isNaN(v)) setRepeats(i, v);
@@ -3262,8 +3396,8 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                                     title="0 = délimiter la section ; 1+ = répéter la section"
                                   />
                                   <button
-                                    onClick={() => setRepeats(i, (d.repeats ?? 1) + 1)}
-                                    disabled={(d.repeats ?? 1) >= 32}
+                                    onClick={() => setRepeats(i, Math.min(32, sectionRepeats(d) + 1))}
+                                    disabled={sectionRepeats(d) >= 32}
                                     className="w-9 h-9 sm:w-7 sm:h-7 rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold"
                                     title="Plus de répétitions"
                                   >
@@ -3499,6 +3633,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
           officialSynced={song?.officialSynced}
           instrumentalUrl={instUrl}
           vocalsUrl={vocalsUrl}
+          program={song?.gpTracks?.[0]?.program ?? null}
           lyricOffset={lyricsOffset}
           lyricAnchorDiagram={lyricAnchorDiagram ?? song?.lyricAnchorDiagram ?? undefined}
           onLyricOffsetChange={(offset) => {
