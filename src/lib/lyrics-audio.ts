@@ -27,6 +27,7 @@ function getDB(): Promise<IDBDatabase> {
 }
 
 export async function saveLyricsAudio(songId: string, blob: Blob | null): Promise<void> {
+  console.log("[lyrics-audio] save start", songId, blob?.size);
   const db = await getDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, "readwrite");
@@ -36,17 +37,31 @@ export async function saveLyricsAudio(songId: string, blob: Blob | null): Promis
     } else {
       store.delete(songId);
     }
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => {
+      console.log("[lyrics-audio] save complete", songId);
+      resolve();
+    };
+    tx.onerror = () => {
+      console.error("[lyrics-audio] save error", tx.error);
+      reject(tx.error);
+    };
   });
 }
 
 export async function loadLyricsAudio(songId: string): Promise<Blob | null> {
+  console.log("[lyrics-audio] load start", songId);
   const db = await getDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, "readonly");
     const req = tx.objectStore(STORE).get(songId);
-    req.onsuccess = () => resolve((req.result as Blob) || null);
-    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const result = (req.result as Blob) || null;
+      console.log("[lyrics-audio] load result", songId, result?.size ?? "null");
+      resolve(result);
+    };
+    req.onerror = () => {
+      console.error("[lyrics-audio] load error", req.error);
+      reject(req.error);
+    };
   });
 }
