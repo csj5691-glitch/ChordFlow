@@ -35,10 +35,21 @@ export function useSharedSongs() {
   const loadFromAnywhere = useCallback(async (): Promise<SongTab[]> => {
     const local = await loadLocalSongs();
     let server: SongTab[] = [];
-    try {
-      server = await withTimeout(loadSharedSongs(), 8000);
-    } catch {
-      // on garde le repertoire local
+    let lastError: unknown = null;
+    // Deux tentatives : une declaration de timeout serveur (statement timeout)
+    // est souvent transiente, la seconde tente reussit en general.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        server = await withTimeout(loadSharedSongs(), 20000);
+        lastError = null;
+        break;
+      } catch (e) {
+        lastError = e;
+        server = [];
+      }
+    }
+    if (lastError) {
+      console.log("[ChordFlow] repertoire : chargement serveur en echec", lastError);
     }
     // Fusion repertoire local + serveur : le local fait foi (cote appareil),
     // le serveur enrichit (chansons issues d'ailleurs). Sans fusion, un repertoire
@@ -47,6 +58,7 @@ export function useSharedSongs() {
     const byId = new Map<string, SongTab>();
     for (const s of server) byId.set(s.id, s);
     for (const s of local) byId.set(s.id, s);
+    console.log("[ChordFlow] repertoire : local =", local.length, "serveur =", server.length, "fusion =", byId.size);
     return [...byId.values()];
   }, []);
 
@@ -89,7 +101,7 @@ export function useSharedSongs() {
             if (realtimeTimer) clearTimeout(realtimeTimer);
             realtimeTimer = setTimeout(() => {
               realtimeTimer = null;
-              void loadSharedSongs()
+              void loadFromAnywhere()
                 .then((list) => {
                   if (!active) return;
                   setSongs((prev) =>

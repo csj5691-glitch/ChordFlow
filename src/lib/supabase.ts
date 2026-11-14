@@ -76,6 +76,11 @@ export async function loadSharedSongs(): Promise<SongTab[]> {
       .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) {
+      console.log("[ChordFlow] repertoire : erreur Supabase requete", {
+        from,
+        message: error.message,
+        code: error.code,
+      });
       if (from === 0) return loadLocalSongs();
       break;
     }
