@@ -628,7 +628,7 @@ export default function LyricsEditorPage({
               </p>
             )}
             <p
-              className={`font-bold leading-tight transition-opacity duration-300 ${
+              className={`font-bold leading-tight transition-opacity duration-300 w-full ${
                 lyricStyle.size === "sm"
                   ? "text-xl"
                   : lyricStyle.size === "lg"
