@@ -52,6 +52,8 @@ export interface SongTab {
   tuning?: string;
   officialPlain?: string;
   officialSynced?: string;
+  // Couleur du karaoké (ligne courante) dans le Studio, format hex (#fbbf24).
+  lyricColor?: string;
   // Anchoring of the vocal lyrics on a diagram of the main sequence: the
   // event whose playback position the first sung syllable aligns with.
   lyricAnchorDiagram?: number;

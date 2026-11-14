@@ -48,6 +48,7 @@ export default function LyricsEditorPage({
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [lyricColor, setLyricColor] = useState("#fbbf24");
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [syncMode, setSyncMode] = useState(false);
@@ -69,6 +70,7 @@ export default function LyricsEditorPage({
     if (song) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
       setLyricsText(song.officialSynced || '');
+      setLyricColor(song.lyricColor || "#fbbf24");
       setDirty(false);
     }
   }, [song]);
@@ -229,7 +231,7 @@ export default function LyricsEditorPage({
     setSaving(true);
     setSaveMsg(null);
     try {
-      const updated: SongTab = { ...song, officialSynced: lyricsText.trim() };
+      const updated: SongTab = { ...song, officialSynced: lyricsText.trim(), lyricColor };
       await upsert(updated);
       setDirty(false);
       setSaveMsg("Sauvegardé ✓");
@@ -240,7 +242,7 @@ export default function LyricsEditorPage({
     } finally {
       setSaving(false);
     }
-  }, [song, lyricsText, upsert]);
+  }, [song, lyricsText, lyricColor, upsert]);
 
   const updateLine = useCallback((idx: number, field: "time" | "text", value: string) => {
     const parsed = parseLyrics(lyricsText);
@@ -433,6 +435,16 @@ export default function LyricsEditorPage({
               <option value="vtt">VTT</option>
               <option value="ass">ASS</option>
             </select>
+            <input
+              type="color"
+              value={lyricColor}
+              onChange={(e) => {
+                setLyricColor(e.target.value);
+                setDirty(true);
+              }}
+              className="w-8 h-8 rounded-full cursor-pointer border border-zinc-700 bg-transparent"
+              title="Couleur du karaoké (ligne courante)"
+            />
             <button
               onClick={handleSave}
               disabled={!dirty || saving}
@@ -553,7 +565,10 @@ export default function LyricsEditorPage({
                 {lines[currentIndex - 1].text}
               </p>
             )}
-            <p className="text-2xl font-bold text-white leading-tight">
+            <p
+              className="text-2xl font-bold leading-tight"
+              style={{ color: lyricColor, textShadow: `0 0 12px ${lyricColor}55` }}
+            >
               {currentIndex >= 0
                 ? lines[currentIndex].text
                 : lines.length > 0
