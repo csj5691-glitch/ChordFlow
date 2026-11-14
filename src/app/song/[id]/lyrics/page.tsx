@@ -187,33 +187,42 @@ export default function LyricsEditorPage({
     if (viewMode !== "waveform") return;
     const canvas = waveformRef.current;
     if (!canvas || !audioBuffer) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth;
-    const h = canvas.height;
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    ctx.scale(dpr, dpr);
-    ctx.fillStyle = "#18181b";
-    ctx.fillRect(0, 0, w, h);
-    const data = audioBuffer.getChannelData(0);
-    const step = Math.ceil(data.length / w);
-    const mid = h / 2;
-    ctx.strokeStyle = "#f59e0b";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let x = 0; x < w; x++) {
-      let min = 1, max = -1;
-      for (let j = 0; j < step; j++) {
-        const v = data[x * step + j] || 0;
-        if (v < min) min = v;
-        if (v > max) max = v;
+    const draw = () => {
+      const c = waveformRef.current;
+      if (!c || !audioBuffer) return;
+      const ctx = c.getContext("2d");
+      if (!ctx) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = c.clientWidth;
+      if (w === 0) {
+        requestAnimationFrame(draw);
+        return;
       }
-      ctx.moveTo(x, mid + min * mid);
-      ctx.lineTo(x, mid + max * mid);
-    }
-    ctx.stroke();
+      const h = c.height;
+      c.width = w * dpr;
+      c.height = h * dpr;
+      ctx.scale(dpr, dpr);
+      ctx.fillStyle = "#18181b";
+      ctx.fillRect(0, 0, w, h);
+      const data = audioBuffer.getChannelData(0);
+      const step = Math.ceil(data.length / w);
+      const mid = h / 2;
+      ctx.strokeStyle = "#f59e0b";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x = 0; x < w; x++) {
+        let min = 1, max = -1;
+        for (let j = 0; j < step; j++) {
+          const v = data[x * step + j] || 0;
+          if (v < min) min = v;
+          if (v > max) max = v;
+        }
+        ctx.moveTo(x, mid + min * mid);
+        ctx.lineTo(x, mid + max * mid);
+      }
+      ctx.stroke();
+    };
+    requestAnimationFrame(draw);
   }, [audioBuffer, viewMode]);
 
   // Lecture audio synchronisee avec le karaoke
