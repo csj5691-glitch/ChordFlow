@@ -36,6 +36,7 @@ interface ConductorProps {
   officialPlain?: string;
   officialSynced?: string;
   lyricColor?: string;
+  lyricStyle?: { position?: "center" | "left" | "right"; size?: "sm" | "md" | "lg"; fade?: boolean };
   instrumentalUrl?: string | null;
   vocalsUrl?: string | null;
   // Instrument GS de la piste (programme MIDI) : timbre de la lecture de la
@@ -142,6 +143,7 @@ export default function Conductor({
   officialPlain,
   officialSynced,
   lyricColor,
+  lyricStyle,
   instrumentalUrl,
   vocalsUrl,
   program,
@@ -1210,10 +1212,17 @@ export default function Conductor({
                 </p>
               )}
               <p
-                className="text-2xl sm:text-3xl lg:text-4xl font-bold leading-tight text-balance"
+                className={`font-bold leading-tight text-balance ${
+                  lyricStyle?.size === "sm"
+                    ? "text-2xl sm:text-3xl"
+                    : lyricStyle?.size === "lg"
+                    ? "text-3xl sm:text-5xl"
+                    : "text-2xl sm:text-3xl lg:text-4xl"
+                }`}
                 style={{
                   color: lyricColor || "#fbbf24",
                   textShadow: `0 0 12px ${lyricColor || "#fbbf24"}55`,
+                  textAlign: lyricStyle?.position === "left" ? "left" : lyricStyle?.position === "right" ? "right" : "center",
                 }}
               >
                 {flatLyrics[lyricIndex]?.text}

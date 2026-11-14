@@ -3576,6 +3576,7 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
           officialPlain={song?.officialPlain}
           officialSynced={song?.officialSynced}
           lyricColor={song?.lyricColor}
+          lyricStyle={song?.lyricStyle}
           instrumentalUrl={instUrl}
           vocalsUrl={vocalsUrl}
           program={song?.gpTracks?.[0]?.program ?? null}

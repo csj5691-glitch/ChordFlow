@@ -49,6 +49,7 @@ export default function LyricsEditorPage({
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [lyricColor, setLyricColor] = useState("#fbbf24");
+  const [lyricStyle, setLyricStyle] = useState<{ position?: "center" | "left" | "right"; size?: "sm" | "md" | "lg"; fade?: boolean }>({ position: "center", size: "md", fade: true });
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [syncMode, setSyncMode] = useState(false);
@@ -59,6 +60,8 @@ export default function LyricsEditorPage({
   const [searchMode, setSearchMode] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [replaceTerm, setReplaceTerm] = useState("");
+  const [searchRegex, setSearchRegex] = useState(false);
+  const [searchCase, setSearchCase] = useState(false);
   const [translateLang, setTranslateLang] = useState("en");
   const [translating, setTranslating] = useState(false);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -71,6 +74,7 @@ export default function LyricsEditorPage({
     // eslint-disable-next-line react-hooks/set-state-in-effect
       setLyricsText(song.officialSynced || '');
       setLyricColor(song.lyricColor || "#fbbf24");
+      setLyricStyle(song.lyricStyle || { position: "center", size: "md", fade: true });
       setDirty(false);
     }
   }, [song]);
@@ -231,7 +235,7 @@ export default function LyricsEditorPage({
     setSaving(true);
     setSaveMsg(null);
     try {
-      const updated: SongTab = { ...song, officialSynced: lyricsText.trim(), lyricColor };
+      const updated: SongTab = { ...song, officialSynced: lyricsText.trim(), lyricColor, lyricStyle };
       await upsert(updated);
       setDirty(false);
       setSaveMsg("Sauvegardé ✓");
@@ -242,7 +246,7 @@ export default function LyricsEditorPage({
     } finally {
       setSaving(false);
     }
-  }, [song, lyricsText, lyricColor, upsert]);
+  }, [song, lyricsText, lyricColor, lyricStyle, upsert]);
 
   const updateLine = useCallback((idx: number, field: "time" | "text", value: string) => {
     const parsed = parseLyrics(lyricsText);
@@ -291,20 +295,40 @@ export default function LyricsEditorPage({
   }, [lyricsText]);
 
   // --- Recherche / Remplacement ---
+  const searchMatches = useMemo(() => {
+    if (!searchTerm) return 0;
+    let regex: RegExp;
+    try {
+      regex = searchRegex
+        ? new RegExp(searchTerm, searchCase ? "g" : "gi")
+        : new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), searchCase ? "g" : "gi");
+    } catch {
+      return 0;
+    }
+    return lines.reduce((acc, l) => {
+      const m = l.text.match(regex);
+      return acc + (m ? m.length : 0);
+    }, 0);
+  }, [lines, searchTerm, searchRegex, searchCase]);
+
   const replaceAll = useCallback(() => {
     if (!searchTerm) return;
     const parsed = parseLyrics(lyricsText);
-    const transformed = parsed.map((l) => {
-      if (l.text.includes(searchTerm)) {
-        return { ...l, text: l.text.split(searchTerm).join(replaceTerm) };
-      }
-      return l;
-    });
+    let regex: RegExp;
+    try {
+      regex = searchRegex
+        ? new RegExp(searchTerm, searchCase ? "g" : "gi")
+        : new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), searchCase ? "g" : "gi");
+    } catch {
+      return;
+    }
+    const transformed = parsed.map((l) => ({
+      ...l,
+      text: l.text.replace(regex, replaceTerm),
+    }));
     setLyricsText(toLRC(transformed));
     setDirty(true);
-    setSearchTerm("");
-    setReplaceTerm("");
-  }, [lyricsText, searchTerm, replaceTerm]);
+  }, [lyricsText, searchTerm, replaceTerm, searchRegex, searchCase]);
 
   const handleTranslate = useCallback(async () => {
     const parsed = parseLyrics(lyricsText);
@@ -445,6 +469,44 @@ export default function LyricsEditorPage({
               className="w-8 h-8 rounded-full cursor-pointer border border-zinc-700 bg-transparent"
               title="Couleur du karaoké (ligne courante)"
             />
+            <select
+              value={lyricStyle.position || "center"}
+              onChange={(e) => {
+                setLyricStyle((s) => ({ ...s, position: e.target.value as "center" | "left" | "right" }));
+                setDirty(true);
+              }}
+              className="text-xs font-medium px-2 py-1.5 rounded-full bg-zinc-800 text-zinc-300 border border-zinc-700 cursor-pointer"
+              title="Position du texte"
+            >
+              <option value="center">Centre</option>
+              <option value="left">Gauche</option>
+              <option value="right">Droite</option>
+            </select>
+            <select
+              value={lyricStyle.size || "md"}
+              onChange={(e) => {
+                setLyricStyle((s) => ({ ...s, size: e.target.value as "sm" | "md" | "lg" }));
+                setDirty(true);
+              }}
+              className="text-xs font-medium px-2 py-1.5 rounded-full bg-zinc-800 text-zinc-300 border border-zinc-700 cursor-pointer"
+              title="Taille du texte"
+            >
+              <option value="sm">Petit</option>
+              <option value="md">Moyen</option>
+              <option value="lg">Grand</option>
+            </select>
+            <label className="flex items-center gap-1 text-[11px] text-zinc-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={lyricStyle.fade !== false}
+                onChange={(e) => {
+                  setLyricStyle((s) => ({ ...s, fade: e.target.checked }));
+                  setDirty(true);
+                }}
+                className="accent-amber-500"
+              />
+              Fondu
+            </label>
             <button
               onClick={handleSave}
               disabled={!dirty || saving}
@@ -566,8 +628,24 @@ export default function LyricsEditorPage({
               </p>
             )}
             <p
-              className="text-2xl font-bold leading-tight"
-              style={{ color: lyricColor, textShadow: `0 0 12px ${lyricColor}55` }}
+              className={`font-bold leading-tight transition-opacity duration-300 ${
+                lyricStyle.size === "sm"
+                  ? "text-xl"
+                  : lyricStyle.size === "lg"
+                  ? "text-3xl"
+                  : "text-2xl"
+              } ${
+                lyricStyle.position === "left"
+                  ? "text-left"
+                  : lyricStyle.position === "right"
+                  ? "text-right"
+                  : "text-center"
+              }`}
+              style={{
+                color: lyricColor,
+                textShadow: `0 0 12px ${lyricColor}55`,
+                opacity: lyricStyle.fade === false ? 1 : 1,
+              }}
             >
               {currentIndex >= 0
                 ? lines[currentIndex].text
@@ -623,6 +701,29 @@ export default function LyricsEditorPage({
                   placeholder="Remplacer par…"
                   className="flex-1 min-w-[120px] bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-500/60"
                 />
+                <label className="flex items-center gap-1 text-[11px] text-zinc-400 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={searchRegex}
+                    onChange={(e) => setSearchRegex(e.target.checked)}
+                    className="accent-amber-500"
+                  />
+                  Regex
+                </label>
+                <label className="flex items-center gap-1 text-[11px] text-zinc-400 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={searchCase}
+                    onChange={(e) => setSearchCase(e.target.checked)}
+                    className="accent-amber-500"
+                  />
+                  Respecter la casse
+                </label>
+                {searchTerm && (
+                  <span className="text-[11px] text-zinc-500">
+                    {searchMatches} occurrence{searchMatches !== 1 ? "s" : ""}
+                  </span>
+                )}
                 <button
                   onClick={replaceAll}
                   disabled={!searchTerm}
