@@ -8,7 +8,7 @@ const DB_NAME = "chordflow-lyrics-audio";
 const STORE = "audio";
 const DB_VERSION = 1;
 
-function getDB(): Promise<IDBDatabase> {
+function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === "undefined") {
       reject(new Error("IndexedDB unavailable"));
@@ -23,45 +23,49 @@ function getDB(): Promise<IDBDatabase> {
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
+    req.onblocked = () => {
+      console.warn("[lyrics-audio] DB open blocked");
+      reject(new Error("DB open blocked"));
+    };
   });
 }
 
 export async function saveLyricsAudio(songId: string, blob: Blob | null): Promise<void> {
   console.log("[lyrics-audio] save start", songId, blob?.size);
-  const db = await getDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readwrite");
-    const store = tx.objectStore(STORE);
-    if (blob) {
-      store.put(blob, songId);
-    } else {
-      store.delete(songId);
-    }
-    tx.oncomplete = () => {
-      console.log("[lyrics-audio] save complete", songId);
-      resolve();
-    };
-    tx.onerror = () => {
-      console.error("[lyrics-audio] save error", tx.error);
-      reject(tx.error);
-    };
-  });
+  const db = await openDB();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      const store = tx.objectStore(STORE);
+      if (blob) {
+        store.put(blob, songId);
+      } else {
+        store.delete(songId);
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error("tx aborted"));
+    });
+    console.log("[lyrics-audio] save complete", songId);
+  } finally {
+    db.close();
+  }
 }
 
 export async function loadLyricsAudio(songId: string): Promise<Blob | null> {
   console.log("[lyrics-audio] load start", songId);
-  const db = await getDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readonly");
-    const req = tx.objectStore(STORE).get(songId);
-    req.onsuccess = () => {
-      const result = (req.result as Blob) || null;
-      console.log("[lyrics-audio] load result", songId, result?.size ?? "null");
-      resolve(result);
-    };
-    req.onerror = () => {
-      console.error("[lyrics-audio] load error", req.error);
-      reject(req.error);
-    };
-  });
+  const db = await openDB();
+  try {
+    const result = await new Promise<Blob | null>((resolve, reject) => {
+      const tx = db.transaction(STORE, "readonly");
+      const req = tx.objectStore(STORE).get(songId);
+      req.onsuccess = () => resolve((req.result as Blob) || null);
+      req.onerror = () => reject(req.error);
+      tx.onabort = () => reject(tx.error || new Error("tx aborted"));
+    });
+    console.log("[lyrics-audio] load result", songId, result?.size ?? "null");
+    return result;
+  } finally {
+    db.close();
+  }
 }
