@@ -182,6 +182,51 @@ export function renderSequence(
   return events;
 }
 
+// Découpe la séquence en passes de lecture, répétitions et fins alternatives
+// comprises, dans l'ordre du son (même découpe que `renderSequence`) : chaque
+// passage est une liste de formes jouables, prête à être reconstruite en
+// tablature (mesures concaténées) ou en grille synthétisée.
+export function repeatPasses(diagrams: SavedChordShape[]): SavedChordShape[][] {
+  const passes: SavedChordShape[][] = [];
+  let section: SavedChordShape[] = [];
+
+  const flush = (repeats: number) => {
+    const loops = Math.max(1, repeats);
+    const hasEndings = section.some((d) => d.ending != null);
+    const useEndings = loops > 1 && hasEndings;
+    for (let r = 0; r < loops; r++) {
+      const isLast = r === loops - 1;
+      const shapes = section.filter((d) => {
+        if (!useEndings) return true;
+        if (d.ending === 1 && isLast) return false;
+        if (d.ending === 2 && !isLast) return false;
+        return true;
+      });
+      if (shapes.length > 0) passes.push(shapes);
+    }
+    section = [];
+  };
+
+  for (const d of diagrams) {
+    if (d.navKind) {
+      continue;
+    }
+    if (d.bar) {
+      if (d.sectionLabel !== undefined && !d.barKind) continue;
+      flush(sectionRepeats(d));
+    } else {
+      section.push(d);
+    }
+  }
+  flush(1);
+
+  if (passes.length === 0) {
+    const rest = diagrams.filter((d) => !d.navKind && !d.bar);
+    if (rest.length > 0) passes.push(rest);
+  }
+  return passes;
+}
+
 function shapeNotes(d: SavedChordShape): { notes: number[]; mutedNotes: number[] } {
   const notes: number[] = [];
   const mutedNotes: number[] = [];
