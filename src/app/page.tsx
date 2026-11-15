@@ -203,12 +203,12 @@ export default function Home() {
   const uploads = usePersistedUploads(songIds);
   // Diagnostic : quelles chansons affichent le badge stems (a retirer ensuite).
   useEffect(() => {
-    if (!loaded || uploads.size === 0) return;
+    if (!loaded) return;
+    const names = customSongs
+      .filter((s) => uploads.has(s.id))
+      .map((s) => `${s.artist} - ${s.title}`);
     console.log(
-      "[ChordFlow] chansons avec stems :",
-      customSongs
-        .filter((s) => uploads.has(s.id))
-        .map((s) => `${s.artist} - ${s.title} (${s.id})`)
+      `[ChordFlow] stems: uploads=${uploads.size} correspondances=${names.length} :: ${names.join(" | ") || "(aucune)"}`
     );
   }, [uploads, customSongs, loaded]);
   const [showAddSong, setShowAddSong] = useState(false);
