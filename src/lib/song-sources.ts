@@ -32,9 +32,6 @@ export function usePersistedUploads(idList: string[]) {
         const present = new Set<string>([...audioIds, ...stemIds]);
         const withStems = new Set(idList.filter((id) => present.has(id)));
         setUploads(withStems);
-        console.log(
-          `[ChordFlow] stems: ${present.size} id(s) audio local, ${withStems.size} dans le repertoire`
-        );
       } catch {
         if (active) setUploads(new Set());
       }

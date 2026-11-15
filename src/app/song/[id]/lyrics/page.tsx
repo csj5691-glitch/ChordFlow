@@ -95,12 +95,8 @@ export default function LyricsEditorPage({
           // Repli sur les stems (instrumental puis voix)
           const stems = await loadAudioStems(id);
           blob = stems?.noVocals || stems?.vocals || null;
-          if (blob) {
-            console.log("[ChordFlow] lyrics-audio : audio charge depuis les stems");
-          }
         }
         if (!blob) {
-          console.log("[ChordFlow] lyrics-audio : aucun audio disponible pour", id);
           return;
         }
         const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -163,14 +159,6 @@ export default function LyricsEditorPage({
         for (let b = 0; b < numBins; b++) {
           if (mag[b] > maxMag) maxMag = mag[b];
         }
-      }
-      console.log("Spectrogramme: frames=", numFrames, "maxMag=", maxMag, "numBins=", numBins);
-      if (magnitudes.length > 0) {
-        const m0 = magnitudes[0];
-        console.log("Frame 0 magnitudes (first 10):", Array.from(m0.slice(0, 10)).map((v) => v.toFixed(2)));
-        // Check if FFT is producing non-zero values
-        const nonZero = m0.filter((v) => v > 0.01).length;
-        console.log("Frame 0 non-zero bins:", nonZero, "of", numBins);
       }
       if (maxMag === 0) maxMag = 1;
 
@@ -286,7 +274,6 @@ export default function LyricsEditorPage({
     if (viewMode !== "waveform") return;
     const canvas = waveformRef.current;
     if (!canvas || !audioBuffer) return;
-    console.log("Waveform redraw: zoom=", zoom, "time=", time.toFixed(2));
     const draw = () => {
       const c = canvas;
       const ctx = c.getContext("2d");

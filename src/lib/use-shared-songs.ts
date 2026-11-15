@@ -49,7 +49,7 @@ export function useSharedSongs() {
       }
     }
     if (lastError) {
-      console.log("[ChordFlow] repertoire : chargement serveur en echec", lastError);
+      console.warn("[ChordFlow] repertoire : chargement serveur en echec", lastError);
     }
     // Fusion repertoire local + serveur : le local fait foi (cote appareil),
     // le serveur enrichit (chansons issues d'ailleurs). Sans fusion, un repertoire
@@ -58,7 +58,6 @@ export function useSharedSongs() {
     const byId = new Map<string, SongTab>();
     for (const s of server) byId.set(s.id, s);
     for (const s of local) byId.set(s.id, s);
-    console.log("[ChordFlow] repertoire : local =", local.length, "serveur =", server.length, "fusion =", byId.size);
     return [...byId.values()];
   }, []);
 

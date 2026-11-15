@@ -104,7 +104,7 @@ export async function loadSharedSongs(): Promise<SongTab[]> {
       if (!missingColumn) {
         return { data: null, error: { message: error.message, code: error.code } };
       }
-      console.log("[ChordFlow] repertoire : colonne absente, jeu reduit", {
+      console.warn("[ChordFlow] repertoire : colonne absente, jeu reduit", {
         columns: LIGHT_COLUMN_SETS[i],
         message: error.message,
       });
@@ -130,12 +130,12 @@ export async function loadSharedSongs(): Promise<SongTab[]> {
     if (attempt > 0) await new Promise((r) => setTimeout(r, 2000 * attempt));
     const res = await fetchLightweight(0);
     if (!res.error) { lightRows = res.data; break; }
-    console.log("[ChordFlow] repertoire : erreur legere", res.error);
+    console.warn("[ChordFlow] repertoire : erreur legere", res.error);
   }
 
   if (lightRows === null) {
     // Repli : requete lourde (comportement original)
-    console.log("[ChordFlow] repertoire : repli sur requete lourde");
+    console.warn("[ChordFlow] repertoire : repli sur requete lourde");
     const res = await fetchHeavy(0);
     if (res.error || !res.data) return loadLocalSongs();
     for (const r of res.data) {
@@ -201,7 +201,7 @@ export async function loadSharedSong(id: string): Promise<SongTab | null> {
     .eq("id", id)
     .maybeSingle();
   if (error) {
-    console.log("[ChordFlow] chanson : erreur Supabase requete", {
+    console.warn("[ChordFlow] chanson : erreur Supabase requete", {
       id,
       message: error.message,
       code: error.code,

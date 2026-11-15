@@ -34,7 +34,6 @@ function openDB(): Promise<IDBDatabase> {
 }
 
 export async function saveLyricsAudio(songId: string, blob: Blob | null): Promise<void> {
-  console.log("[lyrics-audio] save start", songId, blob?.size);
   // Invalider le cache pour ce songId
   loadCache.delete(songId);
   const db = await openDB();
@@ -51,7 +50,6 @@ export async function saveLyricsAudio(songId: string, blob: Blob | null): Promis
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error || new Error("tx aborted"));
     });
-    console.log("[lyrics-audio] save complete", songId);
   } finally {
     db.close();
   }
@@ -60,7 +58,6 @@ export async function saveLyricsAudio(songId: string, blob: Blob | null): Promis
 export function loadLyricsAudio(songId: string): Promise<Blob | null> {
   const cached = loadCache.get(songId);
   if (cached) {
-    console.log("[lyrics-audio] load (cached promise)", songId);
     return cached;
   }
   const promise = (async () => {
@@ -68,7 +65,6 @@ export function loadLyricsAudio(songId: string): Promise<Blob | null> {
       if (attempt > 0) {
         await new Promise((r) => setTimeout(r, 500));
       }
-      console.log("[lyrics-audio] load start", songId, "attempt", attempt + 1);
       let db: IDBDatabase | null = null;
       try {
         db = await openDB();
@@ -79,7 +75,6 @@ export function loadLyricsAudio(songId: string): Promise<Blob | null> {
           req.onerror = () => reject(req.error);
           tx.onabort = () => reject(tx.error || new Error("tx aborted"));
         });
-        console.log("[lyrics-audio] load result", songId, result?.size ?? "null");
         return result;
       } catch (err) {
         console.error("[lyrics-audio] load attempt failed", songId, err);

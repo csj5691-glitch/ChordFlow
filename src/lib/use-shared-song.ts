@@ -23,8 +23,6 @@ export function useSharedSong(id: string) {
       .then((shared) => {
         if (!active) return;
         // Fusion : le local fait foi si le serveur n'a pas les paroles
-        console.log("[useSharedSong] shared:", shared?.id, "os:", shared?.officialSynced?.slice(0, 20));
-        console.log("[useSharedSong] cachedLocal:", cachedLocal?.id, "os:", cachedLocal?.officialSynced?.slice(0, 20));
         // synchronisees (cas typique apres une sauvegarde locale reussie mais
         // un upsert Supabase encore en cours ou echoue).
         if (shared && cachedLocal && !shared.officialSynced && cachedLocal.officialSynced) {
