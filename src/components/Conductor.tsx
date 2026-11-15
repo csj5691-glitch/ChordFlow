@@ -318,7 +318,7 @@ export default function Conductor({
   const ctxRef = useRef<AudioContext | null>(null);
   const instRef = useRef<HTMLAudioElement | null>(null);
   const vocalsRef = useRef<HTMLAudioElement | null>(null);
-  const timerRef = useRef<number | null>(null);
+  const playRafRef = useRef<number | null>(null);
 
   const [stemStart, setStemStart] = useState<number | null>(null);
   // Vrai quand la détection du pré-roll est terminée (ou qu'il n'y a pas
@@ -405,9 +405,9 @@ export default function Conductor({
     // Invalide une play() en attente pour éviter qu'elle ne planifie la lecture
     // après un arrêt.
     playTokenRef.current++;
-    if (timerRef.current !== null) {
-      window.clearTimeout(timerRef.current);
-      timerRef.current = null;
+    if (playRafRef.current !== null) {
+      cancelAnimationFrame(playRafRef.current);
+      playRafRef.current = null;
     }
     if (gridPumpRef.current !== null) {
       window.clearInterval(gridPumpRef.current);
@@ -762,6 +762,17 @@ export default function Conductor({
       // Horloge d'affichage : on retire la latence de sortie de l'appareil (et
       // l'ajustement manuel) pour que tablature et paroles tombent sur le son
       // réellement entendu, pas sur l'instant où il est envoyé au matériel.
+      // Latence de sortie : relue a chaque cycle depuis le contexte (le device
+      // peut changer en cours de lecture : BT reconnect, sortie casque...) et
+      // melangee avec le reglage manuel. Calcul derive a la vollee, applique
+      // immediatement a l'horloge d'affichage par le tick suivant.
+      if (ctx && ctx.state === "running") {
+        const measured =
+          typeof ctx.outputLatency === "number" && ctx.outputLatency > 0
+            ? ctx.outputLatency
+            : ctx.baseLatency || 0;
+        autoLatencyRef.current = Math.round(measured * 1000);
+      }
       const latencyMs = autoLatencyRef.current + syncLatencyRef.current;
       const tSync = t - latencyMs;
       // Étalonnage temps réel → temps de grille. On ne compresse que la
@@ -770,6 +781,25 @@ export default function Conductor({
       // inchangée.
       const ratioTempo = tempoRatioRef.current;
       const seekMs = seek * 1000;
+      // Recalibrage tempo en direct : le rapport grille / audio est recalcule
+      // depuis les positions reelles a chaque cycle d'horloge, puis ecrit dans
+      // la ref tempoRatioRef. L'horloge, la tablature et la fin de lecture
+      // lisent cette ref en continu : l'ajustement est actif immediatement,
+      // sans redemarrer la lecture.
+      if (
+        (stemSourcesRef.current.inst || stemSourcesRef.current.vocals) &&
+        !gridOnlyRef.current &&
+        t - seekMs > 1000
+      ) {
+        const audioSec = (t - seekMs) / 1000;
+        const gridSec = ((t - seekMs) * tempoRatioRef.current) / 1000;
+        if (audioSec > 0.5 && gridSec > 0.5) {
+          const measuredRatio = gridSec / audioSec;
+          if (Math.abs(measuredRatio - tempoRatioRef.current) > 0.005) {
+            tempoRatioRef.current = Math.min(2, Math.max(0.5, measuredRatio));
+          }
+        }
+      }
       const gridClock =
         (ratioTempo === 1 ? t : seekMs + (t - seekMs) * ratioTempo) - latencyMs;
       // En lecture de grille, la musique EST la grille : le décalage de synchro
@@ -837,9 +867,9 @@ export default function Conductor({
         stop();
         return;
       }
-      timerRef.current = window.setTimeout(tick, 40);
+      playRafRef.current = window.requestAnimationFrame(tick);
     };
-    timerRef.current = window.setTimeout(tick, 40);
+    playRafRef.current = window.requestAnimationFrame(tick);
     setPlaying(true);
   }, [
     events,
