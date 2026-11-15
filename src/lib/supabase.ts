@@ -74,10 +74,10 @@ export async function loadSharedSongs(): Promise<SongTab[]> {
   // "data"), ce qui evite le statement timeout (57014) sur les gros
   // repertoires. Le contenu complet est charge a la demande via
   // loadSharedSong(id) quand l'utilisateur ouvre une chanson.
-  async function fetchLightweight(from: number): Promise<{ data: { id: string; title: string; artist: string }[] | null; error: { message: string; code: string } | null }> {
+  async function fetchLightweight(from: number): Promise<{ data: { id: string; title: string; artist: string; key?: string; capo?: number; youtube_id?: string; spotify_id?: string }[] | null; error: { message: string; code: string } | null }> {
     const { data, error } = await sb!
       .from("songs")
-      .select("id,title,artist")
+      .select("id,title,artist,key,capo,youtube_id,spotify_id")
       .order("updated_at", { ascending: false })
       .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
@@ -98,7 +98,7 @@ export async function loadSharedSongs(): Promise<SongTab[]> {
   }
 
   // Essai 1 : requete legere (3 tentatives)
-  let lightRows: { id: string; title: string; artist: string }[] | null = null;
+  let lightRows: { id: string; title: string; artist: string; key?: string; capo?: number; youtube_id?: string; spotify_id?: string }[] | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, 2000 * attempt));
     const res = await fetchLightweight(0);
@@ -136,7 +136,7 @@ export async function loadSharedSongs(): Promise<SongTab[]> {
   }
 
   // Mode leger : recuperer toutes les pages
-  const allLight: { id: string; title: string; artist: string }[] = [...lightRows];
+  const allLight: { id: string; title: string; artist: string; key?: string; capo?: number; youtube_id?: string; spotify_id?: string }[] = [...lightRows];
   let from = PAGE;
   while (lightRows.length === PAGE) {
     const r2 = await fetchLightweight(from);
@@ -155,6 +155,10 @@ export async function loadSharedSongs(): Promise<SongTab[]> {
       artist: r.artist || "",
       type: "chord",
       content: "",
+      key: r.key,
+      capo: r.capo,
+      youtubeId: r.youtube_id,
+      spotifyId: r.spotify_id,
     } as SongTab);
   }
   return migrated;
@@ -196,6 +200,10 @@ export async function saveSharedSong(song: SongTab): Promise<string[]> {
     id: song.id,
     title: song.title,
     artist: song.artist,
+    key: song.key,
+    capo: song.capo,
+    youtube_id: song.youtubeId,
+    spotify_id: song.spotifyId,
     data: song,
     updated_at: new Date().toISOString(),
   };
