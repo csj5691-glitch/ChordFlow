@@ -25,6 +25,8 @@ interface TabResult {
   tab: string;
   note_count: number;
   duration: number;
+  tab_notes?: number;
+  bpm?: number | null;
 }
 
 interface ChordResult {
@@ -160,6 +162,8 @@ export default function TranscribePage({
           tab: data1.tab,
           note_count: data1.note_count,
           duration: data1.duration,
+          tab_notes: data1.tab_notes,
+          bpm: data1.bpm ?? null,
         });
         setSourceLabel(opts.label);
 
@@ -456,8 +460,9 @@ export default function TranscribePage({
           <section className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <h2 className="text-sm font-bold text-zinc-300">
-                Tablature transcrite ({tabResult.note_count} notes ·{" "}
-                {tabResult.duration.toFixed(1)} s)
+                Tablature transcrite ({tabResult.tab_notes ?? tabResult.note_count}{" "}
+                notes · {tabResult.duration.toFixed(1)} s
+                {tabResult.bpm ? ` · ≈ ${Math.round(tabResult.bpm)} BPM` : ""})
                 {sourceLabel && (
                   <span className="ml-2 text-xs font-normal text-zinc-500">
                     source : {sourceLabel}

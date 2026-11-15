@@ -56,7 +56,7 @@ def set_progress(token: str, state: str, percent: float, line: str) -> None:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "transcribe", "version": "0.2"}
+    return {"ok": True, "service": "transcribe", "version": "0.3"}
 
 
 @app.get("/progress")
@@ -119,6 +119,68 @@ def onset_strength(
     flux = np.sum(np.maximum(diff, 0.0), axis=0)
     ref = float(np.median(flux)) if flux.size else 0.0
     return flux / (ref + 1e-9)
+
+
+def detect_tempo(audio: np.ndarray, sr: int, fmin: float = 55.0, fmax: float = 210.0):
+    """Tempo estime par autocorrelation de l'enveloppe d'attaques.
+
+    Retourne (bpm, nettete). La nettete est le z-score du pic : au-dessous de 3,
+    le tempo n'est pas fiable et la tablature reste sur une grille fixe. Une
+    prior log-normale centree sur 120 BPM evite de choisir le double ou la
+    moitie du tempo reel.
+    """
+    frame_size, hop = 1024, 256
+    n = len(audio)
+    if n < frame_size * 8:
+        return None, 0.0
+    n_frames = 1 + (n - frame_size) // hop
+    flux = onset_strength(audio, sr, frame_size, hop, n_frames)
+    if flux.size < 16 or not np.isfinite(flux).all():
+        return None, 0.0
+
+    env = flux - float(np.mean(flux))
+    nfft = 1 << int(2 * env.size - 1).bit_length()
+    spec = np.fft.rfft(env, nfft)
+    acf = np.fft.irfft(spec * np.conj(spec), nfft)[: env.size]
+    if acf[0] <= 0:
+        return None, 0.0
+    acf = acf / acf[0]
+
+    fps = sr / hop
+    lag_min = max(1, int(round(fps * 60.0 / fmax)))
+    lag_max = min(env.size - 2, int(round(fps * 60.0 / fmin)))
+    if lag_max <= lag_min:
+        return None, 0.0
+
+    best_score = -1e9
+    best_lag = 0
+    for lag in range(lag_min, lag_max + 1):
+        bpm = 60.0 * fps / lag
+        prior = math.exp(-0.5 * (math.log2(bpm / 120.0) / 0.9) ** 2)
+        score = float(acf[lag]) * prior
+        if score > best_score:
+            best_score = score
+            best_lag = lag
+    if best_lag == 0:
+        return None, 0.0
+
+    lag = float(best_lag)
+    if 1 <= best_lag < env.size - 1:
+        a, b, c = acf[best_lag - 1], acf[best_lag], acf[best_lag + 1]
+        den = a - 2.0 * b + c
+        if abs(den) > 1e-12:
+            lag += max(-0.5, min(0.5, 0.5 * (a - c) / den))
+    bpm = 60.0 * fps / lag
+    # Ramene le tempo dans la plage ou un musicien le lit (70-150 BPM) : le pic
+    # d'autocorrelation tombe souvent sur le double ou la moitie.
+    while bpm > 150.0:
+        bpm /= 2.0
+    while bpm < 70.0:
+        bpm *= 2.0
+    window = acf[lag_min:lag_max + 1]
+    spread = float(window.std()) if window.size > 1 else 0.0
+    sharpness = float((acf[best_lag] - float(window.mean())) / (spread + 1e-9))
+    return float(bpm), sharpness
 
 
 # --------------------------------------------------------------------------- #
@@ -456,29 +518,39 @@ def detect_notes(audio: np.ndarray, sr: int, progress=None) -> list:
     return out
 
 
-def _generate_tab(notes: list, col_width: float = 0.25, cols_per_line: int = 32) -> str:
-    """Tablature ASCII, decoupee en systemes lisibles."""
+def _generate_tab(
+    notes: list, col_width: float = 0.25, cols_per_line: int = 32, snap: bool = True
+) -> tuple:
+    """Tablature ASCII, decoupee en systemes lisibles.
+
+    Avec `snap`, chaque note est posee sur la colonne la plus proche : les notes
+    d'un meme temps s'alignent verticalement au lieu de deriver.
+    Retourne (texte, nombre de notes placees).
+    """
     if not notes:
-        return ""
+        return "", 0
 
     max_time = max((n["end"] for n in notes), default=0.0)
     num_cols = max(1, int(max_time / col_width) + 1)
     grid = {s: ["-"] * (num_cols * 2) for s in range(1, 7)}
+    placed = 0
 
     for note in notes:
         s = note.get("string")
         f = note.get("fret")
         if s is None or f is None:
             continue
-        col = int(note["start"] / col_width)
+        ratio = note["start"] / col_width
+        col = int(round(ratio)) if snap else int(ratio)
         pos = col * 2
         text = str(f)
-        if pos + len(text) > num_cols * 2:
+        if pos < 0 or pos + len(text) > num_cols * 2:
             continue
         if any(ch != "-" for ch in grid[s][pos:pos + len(text)]):
             continue
         for ci, ch in enumerate(text):
             grid[s][pos + ci] = ch
+        placed += 1
 
     labels = {1: "e", 2: "B", 3: "G", 4: "D", 5: "A", 6: "E"}
     width = cols_per_line * 2
@@ -489,7 +561,7 @@ def _generate_tab(notes: list, col_width: float = 0.25, cols_per_line: int = 32)
             chunk = "".join(grid[s][start:start + width])
             block.append(f"{labels[s]}|{chunk}|")
         systems.append("\n".join(block))
-    return "\n\n".join(systems)
+    return "\n\n".join(systems), placed
 
 
 # --------------------------------------------------------------------------- #
@@ -790,8 +862,13 @@ def _run_transcribe(data: bytes, suffix: str, token: str) -> dict:
                 token, "running", 5 + 85 * p, "détection des notes…"
             ),
         )
-        set_progress(token, "running", 92, "génération de la tablature…")
-        tab = _generate_tab(notes)
+        set_progress(token, "running", 92, "estimation du tempo…")
+        bpm, tempo_sharpness = detect_tempo(audio, sr)
+        confident = bpm is not None and tempo_sharpness >= 3.0
+        set_progress(token, "running", 95, "génération de la tablature…")
+        # La grille reste temporelle (0,25 s par colonne) : une grille calculee
+        # sur le tempo derive sur 3 minutes des que le BPM est approximatif.
+        tab, tab_notes = _generate_tab(notes)
         set_progress(token, "done", 100, "transcription terminée")
         return {
             "ok": True,
@@ -800,6 +877,9 @@ def _run_transcribe(data: bytes, suffix: str, token: str) -> dict:
             "notes": notes,
             "tab": tab,
             "note_count": len(notes),
+            "tab_notes": tab_notes,
+            "bpm": round(bpm, 1) if confident else None,
+            "tempo_sharpness": round(tempo_sharpness, 2),
         }
     finally:
         try:
