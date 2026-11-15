@@ -14,6 +14,7 @@ import {
   toASS,
 } from "@/lib/lyrics";
 import { saveLyricsAudio, loadLyricsAudio } from "@/lib/lyrics-audio";
+import { loadAudioStems } from "@/lib/audio-store";
 
 function formatTime(t: number): string {
   const m = Math.floor(t / 60);
@@ -82,13 +83,21 @@ export default function LyricsEditorPage({
     }
   }, [song]);
 
-  // Chargement de l'audio persiste (IndexedDB) au montage
+  // Chargement de l'audio persiste (IndexedDB) au montage, puis repli sur les stems
   useEffect(() => {
     (async () => {
       try {
-        const blob = await loadLyricsAudio(id);
+        let blob = await loadLyricsAudio(id);
         if (!blob) {
-          console.log("[ChordFlow] lyrics-audio : aucun audio persiste pour", id);
+          // Repli sur les stems (instrumental puis voix)
+          const stems = await loadAudioStems(id);
+          blob = stems?.noVocals || stems?.vocals || null;
+          if (blob) {
+            console.log("[ChordFlow] lyrics-audio : audio charge depuis les stems");
+          }
+        }
+        if (!blob) {
+          console.log("[ChordFlow] lyrics-audio : aucun audio disponible pour", id);
           return;
         }
         const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -346,6 +355,26 @@ export default function LyricsEditorPage({
     };
     reader.readAsArrayBuffer(file);
     e.target.value = '';
+  }, [id]);
+  const handleLoadFromStems = useCallback(async () => {
+    try {
+      const stems = await loadAudioStems(id);
+      if (!stems) return;
+      const blob = stems.noVocals || stems.vocals;
+      if (!blob) return;
+      const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ctx = new Ctx();
+      const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+      setAudioBuffer(buf);
+      const url = URL.createObjectURL(blob);
+      setAudioUrl(url);
+      setSavingAudio(true);
+      await saveLyricsAudio(id, blob);
+      setSavingAudio(false);
+    } catch (err) {
+      setSavingAudio(false);
+      console.error('Chargement stems echoue', err);
+    }
   }, [id]);
   const handleImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -700,6 +729,13 @@ export default function LyricsEditorPage({
                 className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
               >
                 Charger audio
+              </button>
+              <button
+                onClick={handleLoadFromStems}
+                className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
+                title="Utiliser les stems (instrumental/voix) deja extraits pour cette chanson"
+              >
+                Utiliser les stems
               </button>
               {savingAudio && (
                 <span className="text-[11px] text-amber-400">Sauvegarde audio…</span>
