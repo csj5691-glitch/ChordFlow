@@ -61,6 +61,9 @@ export default function LyricsEditorPage({
   const [viewMode, setViewMode] = useState<"waveform" | "spectrogram">("waveform");
   const [zoom, setZoom] = useState(1);
   const [computingSpec, setComputingSpec] = useState(false);
+  const specFramesRef = useRef<Float32Array[] | null>(null);
+  const specMaxMagRef = useRef<number>(1);
+  const [specVersion, setSpecVersion] = useState(0);
   const [searchMode, setSearchMode] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [replaceTerm, setReplaceTerm] = useState("");
@@ -171,38 +174,72 @@ export default function LyricsEditorPage({
       }
       if (maxMag === 0) maxMag = 1;
 
-      // Draw spectrogram
-      const canvas = waveformRef.current;
-      if (!canvas) return;
-      const dpr = window.devicePixelRatio || 1;
-      const w = canvas.clientWidth;
-      const h = canvas.height;
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
-      const ctx2d = canvas.getContext("2d");
-      if (!ctx2d) return;
-      ctx2d.scale(dpr, dpr);
-      ctx2d.fillStyle = "#18181b";
-      ctx2d.fillRect(0, 0, w, h);
+      // Stocker pour le redraw (zoom, temps)
+      specFramesRef.current = magnitudes;
+      specMaxMagRef.current = maxMag;
+      setSpecVersion((v) => v + 1);
 
-      const frameWidth = w / numFrames;
-      for (let f = 0; f < numFrames; f++) {
-        const mag = magnitudes[f];
-        for (let b = 0; b < numBins; b++) {
-          // Echelle logarithmique (dB) pour une meilleure visibilite
-          const val = Math.log10(1 + mag[b]) / Math.log10(1 + maxMag);
-          const y = h - (b / numBins) * h;
-          const r = Math.min(255, Math.max(0, val * 510 - 255));
-          const g = Math.min(255, Math.max(0, val * 510));
-          const bl = Math.min(255, Math.max(0, 255 - val * 510));
-          ctx2d.fillStyle = "rgb(" + r + "," + g + "," + bl + ")";
-          ctx2d.fillRect(f * frameWidth, y, Math.ceil(frameWidth) + 1, h / numBins + 1);
-        }
-      }
+      // Dessiner
     } finally {
       setComputingSpec(false);
     }
   }, [audioBuffer]);
+
+  // Dessin du spectrogramme (avec zoom)
+  const drawSpectrogram = useCallback(() => {
+    const canvas = waveformRef.current;
+    const frames = specFramesRef.current;
+    if (!canvas || !frames || frames.length === 0) return;
+    const maxMag = specMaxMagRef.current;
+    const ctx2d = canvas.getContext("2d");
+    if (!ctx2d) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth;
+    if (w === 0) return;
+    const h = canvas.height;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    ctx2d.scale(dpr, dpr);
+    ctx2d.fillStyle = "#18181b";
+    ctx2d.fillRect(0, 0, w, h);
+
+    const totalFrames = frames.length;
+    const numBins = frames[0].length;
+    const totalDur = audioBuffer?.duration || 1;
+    const visDur = totalDur / zoom;
+    const start = Math.max(0, Math.min(totalDur - visDur, time - visDur / 2));
+    const end = start + visDur;
+    const startFrame = Math.floor((start / totalDur) * totalFrames);
+    const endFrame = Math.ceil((end / totalDur) * totalFrames);
+    const visFrames = endFrame - startFrame;
+    if (visFrames <= 0) return;
+    const frameWidth = w / visFrames;
+
+    for (let i = 0; i < visFrames; i++) {
+      const f = startFrame + i;
+      if (f < 0 || f >= totalFrames) continue;
+      const data = frames[f];
+      for (let b = 0; b < numBins; b++) {
+        const val = Math.log10(1 + data[b]) / Math.log10(1 + maxMag);
+        const y = h - (b / numBins) * h;
+        const r = Math.min(255, Math.max(0, val * 510 - 255));
+        const g = Math.min(255, Math.max(0, val * 510));
+        const bl = Math.min(255, Math.max(0, 255 - val * 510));
+        ctx2d.fillStyle = "rgb(" + r + "," + g + "," + bl + ")";
+        ctx2d.fillRect(i * frameWidth, y, Math.ceil(frameWidth) + 1, h / numBins + 1);
+      }
+    }
+  }, [audioBuffer, zoom, time]);
+
+  useEffect(() => {
+    if (viewMode !== "spectrogram") return;
+    const frames = specFramesRef.current;
+    if (!frames) {
+      // Pas encore calcule - le bouton computeSpectrogram s'en charge
+      return;
+    }
+    drawSpectrogram();
+  }, [viewMode, zoom, time, audioBuffer, specVersion, drawSpectrogram]);
 
   // FFT radix-2 (Cooley-Tukey)
   function fft(real: Float32Array, imag: Float32Array): void {
@@ -249,6 +286,7 @@ export default function LyricsEditorPage({
     if (viewMode !== "waveform") return;
     const canvas = waveformRef.current;
     if (!canvas || !audioBuffer) return;
+    console.log("Waveform redraw: zoom=", zoom, "time=", time.toFixed(2));
     const draw = () => {
       const c = canvas;
       const ctx = c.getContext("2d");
@@ -773,7 +811,7 @@ export default function LyricsEditorPage({
                   </button>
                 </div>
               )}
-              {audioBuffer && (
+              {audioBuffer && viewMode === "waveform" && (
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => setZoom((z) => Math.max(1, z / 2))}
