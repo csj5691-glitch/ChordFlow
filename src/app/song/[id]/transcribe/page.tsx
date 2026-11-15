@@ -17,6 +17,7 @@ export default function TranscribePage({
 
   const [transcribing, setTranscribing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [launching, setLaunching] = useState(false);
   const [tabResult, setTabResult] = useState<{ tab: string; note_count: number; duration: number } | null>(null);
   const [chordResult, setChordResult] = useState<{ chords: { start: number; end: number; chord: string }[]; count: number; duration: number; repetitions: { pattern: string[]; repeats: number; coverage: number } } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -55,6 +56,38 @@ export default function TranscribePage({
       setError(err instanceof Error ? err.message : "Erreur reseau");
     } finally {
       setTranscribing(false);
+    }
+  }, []);
+
+  const handleLaunch = useCallback(async () => {
+    setLaunching(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/transcribe-launch", { method: "POST" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(data?.error ?? "Impossible de lancer le service");
+        return;
+      }
+      // Attendre que le service soit pret
+      for (let i = 0; i < 20; i++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        try {
+          const h = await fetch("/api/transcribe-health");
+          const hd = await h.json();
+          if (hd.ok) {
+            setError(null);
+            return;
+          }
+        } catch {
+          // continue
+        }
+      }
+      setError("Le service ne repond pas. Lance start-transcribe.bat manuellement.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur reseau");
+    } finally {
+      setLaunching(false);
     }
   }, []);
 
@@ -103,6 +136,14 @@ export default function TranscribePage({
           >
             <Upload className="w-3.5 h-3.5" />
             {transcribing ? "Transcription…" : "Transcrire un audio"}
+          </button>
+          <button
+            onClick={handleLaunch}
+            disabled={launching}
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors disabled:opacity-50"
+            title="Lancer le service local (start-transcribe.bat)"
+          >
+            {launching ? "Lancement…" : "Démarrer le service"}
           </button>
         </div>
       </header>
