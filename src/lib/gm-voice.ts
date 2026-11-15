@@ -154,12 +154,12 @@ function voiceForProgram(program: number | null | undefined): GmVoice {
     const slap = p === 36 || p === 37;
     return {
       wave: "sine",
-      attack: 0.006,
-      peak: 0.92,
-      lowpassStart: slap ? 2400 : 1500,
+      attack: 0.008,
+      peak: 0.62,
+      lowpassStart: slap ? 2200 : 1200,
       lowpassEnd: 400,
-      harmonics: [{ ratio: 2, gain: slap ? 0.34 : 0.28 }],
-      noise: slap ? { amount: 0.18, decay: 0.05, highpass: 2500 } : undefined,
+      harmonics: [{ ratio: 2, gain: slap ? 0.28 : 0.24 }],
+      noise: slap ? { amount: 0.1, decay: 0.05, highpass: 2500 } : undefined,
     };
   }
 
@@ -167,20 +167,20 @@ function voiceForProgram(program: number | null | undefined): GmVoice {
   if (p === 24 || p === 25 || p === 26 || p === 27 || p === 28) {
     const neon =
       p === 27
-        ? { lowpassStart: 7200, lowpassEnd: 2400 }
+        ? { lowpassStart: 4800, lowpassEnd: 2000 }
         : p === 24
-          ? { lowpassStart: 5200, lowpassEnd: 1500 }
+          ? { lowpassStart: 4200, lowpassEnd: 1400 }
           : p === 26
-            ? { lowpassStart: 6500, lowpassEnd: 1800 }
-            : { lowpassStart: 6000, lowpassEnd: 2000 };
+            ? { lowpassStart: 4600, lowpassEnd: 1600 }
+            : { lowpassStart: 4400, lowpassEnd: 1800 };
     return {
       wave: "sine",
-      attack: 0.005,
-      peak: 0.85,
+      attack: 0.007,
+      peak: 0.6,
       lowpassStart: neon.lowpassStart,
       lowpassEnd: neon.lowpassEnd,
       harmonics: GUITAR_HARMONICS,
-      noise: { amount: 0.1, decay: 0.04, highpass: 3000 },
+      noise: { amount: 0.06, decay: 0.04, highpass: 3000 },
     };
   }
 
@@ -188,23 +188,23 @@ function voiceForProgram(program: number | null | undefined): GmVoice {
   if (p === 29 || p === 30) {
     return {
       wave: "sawtooth",
-      attack: 0.004,
-      peak: 0.55,
-      lowpassStart: p === 30 ? 4200 : 5000,
+      attack: 0.006,
+      peak: 0.42,
+      lowpassStart: p === 30 ? 3400 : 3800,
       lowpassEnd: p === 30 ? 800 : 1000,
       harmonics: [
-        { ratio: 2, gain: 0.3 },
-        { ratio: 3, gain: 0.16 },
+        { ratio: 2, gain: 0.24 },
+        { ratio: 3, gain: 0.12 },
       ],
     };
   }
   if (p === 31) {
     return {
       wave: "sine",
-      attack: 0.002,
-      peak: 0.7,
-      lowpassStart: 9000,
-      lowpassEnd: 6000,
+      attack: 0.006,
+      peak: 0.5,
+      lowpassStart: 5000,
+      lowpassEnd: 3800,
       harmonics: [],
     };
   }
@@ -216,21 +216,21 @@ function voiceForProgram(program: number | null | undefined): GmVoice {
     const hammer = p === 6 || p === 7; // clavecin / clavinet agressifs
     return {
       wave: fm ? "sine" : "triangle",
-      attack: 0.002,
-      peak: 0.8,
-      lowpassStart: hammer ? 6500 : 8000,
+      attack: 0.005,
+      peak: 0.58,
+      lowpassStart: hammer ? 4200 : 5000,
       lowpassEnd: fm ? 800 : 1200,
       harmonics: fm
         ? [
-            { ratio: 2, gain: 0.16 },
-            { ratio: 3, gain: 0.16 },
-            { ratio: 4, gain: 0.1 },
+            { ratio: 2, gain: 0.14 },
+            { ratio: 3, gain: 0.14 },
+            { ratio: 4, gain: 0.08 },
           ]
         : [
-            { ratio: 2, gain: 0.2 },
-            { ratio: 3, gain: 0.1 },
+            { ratio: 2, gain: 0.18 },
+            { ratio: 3, gain: 0.08 },
           ],
-      noise: { amount: hammer ? 0.22 : 0.1, decay: 0.04, highpass: 4000 },
+      noise: { amount: hammer ? 0.14 : 0.07, decay: 0.04, highpass: 4000 },
     };
   }
 
@@ -239,16 +239,16 @@ function voiceForProgram(program: number | null | undefined): GmVoice {
   if (p >= 8 && p <= 15) {
     return {
       wave: "triangle",
-      attack: 0.002,
-      peak: 0.75,
-      lowpassStart: 9000,
-      lowpassEnd: 2200,
+      attack: 0.005,
+      peak: 0.55,
+      lowpassStart: 4800,
+      lowpassEnd: 2000,
       harmonics: [
-        { ratio: 2, gain: 0.3 },
-        { ratio: 3, gain: 0.16 },
-        { ratio: 4.2, gain: 0.12 },
+        { ratio: 2, gain: 0.24 },
+        { ratio: 3, gain: 0.12 },
+        { ratio: 4.2, gain: 0.08 },
       ],
-      noise: p === 15 ? { amount: 0.14, decay: 0.05, highpass: 3500 } : undefined,
+      noise: p === 15 ? { amount: 0.08, decay: 0.05, highpass: 3500 } : undefined,
     };
   }
 
@@ -257,9 +257,9 @@ function voiceForProgram(program: number | null | undefined): GmVoice {
     const church = p === 19;
     return {
       wave: "sawtooth",
-      attack: church ? 0.05 : 0.02,
-      peak: church ? 0.55 : 0.4,
-      lowpassStart: church ? 5200 : 4500,
+      attack: church ? 0.06 : 0.03,
+      peak: church ? 0.45 : 0.34,
+      lowpassStart: church ? 4200 : 3800,
       lowpassEnd: church ? 1600 : 2800,
       harmonics: [
         { ratio: 1, gain: 0.35 },
@@ -278,9 +278,9 @@ function voiceForProgram(program: number | null | undefined): GmVoice {
     const timpani = p === 47;
     return {
       wave: "triangle",
-      attack: timpani ? 0.004 : pluck ? 0.002 : 0.05,
-      peak: 0.75,
-      lowpassStart: timpani ? 3000 : 5000,
+      attack: timpani ? 0.006 : pluck ? 0.004 : 0.05,
+      peak: 0.55,
+      lowpassStart: timpani ? 2600 : 4000,
       lowpassEnd: timpani ? 700 : 1500,
       harmonics: pluck
         ? [
@@ -289,7 +289,7 @@ function voiceForProgram(program: number | null | undefined): GmVoice {
           ]
         : [{ ratio: 2, gain: 0.12 }],
       detune: p !== 45 && p !== 46 ? { ratio: 1, gain: 0.06 } : undefined,
-      noise: pluck || timpani ? { amount: 0.16, decay: 0.05, highpass: 2000 } : undefined,
+      noise: pluck || timpani ? { amount: 0.1, decay: 0.05, highpass: 2000 } : undefined,
       release: pluck ? undefined : 0.8,
     };
   }
@@ -300,23 +300,23 @@ function voiceForProgram(program: number | null | undefined): GmVoice {
       // Orchestra Hit : accord percussif brillant.
       return {
         wave: "sawtooth",
-        attack: 0.002,
-        peak: 0.7,
-        lowpassStart: 7000,
-        lowpassEnd: 2600,
+        attack: 0.004,
+        peak: 0.5,
+        lowpassStart: 4600,
+        lowpassEnd: 2400,
         harmonics: [
-          { ratio: 2, gain: 0.3 },
-          { ratio: 3, gain: 0.18 },
+          { ratio: 2, gain: 0.24 },
+          { ratio: 3, gain: 0.14 },
         ],
-        noise: { amount: 0.2, decay: 0.05, highpass: 3500 },
+        noise: { amount: 0.12, decay: 0.05, highpass: 3500 },
       };
     }
     return {
       wave: "sawtooth",
       attack: 0.04,
-      peak: 0.45,
-      lowpassStart: 3500,
-      lowpassEnd: 1500,
+      peak: 0.38,
+      lowpassStart: 3000,
+      lowpassEnd: 1400,
       harmonics: [
         { ratio: 2, gain: 0.18 },
         { ratio: 3, gain: 0.1 },
@@ -332,9 +332,9 @@ function voiceForProgram(program: number | null | undefined): GmVoice {
     const muted = p === 59;
     return {
       wave: "sawtooth",
-      attack: p === 60 ? 0.06 : muted ? 0.012 : 0.03,
-      peak: muted ? 0.5 : 0.5,
-      lowpassStart: muted ? 1800 : 3200,
+      attack: p === 60 ? 0.06 : muted ? 0.018 : 0.035,
+      peak: 0.4,
+      lowpassStart: muted ? 1600 : 2800,
       lowpassEnd: muted ? 600 : 750,
       harmonics: [
         { ratio: 2, gain: 0.22 },
@@ -349,15 +349,15 @@ function voiceForProgram(program: number | null | undefined): GmVoice {
   if (p >= 64 && p <= 71) {
     return {
       wave: "sawtooth",
-      attack: 0.02,
-      peak: 0.65,
-      lowpassStart: 3600,
+      attack: 0.03,
+      peak: 0.5,
+      lowpassStart: 3000,
       lowpassEnd: 900,
       harmonics: [
-        { ratio: 2, gain: 0.18 },
-        { ratio: 3, gain: 0.14 },
+        { ratio: 2, gain: 0.16 },
+        { ratio: 3, gain: 0.12 },
       ],
-      noise: p >= 68 ? { amount: 0.08, decay: 0.08, highpass: 1800 } : undefined,
+      noise: p >= 68 ? { amount: 0.05, decay: 0.08, highpass: 1800 } : undefined,
       release: 0.5,
     };
   }
@@ -366,12 +366,12 @@ function voiceForProgram(program: number | null | undefined): GmVoice {
   if (p >= 72 && p <= 79) {
     return {
       wave: "sine",
-      attack: p === 73 || p === 75 ? 0.06 : 0.02,
-      peak: 0.7,
-      lowpassStart: 4200,
+      attack: p === 73 || p === 75 ? 0.07 : 0.03,
+      peak: 0.55,
+      lowpassStart: 3600,
       lowpassEnd: 1100,
-      harmonics: [{ ratio: 2, gain: 0.08 }],
-      noise: { amount: p === 73 ? 0.12 : 0.06, decay: 0.12, highpass: 1600 },
+      harmonics: [{ ratio: 2, gain: 0.06 }],
+      noise: { amount: p === 73 ? 0.08 : 0.04, decay: 0.12, highpass: 1600 },
       release: 0.5,
     };
   }
@@ -381,9 +381,9 @@ function voiceForProgram(program: number | null | undefined): GmVoice {
     const wave: OscillatorType = p === 80 ? "square" : "sawtooth";
     return {
       wave,
-      attack: 0.01,
-      peak: 0.5,
-      lowpassStart: 4000,
+      attack: 0.015,
+      peak: 0.4,
+      lowpassStart: 3200,
       lowpassEnd: 1100,
       harmonics: [
         { ratio: 2, gain: 0.22 },
@@ -398,8 +398,8 @@ function voiceForProgram(program: number | null | undefined): GmVoice {
     return {
       wave: "triangle",
       attack: 0.1,
-      peak: 0.65,
-      lowpassStart: 3400,
+      peak: 0.5,
+      lowpassStart: 2800,
       lowpassEnd: 900,
       harmonics: [{ ratio: 2, gain: 0.1 }],
       detune: { ratio: 1.004, gain: 0.08 },
@@ -411,10 +411,10 @@ function voiceForProgram(program: number | null | undefined): GmVoice {
   if (p >= 96 && p <= 103) {
     return {
       wave: "sawtooth",
-      attack: p >= 100 ? 0.04 : 0.01,
-      peak: 0.4,
+      attack: p >= 100 ? 0.05 : 0.02,
+      peak: 0.34,
       lowpassStart: 500,
-      lowpassEnd: 6000,
+      lowpassEnd: 4500,
       harmonics: [{ ratio: 2, gain: 0.2 }],
     };
   }
@@ -423,15 +423,15 @@ function voiceForProgram(program: number | null | undefined): GmVoice {
   if (p >= 104 && p <= 119) {
     return {
       wave: "triangle",
-      attack: 0.002,
-      peak: 0.75,
-      lowpassStart: 6000,
+      attack: 0.006,
+      peak: 0.55,
+      lowpassStart: 4200,
       lowpassEnd: 1600,
       harmonics: [
-        { ratio: 2, gain: 0.26 },
-        { ratio: 3, gain: 0.12 },
+        { ratio: 2, gain: 0.2 },
+        { ratio: 3, gain: 0.1 },
       ],
-      noise: { amount: 0.12, decay: 0.04, highpass: 3000 },
+      noise: { amount: 0.07, decay: 0.04, highpass: 3000 },
     };
   }
 
@@ -439,21 +439,21 @@ function voiceForProgram(program: number | null | undefined): GmVoice {
   if (p >= 120 && p <= 127) {
     return {
       wave: "sawtooth",
-      attack: 0.001,
-      peak: 0.35,
-      lowpassStart: 8000,
+      attack: 0.004,
+      peak: 0.3,
+      lowpassStart: 4500,
       lowpassEnd: 900,
       harmonics: [],
-      noise: { amount: 0.3, decay: 0.15, highpass: 1200 },
+      noise: { amount: 0.18, decay: 0.15, highpass: 1200 },
     };
   }
 
   // Repli générique.
   return {
     wave: "sine",
-    attack: 0.005,
-    peak: 0.8,
-    lowpassStart: 6000,
+    attack: 0.008,
+    peak: 0.55,
+    lowpassStart: 4500,
     lowpassEnd: 2000,
     harmonics: GUITAR_HARMONICS,
   };
@@ -642,7 +642,7 @@ export function playGmEvent(
   }
 
   if (ev.mutedNotes && ev.mutedNotes.length > 0) {
-    const mutedVoice = { ...voice, attack: 0.004, peak: 0.4 };
+    const mutedVoice = { ...voice, attack: 0.006, peak: 0.3 };
     for (const f of ev.mutedNotes) {
       pluckNote(ctx, mutedVoice, f, at, 0.18, gain, master, lite);
     }
@@ -667,7 +667,7 @@ function playDrumHit(
     o.frequency.setValueAtTime(160, when);
     o.frequency.exponentialRampToValueAtTime(50, when + 0.3);
     const g = ctx.createGain();
-    g.gain.setValueAtTime(0.9 * gain, when);
+    g.gain.setValueAtTime(0.55 * gain, when);
     g.gain.exponentialRampToValueAtTime(0.001, when + 0.32);
     o.connect(g);
     g.connect(master);
@@ -686,7 +686,7 @@ function playDrumHit(
   hp.type = "highpass";
   hp.frequency.value = kind === "snare" ? 1200 : 6000;
   const g = ctx.createGain();
-  g.gain.setValueAtTime((kind === "snare" ? 0.7 : 0.5) * gain, when);
+  g.gain.setValueAtTime((kind === "snare" ? 0.45 : 0.32) * gain, when);
   g.gain.exponentialRampToValueAtTime(0.001, when + hitDur);
   src.connect(hp);
   hp.connect(g);
@@ -699,7 +699,7 @@ function playDrumHit(
     o.type = "triangle";
     o.frequency.value = 190;
     const og = ctx.createGain();
-    og.gain.setValueAtTime(0.5 * gain, when);
+    og.gain.setValueAtTime(0.32 * gain, when);
     og.gain.exponentialRampToValueAtTime(0.001, when + 0.12);
     o.connect(og);
     og.connect(master);

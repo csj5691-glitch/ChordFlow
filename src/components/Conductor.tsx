@@ -16,6 +16,7 @@ import { soundingNotes } from "@/lib/articulation";
 import { parseChordContent } from "@/lib/chord-parser";
 import { decodeHtmlEntities } from "@/lib/ug-scraper";
 import { loadStemShift, saveStemShift } from "@/lib/line-offsets";
+import { loadGridVolume, saveGridVolume } from "@/lib/grid-volume";
 import type { SavedChordShape, SongTab } from "@/lib/types";
 import type { PlayerBar, PlayerMeasure, PlayerTrack, TabPlayerSong, TempoPoint } from "@/lib/tab-player/types";
 import ChordShapeView from "@/components/ChordShapeView";
@@ -219,6 +220,10 @@ export default function Conductor({
   // (un setState dans un effet provoquait un rendu en cascade).
   const [instVolume, setInstVolume] = useState(1);
   const [vocalsVolume, setVocalsVolume] = useState(0.9);
+  // Volume de la grille synthétisée (sons MIDI). Réglage global et persistant.
+  // Le Chef n'est monté qu'à l'ouverture, côté client : lire le stockage dans
+  // l'initialiseur ne crée donc aucune divergence d'hydratation.
+  const [gridVolume, setGridVolume] = useState(() => loadGridVolume());
   const [localLyricOffset] = useState(0);
   // L'offset est une valeur contrôlée : dès que l'éditeur fournit la prop, c'est
   // lui qui fait foi. Avant, un effet synchronisait l'état local avec la prop et
@@ -295,6 +300,20 @@ export default function Conductor({
     vocalsVolRef.current = v;
     if (vocalsRef.current) vocalsRef.current.volume = v;
     if (stemGainRefs.current.vocals) stemGainRefs.current.vocals.gain.value = v;
+  };
+  // Bus de la grille : gardé en ref pour que le curseur de volume agisse en
+  // direct pendant la lecture. Le bus est recréé à chaque démarrage.
+  const gridVolRef = useRef(gridVolume);
+  const gridBusRef = useRef<GainNode | null>(null);
+  const changeGridVolume = (v: number) => {
+    setGridVolume(v);
+    gridVolRef.current = v;
+    saveGridVolume(v);
+    const bus = gridBusRef.current;
+    if (bus) {
+      // Rampe courte : pas de clic quand on déplace le curseur en lecture.
+      bus.gain.setTargetAtTime(v, bus.context.currentTime, 0.02);
+    }
   };
   const ctxRef = useRef<AudioContext | null>(null);
   const instRef = useRef<HTMLAudioElement | null>(null);
@@ -395,6 +414,7 @@ export default function Conductor({
       gridPumpRef.current = null;
     }
     gridPlayingRef.current = false;
+    gridBusRef.current = null;
     t0Ref.current = null;
     setPaused(false);
     seekRef.current = 0;
@@ -671,8 +691,29 @@ export default function Conductor({
         tempoRatioRef.current = 1;
         gridPlayingRef.current = true;
         const bus = ctxSafe.createGain();
-        bus.gain.value = 0.5;
-        bus.connect(ctxSafe.destination);
+        bus.gain.value = gridVolRef.current;
+        // Chaîne douce : on coupe les graves qui font « boum » sur des
+        // haut-parleurs d'ordinateur, on adoucit les aigus, puis un limiteur
+        // retient les pics quand un accord plaque six cordes d'un coup.
+        const busHighpass = ctxSafe.createBiquadFilter();
+        busHighpass.type = "highpass";
+        busHighpass.frequency.value = 90;
+        busHighpass.Q.value = 0.5;
+        const busLowpass = ctxSafe.createBiquadFilter();
+        busLowpass.type = "lowpass";
+        busLowpass.frequency.value = 4200;
+        busLowpass.Q.value = 0.4;
+        const busLimiter = ctxSafe.createDynamicsCompressor();
+        busLimiter.threshold.value = -14;
+        busLimiter.knee.value = 18;
+        busLimiter.ratio.value = 4;
+        busLimiter.attack.value = 0.004;
+        busLimiter.release.value = 0.18;
+        bus.connect(busHighpass);
+        busHighpass.connect(busLowpass);
+        busLowpass.connect(busLimiter);
+        busLimiter.connect(ctxSafe.destination);
+        gridBusRef.current = bus;
         // Planification progressive (fenêtre glissante) : les voix ne sont
         // créées qu'au moment de jouer, sinon une longue séquence saturerait le
         // graphe audio.
@@ -1481,6 +1522,22 @@ export default function Conductor({
               </span>
             </div>
           )}
+          <div className="flex items-center gap-2">
+            <span className="text-zinc-500 w-20">Grille</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={gridVolume}
+              onChange={(e) => changeGridVolume(parseFloat(e.target.value))}
+              className="w-32 h-1 accent-amber-500 cursor-pointer"
+              title="Volume des sons MIDI de la grille synthétisée"
+            />
+            <span className="text-[10px] text-zinc-500 font-mono w-9">
+              {Math.round(gridVolume * 100)}%
+            </span>
+          </div>
         </div>
       </div>
       {instrumentalUrl && (
