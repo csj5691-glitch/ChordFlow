@@ -201,6 +201,16 @@ export default function Home() {
   const { songs: customSongs, loaded, importing, importError, upsertSong, removeSong, importLocal } = useSharedSongs();
   const songIds = useMemo(() => customSongs.map((s) => s.id), [customSongs]);
   const uploads = usePersistedUploads(songIds);
+  // Diagnostic : quelles chansons affichent le badge stems (a retirer ensuite).
+  useEffect(() => {
+    if (!loaded || uploads.size === 0) return;
+    console.log(
+      "[ChordFlow] chansons avec stems :",
+      customSongs
+        .filter((s) => uploads.has(s.id))
+        .map((s) => `${s.artist} - ${s.title} (${s.id})`)
+    );
+  }, [uploads, customSongs, loaded]);
   const [showAddSong, setShowAddSong] = useState(false);
   const [editingSong, setEditingSong] = useState<SongTab | null>(null);
   const [editedSort, setEditedSort] = useState<RepertoireSort | null>(null);
