@@ -22,14 +22,25 @@ export function useSharedSong(id: string) {
     loadSharedSong(id)
       .then((shared) => {
         if (!active) return;
-        // Fusion : le local fait foi si le serveur n'a pas les paroles
-        // synchronisees (cas typique apres une sauvegarde locale reussie mais
-        // un upsert Supabase encore en cours ou echoue).
-        if (shared && cachedLocal && !shared.officialSynced && cachedLocal.officialSynced) {
-          setCurrent(cachedLocal);
-        } else {
+        // Fusion champ par champ : le local fait foi pour ce que le serveur
+        // n'a pas encore (upsert Supabase en cours ou echoue). Sans cela, une
+        // tablature fraichement appliquee pouvait disparaitre de l'ecran au
+        // rechargement alors qu'elle etait bien enregistree sur l'appareil.
+        if (!shared || !cachedLocal) {
           setCurrent(shared ?? cachedLocal);
+          return;
         }
+        const merged: SongTab = { ...shared };
+        if (!shared.officialSynced && cachedLocal.officialSynced) {
+          merged.officialSynced = cachedLocal.officialSynced;
+        }
+        if (!shared.transcribedTab && cachedLocal.transcribedTab) {
+          merged.transcribedTab = cachedLocal.transcribedTab;
+        }
+        if (!shared.transcribedChords && cachedLocal.transcribedChords) {
+          merged.transcribedChords = cachedLocal.transcribedChords;
+        }
+        setCurrent(merged);
       })
       .catch(() => {
         if (!active) return;
