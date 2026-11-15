@@ -1996,6 +1996,14 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
               Paroles
             </button>
             <button
+              onClick={() => router.push(`/song/${id}/transcribe`)}
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-orange-600/10 border border-orange-600/30 text-orange-400 hover:bg-orange-600/20 transition-colors"
+              title="Transcription IA (audio -> tablature + accords)"
+            >
+              <Mic2 className="w-3.5 h-3.5" />
+              IA
+            </button>
+            <button
               onClick={() => transcribeInputRef.current?.click()}
               disabled={transcribing}
               className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-orange-600/10 border border-orange-600/30 text-orange-400 hover:bg-orange-600/20 transition-colors disabled:opacity-50"

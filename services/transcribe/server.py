@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -396,12 +396,105 @@ async def detect_chords_endpoint(file: UploadFile = File(...)):
         if peak > 0:
             audio = audio / peak
         chords = detect_chords(audio, sr)
-        return {"ok": True, "duration": len(audio) / sr, "chords": chords, "count": len(chords)}
+        chord_names = [c["chord"] for c in chords]
+        reps = detect_repetitions(chord_names)
+        return {"ok": True, "duration": len(audio) / sr, "chords": chords, "count": len(chords), "repetitions": reps}
     finally:
         try:
             os.unlink(tmp.name)
         except OSError:
             pass
+
+# -*- coding: utf-8 -*-
+"""Detection de repetitions dans une sequence d'accords."""
+
+def detect_repetitions(sequence: list, min_pattern: int = 2, min_repeats: int = 2) -> dict:
+    """Detecte le motif repetitif le plus long dans une sequence.
+
+    Retourne un dict avec:
+      - pattern: liste des elements du motif
+      - repeats: nombre de repetitions
+      - positions: liste des indices de debut de chaque repetition
+      - coverage: fraction de la sequence couverte par les repetitions
+    """
+    n = len(sequence)
+    if n < min_pattern * min_repeats:
+        return {"pattern": [], "repeats": 0, "positions": [], "coverage": 0.0}
+
+    best = {"pattern": [], "repeats": 0, "positions": [], "coverage": 0.0}
+
+    # Essayer toutes les longueurs de motif possibles (du plus long au plus court)
+    for pat_len in range(n // min_repeats, min_pattern - 1, -1):
+        # Chercher les repetitions
+        # Pour chaque position de depart possible
+        for start in range(0, n - pat_len * min_repeats + 1):
+            pattern = sequence[start:start + pat_len]
+            # Compter les repetitions consecutives
+            pos = start
+            repeats = 0
+            positions = []
+            while pos + pat_len <= n and sequence[pos:pos + pat_len] == pattern:
+                repeats += 1
+                positions.append(pos)
+                pos += pat_len
+            if repeats >= min_repeats:
+                coverage = (repeats * pat_len) / n
+                if coverage > best["coverage"] or (
+                    coverage == best["coverage"] and pat_len > len(best["pattern"])
+                ):
+                    best = {
+                        "pattern": pattern,
+                        "repeats": repeats,
+                        "positions": positions,
+                        "coverage": round(coverage, 3),
+                    }
+                    break  # premier motif de cette longueur trouve
+        if best["repeats"] >= min_repeats and best["coverage"] > 0.5:
+            break  # on a trouve un bon motif
+
+    return best
+
+
+def detect_all_patterns(sequence: list, min_pattern: int = 2, min_repeats: int = 2) -> list:
+    """Detecte tous les motifs repetitifs (pas seulement le meilleur)."""
+    n = len(sequence)
+    results = []
+    seen_patterns = set()
+    for pat_len in range(2, n // 2 + 1):
+        for start in range(0, n - pat_len * min_repeats + 1):
+            pattern = tuple(sequence[start:start + pat_len])
+            if pattern in seen_patterns:
+                continue
+            pos = start
+            repeats = 0
+            positions = []
+            while pos + pat_len <= n and tuple(sequence[pos:pos + pat_len]) == pattern:
+                repeats += 1
+                positions.append(pos)
+                pos += pat_len
+            if repeats >= min_repeats:
+                seen_patterns.add(pattern)
+                results.append({
+                    "pattern": list(pattern),
+                    "repeats": repeats,
+                    "positions": positions,
+                    "coverage": round((repeats * pat_len) / n, 3),
+                })
+    # Trier par coverage decroissant
+    results.sort(key=lambda r: r["coverage"], reverse=True)
+    return results
+
+@app.post("/repetitions")
+async def detect_repetitions_endpoint(request: Request):
+    body = await request.json()
+    sequence = body.get("sequence", [])
+    min_pattern = body.get("min_pattern", 2)
+    min_repeats = body.get("min_repeats", 2)
+    if not sequence:
+        raise HTTPException(400, "sequence vide")
+    best = detect_repetitions(sequence, min_pattern, min_repeats)
+    all_p = detect_all_patterns(sequence, min_pattern, min_repeats)
+    return {"ok": True, "best": best, "all": all_p[:10]}
 
 if __name__ == "__main__":
     import uvicorn
