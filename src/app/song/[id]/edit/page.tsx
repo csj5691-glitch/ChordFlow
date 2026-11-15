@@ -328,6 +328,10 @@ function EditSongView({ id }: { id: string }) {
   const [extractError, setExtractError] = useState<string | null>(null);
   const [launchingStems, setLaunchingStems] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  const [detectingChords, setDetectingChords] = useState(false);
+  const [chordResult, setChordResult] = useState<{ chords: { start: number; end: number; chord: string }[]; count: number; duration: number } | null>(null);
+  const [chordError, setChordError] = useState<string | null>(null);
+  const chordInputRef = useRef<HTMLInputElement>(null);
   const [transcribeResult, setTranscribeResult] = useState<{ tab: string; note_count: number; duration: number } | null>(null);
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
   const transcribeInputRef = useRef<HTMLInputElement>(null);
@@ -1090,6 +1094,26 @@ function EditSongView({ id }: { id: string }) {
       setTranscribeError(err instanceof Error ? err.message : 'Erreur reseau');
     } finally {
       setTranscribing(false);
+    }
+  };
+  const handleDetectChords = async (file: File) => {
+    setDetectingChords(true);
+    setChordError(null);
+    setChordResult(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/transcribe-chords', { method: 'POST', body: fd });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setChordError(data?.error ?? data?.detail ?? 'Erreur de detection');
+        return;
+      }
+      setChordResult({ chords: data.chords, count: data.count, duration: data.duration });
+    } catch (err) {
+      setChordError(err instanceof Error ? err.message : 'Erreur reseau');
+    } finally {
+      setDetectingChords(false);
     }
   };
 
@@ -1988,6 +2012,26 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) void handleTranscribe(file);
+                e.target.value = "";
+              }}
+            />
+            <button
+              onClick={() => chordInputRef.current?.click()}
+              disabled={detectingChords}
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-orange-600/10 border border-orange-600/30 text-orange-400 hover:bg-orange-600/20 transition-colors disabled:opacity-50"
+              title="Detecter les accords d'un fichier audio (service local)"
+            >
+              <Music4 className="w-3.5 h-3.5" />
+              {detectingChords ? "Detection..." : "Accords"}
+            </button>
+            <input
+              ref={chordInputRef}
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleDetectChords(file);
                 e.target.value = "";
               }}
             />
@@ -3638,6 +3682,48 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                   >
                     Appliquer à la chanson
                   </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {(chordResult || chordError) && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl max-w-3xl w-full max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
+              <h2 className="text-sm font-bold text-white">
+                Accords détectés
+              </h2>
+              <button
+                onClick={() => {
+                  setChordResult(null);
+                  setChordError(null);
+                }}
+                className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {chordError && (
+                <p className="text-red-400 text-sm">{chordError}</p>
+              )}
+              {chordResult && (
+                <>
+                  <p className="text-xs text-zinc-500 mb-2">
+                    {chordResult.count} accords · {chordResult.duration.toFixed(1)} s
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {chordResult.chords.map((c, i) => (
+                      <span
+                        key={i}
+                        className="text-xs font-mono bg-zinc-800 text-zinc-200 rounded-lg px-2 py-1"
+                      >
+                        {c.start.toFixed(1)}s → {c.chord}
+                      </span>
+                    ))}
+                  </div>
                 </>
               )}
             </div>

@@ -224,6 +224,184 @@ def _generate_tab(notes: list) -> str:
         lines.append(f"{string_labels[s]}|{''.join(row)}|")
     return "\n".join(lines)
 
+# -*- coding: utf-8 -*-
+"""Detection d'accords par chroma + templates. A ajouter a server.py."""
+
+import numpy as np
+from scipy import signal as sp_signal
+
+# Templates d'accords : pour chaque type, les pitch classes presentes (0=C..11=B)
+CHORD_TEMPLATES = {}
+_ROOTS = list(range(12))
+_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+# Major: root, major third (+4), fifth (+7)
+for r in _ROOTS:
+    v = np.zeros(12)
+    for off in (0, 4, 7):
+        v[(r + off) % 12] = 1.0
+    CHORD_TEMPLATES[f"{_NAMES[r]}"] = v
+# Minor: root, minor third (+3), fifth (+7)
+for r in _ROOTS:
+    v = np.zeros(12)
+    for off in (0, 3, 7):
+        v[(r + off) % 12] = 1.0
+    CHORD_TEMPLATES[f"{_NAMES[r]}m"] = v
+# Dominant 7: root, major third, fifth, minor seventh (+10)
+for r in _ROOTS:
+    v = np.zeros(12)
+    for off in (0, 4, 7, 10):
+        v[(r + off) % 12] = 1.0
+    CHORD_TEMPLATES[f"{_NAMES[r]}7"] = v
+# Major 7
+for r in _ROOTS:
+    v = np.zeros(12)
+    for off in (0, 4, 7, 11):
+        v[(r + off) % 12] = 1.0
+    CHORD_TEMPLATES[f"{_NAMES[r]}maj7"] = v
+# Minor 7
+for r in _ROOTS:
+    v = np.zeros(12)
+    for off in (0, 3, 7, 10):
+        v[(r + off) % 12] = 1.0
+    CHORD_TEMPLATES[f"{_NAMES[r]}m7"] = v
+# Sus2
+for r in _ROOTS:
+    v = np.zeros(12)
+    for off in (0, 2, 7):
+        v[(r + off) % 12] = 1.0
+    CHORD_TEMPLATES[f"{_NAMES[r]}sus2"] = v
+# Sus4
+for r in _ROOTS:
+    v = np.zeros(12)
+    for off in (0, 5, 7):
+        v[(r + off) % 12] = 1.0
+    CHORD_TEMPLATES[f"{_NAMES[r]}sus4"] = v
+
+# Normaliser les templates
+for k in CHORD_TEMPLATES:
+    n = np.linalg.norm(CHORD_TEMPLATES[k])
+    if n > 0:
+        CHORD_TEMPLATES[k] = CHORD_TEMPLATES[k] / n
+
+CHORD_NAMES_LIST = list(CHORD_TEMPLATES.keys())
+CHORD_MATRIX = np.array([CHORD_TEMPLATES[k] for k in CHORD_NAMES_LIST])  # (N, 12)
+
+
+def compute_chroma(audio: np.ndarray, sr: int, frame_size: int = 4096, hop: int = 2048) -> tuple:
+    """Calcule la chroma (12 bins) par frame. Retourne (chroma (12, n_frames), times)."""
+    # STFT
+    f, t, Zxx = sp_signal.stft(audio, fs=sr, nperseg=frame_size, noverlap=frame_size - hop, window="hann")
+    mag = np.abs(Zxx)  # (freq_bins, n_frames)
+
+    # Mapper les bins de frequence sur les 12 classes de pitch
+    n_frames = mag.shape[1]
+    chroma = np.zeros((12, n_frames))
+    for fi in range(mag.shape[0]):
+        freq = f[fi]
+        if freq < 65 or freq > 2100:
+            continue
+        # MIDI note number
+        midi = 69 + 12 * np.log2(freq / 440.0)
+        pc = int(round(midi)) % 12
+        chroma[pc] += mag[fi]
+
+    # Normaliser par frame
+    for j in range(n_frames):
+        nrm = np.linalg.norm(chroma[:, j])
+        if nrm > 0:
+            chroma[:, j] = chroma[:, j] / nrm
+
+    return chroma, t
+
+
+def detect_chords(audio: np.ndarray, sr: int) -> list:
+    """Detecte les accords dans l'audio. Retourne une liste de {start, end, chord}."""
+    chroma, times = compute_chroma(audio, sr)
+    n_frames = chroma.shape[1]
+    if n_frames == 0:
+        return []
+
+    # Score de chaque accord pour chaque frame : (N_chords, n_frames)
+    scores = CHORD_MATRIX @ chroma  # (N, 12) @ (12, F) = (N, F)
+
+    # Meilleur accord par frame
+    best_idx = np.argmax(scores, axis=0)  # (n_frames,)
+    best_score = np.max(scores, axis=0)   # (n_frames,)
+
+    # Seuil : si le score est trop bas, c'est du silence/bruit
+    SILENCE_THRESHOLD = 0.3
+    chords_seq = []
+    for j in range(n_frames):
+        if best_score[j] < SILENCE_THRESHOLD:
+            chords_seq.append(None)
+        else:
+            chords_seq.append(CHORD_NAMES_LIST[best_idx[j]])
+
+    # Lisser : supprimer les changements trop courts (< 0.5s)
+    # Convertir en segments
+    segments = []
+    current = chords_seq[0]
+    start_frame = 0
+    for j in range(1, n_frames):
+        if chords_seq[j] != current:
+            segments.append((start_frame, j - 1, current))
+            current = chords_seq[j]
+            start_frame = j
+    segments.append((start_frame, n_frames - 1, current))
+
+    # Filtrer les segments trop courts et les None
+    min_frames = int(0.3 / (times[1] - times[0])) if len(times) > 1 else 3
+    filtered = []
+    for s, e, c in segments:
+        if c is None:
+            continue
+        if (e - s + 1) < min_frames:
+            continue
+        filtered.append((s, e, c))
+
+    # Fusionner les segments adjacents de meme accord
+    merged = []
+    for s, e, c in filtered:
+        if merged and merged[-1][2] == c:
+            merged[-1] = (merged[-1][0], e, c)
+        else:
+            merged.append((s, e, c))
+
+    # Convertir en temps
+    result = []
+    for s, e, c in merged:
+        t_start = float(times[s]) if s < len(times) else 0.0
+        t_end = float(times[min(e, len(times) - 1)]) if e < len(times) else float(times[-1])
+        result.append({"start": round(t_start, 2), "end": round(t_end, 2), "chord": c})
+
+    return result
+
+
+@app.post("/chords")
+async def detect_chords_endpoint(file: UploadFile = File(...)):
+    import tempfile, os
+    suffix = Path(file.filename or "audio.mp3").suffix or ".mp3"
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "empty file")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp.write(data)
+    tmp.close()
+    try:
+        audio, sr = sf.read(tmp.name, dtype='float32')
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)
+        peak = np.max(np.abs(audio)) if len(audio) > 0 else 1.0
+        if peak > 0:
+            audio = audio / peak
+        chords = detect_chords(audio, sr)
+        return {"ok": True, "duration": len(audio) / sr, "chords": chords, "count": len(chords)}
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
 
 if __name__ == "__main__":
     import uvicorn
@@ -234,7 +412,7 @@ if __name__ == "__main__":
         probe.settimeout(0.5)
         already_up = probe.connect_ex(("127.0.0.1", port)) == 0
     if already_up:
-        print(f"[transcribe] un service ecoute deja sur le port {port} — rien a faire", flush=True)
+        print(f"[transcribe] un service ecoute deja sur le port {port} ÔÇö rien a faire", flush=True)
         raise SystemExit(0)
     print(f"[transcribe] demarrage sur le port {port}", flush=True)
     uvicorn.run(app, host="127.0.0.1", port=port)
