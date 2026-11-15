@@ -31,7 +31,20 @@ interface ChordResult {
   chords: { start: number; end: number; chord: string }[];
   count: number;
   duration: number;
+  key?: string;
   repetitions: { pattern: string[]; repeats: number; coverage: number };
+}
+
+// Libelle lisible pour chaque etape de la transcription.
+const PHASE_LABEL: Record<string, string> = {
+  download: "Téléchargement YouTube",
+  convert: "Conversion audio",
+  notes: "Détection des notes",
+  chords: "Analyse des accords",
+};
+
+function newToken(): string {
+  return `tx${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export default function TranscribePage({
@@ -51,6 +64,13 @@ export default function TranscribePage({
   const [chordResult, setChordResult] = useState<ChordResult | null>(null);
   const [youtubeSearchId, setYoutubeSearchId] = useState<string | null>(null);
   const [hasStems, setHasStems] = useState(false);
+  const [savedTab, setSavedTab] = useState(false);
+  const [savedChords, setSavedChords] = useState(false);
+  const [progress, setProgress] = useState<{
+    percent: number;
+    line: string;
+    phase: string;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Lien YouTube : identifiant trouve par la recherche, sinon champ de la
@@ -82,6 +102,33 @@ export default function TranscribePage({
       setTabResult(null);
       setChordResult(null);
       setSourceLabel(null);
+      setSavedTab(false);
+      setSavedChords(false);
+
+      const token = newToken();
+      setProgress({ percent: 0, line: "préparation…", phase: "download" });
+      let stopped = false;
+      const poll = async () => {
+        try {
+          const res = await fetch(
+            `/api/transcribe-progress?token=${encodeURIComponent(token)}`,
+            { cache: "no-store" }
+          );
+          if (!res.ok || stopped) return;
+          const data = await res.json().catch(() => null);
+          if (!data || stopped) return;
+          setProgress({
+            percent: typeof data.percent === "number" ? data.percent : 0,
+            line: data.line ?? "",
+            phase: data.phase ?? "notes",
+          });
+        } catch {
+          // service momentanement muet : on garde la derniere valeur
+        }
+      };
+      const timer = setInterval(() => void poll(), 900);
+      void poll();
+
       try {
         let init: RequestInit;
         if (opts.videoId) {
@@ -90,11 +137,12 @@ export default function TranscribePage({
           init = {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ videoId: opts.videoId }),
+            body: JSON.stringify({ videoId: opts.videoId, token }),
           };
         } else if (opts.blob) {
           const fd = new FormData();
           fd.append("file", opts.blob, opts.fileName || "audio.wav");
+          fd.append("token", token);
           init = { method: "POST", body: fd };
         } else {
           setError("Aucune source audio.");
@@ -123,6 +171,7 @@ export default function TranscribePage({
             chords: data2.chords,
             count: data2.count,
             duration: data2.duration,
+            key: data2.key,
             repetitions: data2.repetitions,
           });
         } else {
@@ -133,7 +182,10 @@ export default function TranscribePage({
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur reseau");
       } finally {
+        stopped = true;
+        clearInterval(timer);
         setBusy(null);
+        setProgress(null);
       }
     },
     []
@@ -235,11 +287,14 @@ export default function TranscribePage({
     if (!song || !tabResult) return;
     const updated = { ...song, transcribedTab: tabResult.tab };
     await upsert(updated);
-  }, [song, tabResult, upsert]);
+    setSavedTab(true);
+  }, [song, tabResult, upsert, setSavedTab]);
 
   const handleSaveChords = useCallback(async () => {
     if (!song || !chordResult) return;
-    // Sauvegarder la sequence d'accords dans officialSynced (format LRC-like)
+    // On n'ecrit jamais dans officialSynced : ce champ porte les paroles
+    // synchronisees, qui seraient perdues. Les accords vivent a part.
+    const header = chordResult.key ? `# Tonalite : ${chordResult.key}\n` : "";
     const lrc = chordResult.chords
       .map(
         (c) =>
@@ -248,9 +303,10 @@ export default function TranscribePage({
             .padStart(5, "0")}] ${c.chord}`
       )
       .join("\n");
-    const updated = { ...song, officialSynced: lrc };
+    const updated = { ...song, transcribedChords: header + lrc };
     await upsert(updated);
-  }, [song, chordResult, upsert]);
+    setSavedChords(true);
+  }, [song, chordResult, upsert, setSavedChords]);
 
   const disabled = busy !== null;
 
@@ -369,10 +425,31 @@ export default function TranscribePage({
         </section>
 
         {busy && (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="w-6 h-6 animate-spin text-amber-400" />
-            <span className="ml-3 text-zinc-400">{busy}</span>
-          </div>
+          <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Loader2 className="w-4 h-4 animate-spin text-amber-400 flex-shrink-0" />
+                <span className="text-sm font-semibold text-zinc-200 truncate">
+                  {PHASE_LABEL[progress?.phase ?? "notes"] ?? "Transcription"}
+                </span>
+              </div>
+              <span className="text-xs font-mono text-amber-400 flex-shrink-0">
+                {Math.round(progress?.percent ?? 0)} %
+              </span>
+            </div>
+            <div className="h-2 rounded-full bg-zinc-800 overflow-hidden">
+              <div
+                className="h-full bg-amber-500 transition-[width] duration-500"
+                style={{ width: `${Math.min(100, Math.max(2, progress?.percent ?? 2))}%` }}
+              />
+            </div>
+            <p className="text-xs text-zinc-500 truncate">
+              {progress?.line || busy}
+              {busy !== progress?.line && (
+                <span className="ml-2 text-zinc-600">source : {busy}</span>
+              )}
+            </p>
+          </section>
         )}
 
         {tabResult && (
@@ -389,9 +466,10 @@ export default function TranscribePage({
               </h2>
               <button
                 onClick={handleSaveTab}
-                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-500 text-black hover:bg-amber-400 transition-colors"
+                disabled={savedTab}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-500 text-black hover:bg-amber-400 transition-colors disabled:opacity-60 disabled:cursor-default"
               >
-                Appliquer la tablature
+                {savedTab ? "Tablature enregistrée ✓" : "Appliquer la tablature"}
               </button>
             </div>
             <pre className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 font-mono text-xs text-zinc-200 whitespace-pre overflow-x-auto max-h-96">
@@ -406,12 +484,18 @@ export default function TranscribePage({
               <h2 className="text-sm font-bold text-zinc-300">
                 Accords détectés ({chordResult.count} accords ·{" "}
                 {chordResult.duration.toFixed(1)} s)
+                {chordResult.key && (
+                  <span className="ml-2 text-xs font-normal text-zinc-500">
+                    tonalité : {chordResult.key}
+                  </span>
+                )}
               </h2>
               <button
                 onClick={handleSaveChords}
-                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-500 text-black hover:bg-amber-400 transition-colors"
+                disabled={savedChords}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-500 text-black hover:bg-amber-400 transition-colors disabled:opacity-60 disabled:cursor-default"
               >
-                Appliquer les accords
+                {savedChords ? "Accords enregistrés ✓" : "Appliquer les accords"}
               </button>
             </div>
             {chordResult.repetitions && chordResult.repetitions.repeats > 0 && (

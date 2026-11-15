@@ -54,6 +54,9 @@ export interface SongTab {
   officialSynced?: string;
   // Tablature transcrite depuis l'audio (ASCII), generee par le service transcribe.
   transcribedTab?: string;
+  // Suite d'accords transcrite depuis l'audio (texte horodate), conservee a
+  // part pour ne jamais ecraser les paroles synchronisees.
+  transcribedChords?: string;
   // Couleur du karaoké (ligne courante) dans le Studio, format hex (#fbbf24).
   lyricColor?: string;
   // Style du karaoké : position, taille, effet de fondu.

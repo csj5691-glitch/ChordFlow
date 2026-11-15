@@ -3649,6 +3649,14 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
             </pre>
           </section>
         )}
+        {song?.transcribedChords && (
+          <section className="flex flex-col gap-3">
+            <h2 className="text-sm font-bold text-zinc-300">Accords transcrits</h2>
+            <pre className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 font-mono text-xs text-zinc-200 whitespace-pre overflow-x-auto max-h-64">
+              {song.transcribedChords}
+            </pre>
+          </section>
+        )}
       </main>
       {(transcribeResult || transcribeError) && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
