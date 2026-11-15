@@ -23,4 +23,3 @@ goto run
 :fin
 echo.
 pause
-"
