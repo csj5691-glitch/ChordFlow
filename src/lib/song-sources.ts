@@ -5,7 +5,7 @@ import { SongTab } from "@/lib/types";
 import { loadYouTubeId } from "@/lib/youtube-store";
 import { loadSpotifyId } from "@/lib/spotify-store";
 import { hasAudioStems } from "@/lib/audio-store";
-import { loadStems } from "@/lib/stems-db";
+import { hasStems } from "@/lib/stems-db";
 
 export function songHasYoutube(song: SongTab): boolean {
   return !!(song.youtubeId || loadYouTubeId(song.id));
@@ -32,7 +32,7 @@ export function usePersistedUploads(idList: string[]) {
               // Presence seulement (count) : charger les blobs de 900
               // chansons saturerait la memoire.
               if (await hasAudioStems(id)) return id;
-              if ((await loadStems(id)).length > 0) return id;
+              if (await hasStems(id)) return id;
             } catch {
               // ignorer (IndexedDB indisponible)
             }
@@ -43,7 +43,15 @@ export function usePersistedUploads(idList: string[]) {
         for (const id of found) if (id) withStems.add(id);
         if (withStems.size > 0) setUploads(new Set(withStems));
       }
-      if (active) setUploads(new Set(withStems));
+      if (active) {
+        setUploads(new Set(withStems));
+        console.log(
+          "[ChordFlow] stems :",
+          withStems.size,
+          "chanson(s) avec audio sur",
+          idList.length
+        );
+      }
     };
     check();
     return () => {
