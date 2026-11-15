@@ -327,6 +327,10 @@ function EditSongView({ id }: { id: string }) {
   const [extractElapsed, setExtractElapsed] = useState(0);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [launchingStems, setLaunchingStems] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [transcribeResult, setTranscribeResult] = useState<{ tab: string; note_count: number; duration: number } | null>(null);
+  const [transcribeError, setTranscribeError] = useState<string | null>(null);
+  const transcribeInputRef = useRef<HTMLInputElement>(null);
   // Progression Demucs (% tqdm du service stems) pendant l'extraction.
   const [extractProgress, setExtractProgress] = useState<{
     state: string;
@@ -1066,6 +1070,26 @@ function EditSongView({ id }: { id: string }) {
       );
     } finally {
       setLaunchingStems(false);
+    }
+  };
+  const handleTranscribe = async (file: File) => {
+    setTranscribing(true);
+    setTranscribeError(null);
+    setTranscribeResult(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setTranscribeError(data?.error ?? data?.detail ?? 'Erreur de transcription');
+        return;
+      }
+      setTranscribeResult({ tab: data.tab, note_count: data.note_count, duration: data.duration });
+    } catch (err) {
+      setTranscribeError(err instanceof Error ? err.message : 'Erreur reseau');
+    } finally {
+      setTranscribing(false);
     }
   };
 
@@ -1947,6 +1971,26 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
               <FileText className="w-3.5 h-3.5" />
               Paroles
             </button>
+            <button
+              onClick={() => transcribeInputRef.current?.click()}
+              disabled={transcribing}
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-orange-600/10 border border-orange-600/30 text-orange-400 hover:bg-orange-600/20 transition-colors disabled:opacity-50"
+              title="Transcrire un fichier audio en tablature (service local start-transcribe.bat)"
+            >
+              <Mic2 className="w-3.5 h-3.5" />
+              {transcribing ? "Transcription…" : "Transcrire"}
+            </button>
+            <input
+              ref={transcribeInputRef}
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleTranscribe(file);
+                e.target.value = "";
+              }}
+            />
             <button
               onClick={() => {
                 window.open(
@@ -3546,6 +3590,41 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
           </div>
         )}
       </main>
+      {(transcribeResult || transcribeError) && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl max-w-3xl w-full max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
+              <h2 className="text-sm font-bold text-white">
+                Résultat de la transcription
+              </h2>
+              <button
+                onClick={() => {
+                  setTranscribeResult(null);
+                  setTranscribeError(null);
+                }}
+                className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {transcribeError && (
+                <p className="text-red-400 text-sm">{transcribeError}</p>
+              )}
+              {transcribeResult && (
+                <>
+                  <p className="text-xs text-zinc-500 mb-2">
+                    {transcribeResult.note_count} notes détectées · {transcribeResult.duration.toFixed(1)} s
+                  </p>
+                  <pre className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 font-mono text-xs text-zinc-200 whitespace-pre overflow-x-auto">
+                    {transcribeResult.tab}
+                  </pre>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {!conductorOpen && (
         <button
           onClick={() => {
