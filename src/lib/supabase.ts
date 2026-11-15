@@ -10,7 +10,6 @@ import {
   migrateSong,
 } from "./custom-songs";
 
-const PAGE = 1000;
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -63,100 +62,103 @@ export interface SharedRow {
   updated_at: string;
 }
 
-// Une page Supabase (max 1000 lignes) avec reprises automatiques : une declaration
-// de timeout serveur (statement timeout, code 57014) est souvent transiente
-// (projet en veille / surcharge momentanee), une nouvelle tentative reussit en
-// general. Backoff exponentiel pour laisser le temps au projet de se reveiller.
-async function fetchSongsPage(
-  sb: SupabaseClient,
-  from: number,
-  ordered: boolean
-): Promise<{ data: { data: unknown }[] | null; error: { message: string; code: string } | null }> {
-  const MAX_ATTEMPTS = 5;
-  let lastError: { message: string; code: string } | null = null;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    if (attempt > 0) {
-      await new Promise((r) => setTimeout(r, 2000 * Math.pow(2, attempt - 1)));
-    }
-    let q = sb.from("songs").select("data");
-    if (ordered) {
-      q = q.order("updated_at", { ascending: false }).order("id", { ascending: true });
-    }
-    const { data, error } = await q.range(from, from + PAGE - 1);
-    if (!error) {
-      return { data: (data as { data: unknown }[] | null) ?? [], error: null };
-    }
-    lastError = { message: error.message, code: error.code };
-    console.log("[ChordFlow] repertoire : erreur Supabase requete", {
-      from,
-      message: error.message,
-      code: error.code,
-      attempt: attempt + 1,
-      ordered,
-    });
-  }
-  return { data: null, error: lastError };
-}
 
 export async function loadSharedSongs(): Promise<SongTab[]> {
   const sb = getSupabase();
   if (!sb) return loadLocalSongs();
+  const PAGE = 1000;
   const migrated: SongTab[] = [];
   const seen = new Set<string>();
 
-  // Première page : tentative ordonnée, puis repli sans tri (le tri se fait
-  // alors cote client) si toutes les tentatives ordonnees echouent.
-  let ordered = true;
-  let first = await fetchSongsPage(sb, 0, true);
-  if (first.error) {
-    console.log("[ChordFlow] repertoire : tentative sans tri...");
-    first = await fetchSongsPage(sb, 0, false);
-    ordered = false;
-  }
-  if (first.error || !first.data) {
-    // Echec total : repli sur le repertoire local.
-    return loadLocalSongs();
+  // Requete legere : on ne transfere que id/title/artist (pas le gros JSON
+  // "data"), ce qui evite le statement timeout (57014) sur les gros
+  // repertoires. Le contenu complet est charge a la demande via
+  // loadSharedSong(id) quand l'utilisateur ouvre une chanson.
+  async function fetchLightweight(from: number): Promise<{ data: { id: string; title: string; artist: string }[] | null; error: { message: string; code: string } | null }> {
+    const { data, error } = await sb!
+      .from("songs")
+      .select("id,title,artist")
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) return { data: null, error: { message: error.message, code: error.code } };
+    return { data: (data as { id: string; title: string; artist: string }[] | null) ?? [], error: null };
   }
 
-  const processPage = async (rows: { data: unknown }[]) => {
-    for (const r of rows) {
+  // Requete lourde (fallback) : transfere le JSON complet.
+  async function fetchHeavy(from: number): Promise<{ data: { data: unknown }[] | null; error: { message: string; code: string } | null }> {
+    const { data, error } = await sb!
+      .from("songs")
+      .select("data")
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) return { data: null, error: { message: error.message, code: error.code } };
+    return { data: (data as { data: unknown }[] | null) ?? [], error: null };
+  }
+
+  // Essai 1 : requete legere (3 tentatives)
+  let lightRows: { id: string; title: string; artist: string }[] | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 2000 * attempt));
+    const res = await fetchLightweight(0);
+    if (!res.error) { lightRows = res.data; break; }
+    console.log("[ChordFlow] repertoire : erreur legere", res.error);
+  }
+
+  if (lightRows === null) {
+    // Repli : requete lourde (comportement original)
+    console.log("[ChordFlow] repertoire : repli sur requete lourde");
+    const res = await fetchHeavy(0);
+    if (res.error || !res.data) return loadLocalSongs();
+    for (const r of res.data) {
       const s = r.data as SongTab;
       if (typeof s !== "object" || s === null || !s.id) continue;
       if (seen.has(s.id)) continue;
       seen.add(s.id);
-      const m = migrateSong(s);
-      migrated.push(m);
-      if (m !== s) {
-        await sb.from("songs").upsert(
-          {
-            id: m.id,
-            title: m.title,
-            artist: m.artist,
-            data: m,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "id" }
-        );
-      }
+      migrated.push(migrateSong(s));
     }
-  };
+    let from = PAGE;
+    while (true) {
+      const r2 = await fetchHeavy(from);
+      if (r2.error || !r2.data || r2.data.length === 0) break;
+      for (const r of r2.data) {
+        const s = r.data as SongTab;
+        if (typeof s !== "object" || s === null || !s.id) continue;
+        if (seen.has(s.id)) continue;
+        seen.add(s.id);
+        migrated.push(migrateSong(s));
+      }
+      if (r2.data.length < PAGE) break;
+      from += PAGE;
+    }
+    return migrated;
+  }
 
-  await processPage(first.data);
-
-  // Pages suivantes (meme mode de tri que la premiere).
+  // Mode leger : recuperer toutes les pages
+  const allLight: { id: string; title: string; artist: string }[] = [...lightRows];
   let from = PAGE;
-  let lastSize = first.data.length;
-  while (lastSize === PAGE) {
-    const { data, error } = await fetchSongsPage(sb, from, ordered);
-    if (error || !data || data.length === 0) break;
-    await processPage(data);
-    lastSize = data.length;
+  while (lightRows.length === PAGE) {
+    const r2 = await fetchLightweight(from);
+    if (r2.error || !r2.data || r2.data.length === 0) break;
+    allLight.push(...r2.data);
+    if (r2.data.length < PAGE) break;
     from += PAGE;
   }
 
+  for (const r of allLight) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    migrated.push({
+      id: r.id,
+      title: r.title || r.id,
+      artist: r.artist || "",
+      type: "chord",
+      content: "",
+    } as SongTab);
+  }
   return migrated;
 }
-
 export async function loadSharedSong(id: string): Promise<SongTab | null> {
   const sb = getSupabase();
   if (!sb) return loadLocalSong(id);
