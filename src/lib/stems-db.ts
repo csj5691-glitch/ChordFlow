@@ -71,6 +71,32 @@ export async function hasStems(songId: string): Promise<boolean> {
   }
 }
 
+// Tous les ids de chansons ayant des stems importes, en une seule passe sur
+// l'index (sans lire les blobs).
+export async function listStemSongIds(): Promise<string[]> {
+  try {
+    const db = await openDB();
+    return await new Promise<string[]>((resolve) => {
+      const tx = db.transaction(STORE_NAME, "readonly");
+      const index = tx.objectStore(STORE_NAME).index("songId");
+      const ids = new Set<string>();
+      const req = index.openKeyCursor();
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) {
+          resolve([...ids]);
+          return;
+        }
+        ids.add(String(cursor.key));
+        cursor.continue();
+      };
+      req.onerror = () => resolve([...ids]);
+    });
+  } catch {
+    return [];
+  }
+}
+
 export async function deleteStems(songId: string): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {

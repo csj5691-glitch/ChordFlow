@@ -120,8 +120,36 @@ export function clearAudioStems(songId: string): Promise<void> {
   );
 }
 
-// Présence de stems audio sans lire les blobs (compter 1000 chansons en
-// chargeant les WAV saturerait la mémoire).
+// Tous les ids de chansons ayant des stems audio, en une seule lecture des
+// cles (sans charger les blobs). Evite 900 requetes IndexedDB au chargement
+// du repertoire.
+export function listAudioStemSongIds(): Promise<string[]> {
+  return getDB().then(
+    (db) =>
+      new Promise((resolve) => {
+        try {
+          const tx = db.transaction(STORE, "readonly");
+          const req = tx.objectStore(STORE).getAllKeys();
+          req.onsuccess = () => {
+            const keys = (req.result ?? []) as IDBValidKey[];
+            resolve(
+              keys
+                .map((k) => String(k))
+                // Les fichiers MIDI vivent sous "<id>!midi" : ce ne sont pas
+                // des stems audio pour le badge.
+                .filter((k) => !k.endsWith(MIDI_KEY_SUFFIX))
+            );
+          };
+          req.onerror = () => resolve([]);
+        } catch {
+          resolve([]);
+        }
+      })
+  );
+}
+
+// Presence de stems audio sans lire les blobs (compter 1000 chansons en
+// chargeant les WAV saturerait la memoire).
 export function hasAudioStems(songId: string): Promise<boolean> {
   return getDB().then(
     (db) =>
