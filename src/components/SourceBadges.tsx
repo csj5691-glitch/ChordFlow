@@ -46,12 +46,16 @@ export function SourceBadges({
   youtube,
   spotify,
   file,
+  lyrics,
+  tab,
 }: {
   youtube: boolean;
   spotify: boolean;
   file: boolean;
+  lyrics?: boolean;
+  tab?: boolean;
 }) {
-  if (!youtube && !spotify && !file) return null;
+  if (!youtube && !spotify && !file && !lyrics && !tab) return null;
   return (
     <div className="flex items-center gap-1.5 pr-1">
       {youtube && (
@@ -67,6 +71,16 @@ export function SourceBadges({
       {file && (
         <span title="Stems audio importés">
           <FileAudio className="w-3.5 h-3.5 text-amber-400" />
+        </span>
+      )}
+      {lyrics && (
+        <span title="Paroles synchronisées" className="text-xs">
+          📝
+        </span>
+      )}
+      {tab && (
+        <span title="Tablature transcrite" className="text-xs">
+          🎸
         </span>
       )}
     </div>

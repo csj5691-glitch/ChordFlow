@@ -63,6 +63,11 @@ export interface SongTab {
   lyricAnchorDiagram?: number;
   youtubeId?: string;
   spotifyId?: string;
+  // Indicateurs de liste du repertoire partage : renseignes par la requete
+  // legere (id/title/artist + drapeaux) pour afficher les badges sans
+  // transferer le contenu complet de la chanson.
+  hasLyrics?: boolean;
+  hasTab?: boolean;
 }
 
 export interface SyncedLyricLine {

@@ -74,15 +74,42 @@ export async function loadSharedSongs(): Promise<SongTab[]> {
   // "data"), ce qui evite le statement timeout (57014) sur les gros
   // repertoires. Le contenu complet est charge a la demande via
   // loadSharedSong(id) quand l'utilisateur ouvre une chanson.
-  async function fetchLightweight(from: number): Promise<{ data: { id: string; title: string; artist: string; key?: string; capo?: number; youtube_id?: string; spotify_id?: string }[] | null; error: { message: string; code: string } | null }> {
-    const { data, error } = await sb!
-      .from("songs")
-      .select("id,title,artist,key,capo,youtube_id,spotify_id")
-      .order("updated_at", { ascending: false })
-      .order("id", { ascending: true })
-      .range(from, from + PAGE - 1);
-    if (error) return { data: null, error: { message: error.message, code: error.code } };
-    return { data: (data as { id: string; title: string; artist: string }[] | null) ?? [], error: null };
+  // Colonnes de la requete legere. Si la base n'a pas encore la migration
+  // (colonnes optionnelles absentes), on retombe progressivement sur un jeu
+  // plus petit au lieu de basculer sur la requete lourde (tres lente).
+  const LIGHT_COLUMN_SETS = [
+    "id,title,artist,key,capo,youtube_id,spotify_id,has_lyrics,has_tab",
+    "id,title,artist,key,capo,youtube_id,spotify_id",
+    "id,title,artist",
+  ];
+  let lightColumnSet = 0;
+
+  async function fetchLightweight(from: number): Promise<{ data: { id: string; title: string; artist: string; key?: string; capo?: number; youtube_id?: string; spotify_id?: string; has_lyrics?: boolean; has_tab?: boolean }[] | null; error: { message: string; code: string } | null }> {
+    for (let i = lightColumnSet; i < LIGHT_COLUMN_SETS.length; i++) {
+      const { data, error } = await sb!
+        .from("songs")
+        .select(LIGHT_COLUMN_SETS[i])
+        .order("updated_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (!error) {
+        lightColumnSet = i;
+        return { data: (data as unknown as { id: string; title: string; artist: string; key?: string; capo?: number; youtube_id?: string; spotify_id?: string; has_lyrics?: boolean; has_tab?: boolean }[] | null) ?? [], error: null };
+      }
+      // Colonne absente (migration pas encore appliquee) : on essaie le jeu
+      // de colonnes suivant. Toute autre erreur remonte a l'appelant.
+      const missingColumn = /does not exist|unknown column|42703/i.test(
+        error.message + " " + error.code
+      );
+      if (!missingColumn) {
+        return { data: null, error: { message: error.message, code: error.code } };
+      }
+      console.log("[ChordFlow] repertoire : colonne absente, jeu reduit", {
+        columns: LIGHT_COLUMN_SETS[i],
+        message: error.message,
+      });
+    }
+    return { data: null, error: { message: "Aucune colonne disponible", code: "" } };
   }
 
   // Requete lourde (fallback) : transfere le JSON complet.
@@ -98,7 +125,7 @@ export async function loadSharedSongs(): Promise<SongTab[]> {
   }
 
   // Essai 1 : requete legere (3 tentatives)
-  let lightRows: { id: string; title: string; artist: string; key?: string; capo?: number; youtube_id?: string; spotify_id?: string }[] | null = null;
+  let lightRows: { id: string; title: string; artist: string; key?: string; capo?: number; youtube_id?: string; spotify_id?: string; has_lyrics?: boolean; has_tab?: boolean }[] | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, 2000 * attempt));
     const res = await fetchLightweight(0);
@@ -136,7 +163,7 @@ export async function loadSharedSongs(): Promise<SongTab[]> {
   }
 
   // Mode leger : recuperer toutes les pages
-  const allLight: { id: string; title: string; artist: string; key?: string; capo?: number; youtube_id?: string; spotify_id?: string }[] = [...lightRows];
+  const allLight: { id: string; title: string; artist: string; key?: string; capo?: number; youtube_id?: string; spotify_id?: string; has_lyrics?: boolean; has_tab?: boolean }[] = [...lightRows];
   let from = PAGE;
   while (lightRows.length === PAGE) {
     const r2 = await fetchLightweight(from);
@@ -159,6 +186,8 @@ export async function loadSharedSongs(): Promise<SongTab[]> {
       capo: r.capo,
       youtubeId: r.youtube_id,
       spotifyId: r.spotify_id,
+      hasLyrics: r.has_lyrics,
+      hasTab: r.has_tab,
     } as SongTab);
   }
   return migrated;
@@ -204,6 +233,8 @@ export async function saveSharedSong(song: SongTab): Promise<string[]> {
     capo: song.capo,
     youtube_id: song.youtubeId,
     spotify_id: song.spotifyId,
+    has_lyrics: !!song.officialSynced,
+    has_tab: !!song.transcribedTab,
     data: song,
     updated_at: new Date().toISOString(),
   };
@@ -237,6 +268,12 @@ export async function importAllLocalSongs(): Promise<number> {
     id: s.id,
     title: s.title,
     artist: s.artist,
+    key: s.key,
+    capo: s.capo,
+    youtube_id: s.youtubeId,
+    spotify_id: s.spotifyId,
+    has_lyrics: !!s.officialSynced,
+    has_tab: !!s.transcribedTab,
     data: s,
     updated_at: new Date().toISOString(),
   }));

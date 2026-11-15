@@ -160,6 +160,8 @@ function RepertoireRow({
           youtube={songHasYoutube(song)}
           spotify={songHasSpotify(song)}
           file={hasFile}
+          lyrics={!!song.hasLyrics || !!song.officialSynced}
+          tab={!!song.hasTab || !!song.transcribedTab}
         />
         {song.key && (
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
@@ -171,7 +173,7 @@ function RepertoireRow({
             Capo {song.capo}
           </span>
         )}
-        {song.officialSynced && (
+        {(song.hasLyrics || song.officialSynced) && (
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400">
             Sync
           </span>

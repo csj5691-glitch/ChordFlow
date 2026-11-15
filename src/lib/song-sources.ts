@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { SongTab } from "@/lib/types";
 import { loadYouTubeId } from "@/lib/youtube-store";
 import { loadSpotifyId } from "@/lib/spotify-store";
-import { loadAudioStems } from "@/lib/audio-store";
+import { hasAudioStems } from "@/lib/audio-store";
 import { loadStems } from "@/lib/stems-db";
 
 export function songHasYoutube(song: SongTab): boolean {
@@ -21,18 +21,29 @@ export function usePersistedUploads(idList: string[]) {
     let active = true;
     const check = async () => {
       const withStems = new Set<string>();
-      for (const id of idList) {
-        try {
-          if (await loadAudioStems(id)) {
-            withStems.add(id);
-            continue;
-          }
-          if ((await loadStems(id)).length > 0) withStems.add(id);
-        } catch {
-          // ignorer (IndexedDB indisponible)
-        }
+      // Traitement par lots : 900 lectures IndexedDB en serie prenaient
+      // plusieurs secondes (badges absents au premier affichage).
+      const BATCH = 24;
+      for (let i = 0; i < idList.length; i += BATCH) {
+        const batch = idList.slice(i, i + BATCH);
+        const found = await Promise.all(
+          batch.map(async (id) => {
+            try {
+              // Presence seulement (count) : charger les blobs de 900
+              // chansons saturerait la memoire.
+              if (await hasAudioStems(id)) return id;
+              if ((await loadStems(id)).length > 0) return id;
+            } catch {
+              // ignorer (IndexedDB indisponible)
+            }
+            return null;
+          })
+        );
+        if (!active) return;
+        for (const id of found) if (id) withStems.add(id);
+        if (withStems.size > 0) setUploads(new Set(withStems));
       }
-      if (active) setUploads(withStems);
+      if (active) setUploads(new Set(withStems));
     };
     check();
     return () => {
