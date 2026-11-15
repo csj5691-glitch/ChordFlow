@@ -529,6 +529,22 @@ export default function TranscribePage({
             </p>
           </div>
         )}
+
+        <div className="flex flex-wrap gap-2 pt-2 pb-6">
+          <button
+            onClick={() => router.push(`/song/${id}`)}
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Retour à la chanson
+          </button>
+          <button
+            onClick={() => router.push(`/song/${id}/edit`)}
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition-colors"
+          >
+            Ouvrir l&apos;éditeur
+          </button>
+        </div>
       </main>
     </div>
   );

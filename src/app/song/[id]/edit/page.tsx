@@ -3641,20 +3641,61 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
             )}
           </div>
         )}
-        {song?.transcribedTab && (
-          <section className="flex flex-col gap-3">
-            <h2 className="text-sm font-bold text-zinc-300">Tablature transcrite</h2>
-            <pre className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 font-mono text-xs text-zinc-200 whitespace-pre overflow-x-auto max-h-64">
-              {song.transcribedTab}
-            </pre>
-          </section>
-        )}
-        {song?.transcribedChords && (
-          <section className="flex flex-col gap-3">
-            <h2 className="text-sm font-bold text-zinc-300">Accords transcrits</h2>
-            <pre className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 font-mono text-xs text-zinc-200 whitespace-pre overflow-x-auto max-h-64">
-              {song.transcribedChords}
-            </pre>
+        {(song?.transcribedTab || song?.transcribedChords) && (
+          <section className="flex flex-col gap-3 pb-4">
+            {song?.transcribedTab && (
+              <>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h2 className="text-sm font-bold text-zinc-300">Tablature transcrite</h2>
+                  <button
+                    onClick={() => {
+                      if (!window.confirm("Retirer la tablature transcrite de cette chanson ?")) return;
+                      void upsert({ ...song, transcribedTab: undefined });
+                    }}
+                    className="text-xs text-zinc-500 hover:text-red-400 transition-colors"
+                  >
+                    Retirer
+                  </button>
+                </div>
+                <pre className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 font-mono text-xs text-zinc-200 whitespace-pre overflow-x-auto max-h-64">
+                  {song.transcribedTab}
+                </pre>
+              </>
+            )}
+            {song?.transcribedChords && (
+              <>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h2 className="text-sm font-bold text-zinc-300">Accords transcrits</h2>
+                  <button
+                    onClick={() => {
+                      if (!window.confirm("Retirer les accords transcrits de cette chanson ?")) return;
+                      void upsert({ ...song, transcribedChords: undefined });
+                    }}
+                    className="text-xs text-zinc-500 hover:text-red-400 transition-colors"
+                  >
+                    Retirer
+                  </button>
+                </div>
+                <pre className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 font-mono text-xs text-zinc-200 whitespace-pre overflow-x-auto max-h-64">
+                  {song.transcribedChords}
+                </pre>
+              </>
+            )}
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button
+                onClick={() => router.push(`/song/${id}`)}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition-colors"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                Retour à la chanson
+              </button>
+              <button
+                onClick={() => router.push(`/song/${id}/transcribe`)}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-amber-500 text-black hover:bg-amber-400 transition-colors"
+              >
+                Refaire une transcription
+              </button>
+            </div>
           </section>
         )}
       </main>
