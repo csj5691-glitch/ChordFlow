@@ -3589,6 +3589,14 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
             )}
           </div>
         )}
+        {song?.transcribedTab && (
+          <section className="flex flex-col gap-3">
+            <h2 className="text-sm font-bold text-zinc-300">Tablature transcrite</h2>
+            <pre className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 font-mono text-xs text-zinc-200 whitespace-pre overflow-x-auto max-h-64">
+              {song.transcribedTab}
+            </pre>
+          </section>
+        )}
       </main>
       {(transcribeResult || transcribeError) && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
@@ -3619,6 +3627,17 @@ body: JSON.stringify({ videoId, stem, progressToken: token }),
                   <pre className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 font-mono text-xs text-zinc-200 whitespace-pre overflow-x-auto">
                     {transcribeResult.tab}
                   </pre>
+                  <button
+                    onClick={async () => {
+                      if (!song || !transcribeResult) return;
+                      const updated = { ...song, transcribedTab: transcribeResult.tab };
+                      await upsert(updated);
+                      setTranscribeResult(null);
+                    }}
+                    className="mt-3 flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-lg bg-amber-500 text-black hover:bg-amber-400 transition-colors"
+                  >
+                    Appliquer à la chanson
+                  </button>
                 </>
               )}
             </div>
