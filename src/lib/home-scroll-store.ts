@@ -8,6 +8,16 @@ const TABLE = "ui_state";
 
 let lastY = 0;
 let saveTimer: number | null = null;
+// Table ui_state absente (projet non migre) : on cesse d'interroger le serveur
+// pour la session au lieu de repeter des 404 dans la console.
+let tableMissing = false;
+
+function isMissingTable(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  return /does not exist|Could not find the table|PGRST205|42P01/i.test(
+    `${error.code ?? ""} ${error.message ?? ""}`
+  );
+}
 
 function deviceId(): string {
   if (typeof window === "undefined") return "server";
@@ -58,14 +68,15 @@ function writeLocal(y: number): void {
 
 async function persistToSupabase(y: number): Promise<void> {
   const sb = getSupabase();
-  if (!sb) return;
+  if (!sb || tableMissing) return;
   try {
-    await sb
+    const { error } = await sb
       .from(TABLE)
       .upsert(
         { id: rowId(), value: { y }, updated_at: new Date().toISOString() },
         { onConflict: "id" }
       );
+    if (isMissingTable(error)) tableMissing = true;
   } catch {
     /* table absente ou hors ligne : repli local seulement */
   }
@@ -85,13 +96,17 @@ export function saveHomeScroll(y: number): void {
 
 export async function loadHomeScroll(): Promise<number> {
   const sb = getSupabase();
-  if (sb) {
+  if (sb && !tableMissing) {
     try {
       const { data, error } = await sb
         .from(TABLE)
         .select("value")
         .eq("id", rowId())
         .maybeSingle();
+      if (isMissingTable(error)) {
+        tableMissing = true;
+        return readLocal();
+      }
       const value = data?.value as { y?: unknown } | null | undefined;
       if (!error && value && typeof value.y === "number") {
         writeLocal(value.y);
