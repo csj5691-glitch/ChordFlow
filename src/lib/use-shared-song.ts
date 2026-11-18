@@ -40,7 +40,6 @@ export function useSharedSong(id: string) {
         if (!shared.transcribedChords && cachedLocal.transcribedChords) {
           merged.transcribedChords = cachedLocal.transcribedChords;
         }
-        console.log("[ChordFlow] useSharedSong load", { id, hasLocal: !!cachedLocal, hasShared: !!shared, tab: merged.transcribedTab?.length ?? null, chords: merged.transcribedChords?.length ?? null });
         setCurrent(merged);
       })
       .catch(() => {

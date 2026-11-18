@@ -224,7 +224,6 @@ export async function saveSharedSong(song: SongTab): Promise<string[]> {
       err
     );
   }
-  console.log("[ChordFlow] saveSharedSong local", { songId: song.id, drops });
   if (!sb) return drops;
   const row = {
     id: song.id,
@@ -244,7 +243,6 @@ export async function saveSharedSong(song: SongTab): Promise<string[]> {
   // deja sauvegardee localement et sera resynchronisee plus tard.
   try {
     const { error } = await sb.from("songs").upsert(row, { onConflict: "id" });
-    console.log("[ChordFlow] saveSharedSong supabase error", { songId: song.id, error: error?.message ?? null });
     if (error) {
       console.warn("[ChordFlow] Sauvegarde serveur echouee (local OK) :", error.message);
     }
