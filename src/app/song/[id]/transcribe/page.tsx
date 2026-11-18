@@ -194,6 +194,19 @@ export default function TranscribePage({
         });
         setSourceLabel(opts.label);
 
+        // Persistance automatique : la tablature generee est sauvegardee
+        // immediatement, sans attendre l'analyse des accords (qui peut echouer
+        // sans empecher la sauvegarde de la tablature).
+        if (data1.tab && song) {
+          setSavedTab(true);
+          try {
+            await upsert({ ...song, transcribedTab: data1.tab });
+          } catch (saveErr) {
+            console.error("[ChordFlow] Echec sauvegarde tablature transcrite :", saveErr);
+            setError("Sauvegarde de la tablature impossible.");
+          }
+        }
+
         // 2. Accords + repetitions (le WAV YouTube est deja en cache serveur)
         const res2 = await fetch("/api/transcribe-chords", init);
         const data2 = await res2.json().catch(() => null);
@@ -211,12 +224,6 @@ export default function TranscribePage({
           );
         }
 
-        // Persistance automatique : la transcription generee est appliquee et
-        // sauvegardee immediatement, sans attendre le clic manuel « Appliquer ».
-        if (data1.tab && song) {
-          setSavedTab(true);
-          await upsert({ ...song, transcribedTab: data1.tab });
-        }
         if (res2.ok && data2.chords && song) {
           setSavedChords(true);
           const header = data2.key ? `# Tonalite : ${data2.key}\n` : "";
@@ -228,7 +235,12 @@ export default function TranscribePage({
                   .padStart(5, "0")}] ${c.chord}`
             )
             .join("\n");
-          await upsert({ ...song, transcribedChords: header + lrc });
+          try {
+            await upsert({ ...song, transcribedChords: header + lrc });
+          } catch (saveErr2) {
+            console.error("[ChordFlow] Echec sauvegarde accords transcrits :", saveErr2);
+            setError("Sauvegarde des accords impossible.");
+          }
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur reseau");
@@ -239,7 +251,7 @@ export default function TranscribePage({
         setProgress(null);
       }
     },
-    []
+    [song, upsert]
   );
 
   const transcribeFromYoutube = useCallback(() => {
