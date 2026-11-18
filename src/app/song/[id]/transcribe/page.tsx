@@ -49,6 +49,19 @@ function newToken(): string {
   return `tx${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 }
 
+// Presence du service de transcription local : un health check suffit pour
+// savoir s'il est deja lance. Retourne true/false, sans toucher au state du
+// composant (le useEffect du rendu s'occupe de la mise a jour).
+async function checkTranscribeHealth(): Promise<boolean> {
+  try {
+    const res = await fetch("/api/transcribe-health", { cache: "no-store" });
+    const data = await res.json().catch(() => null);
+    return Boolean(res.ok && data?.ok);
+  } catch {
+    return false;
+  }
+}
+
 export default function TranscribePage({
   params,
 }: {
@@ -61,6 +74,10 @@ export default function TranscribePage({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
+  // Vrai quand le service de transcription local repond (health OK) : le
+  // bouton « Démarrer le service » doit etre inactif tant que le service
+  // tourne.
+  const [serviceOk, setServiceOk] = useState(false);
   const [sourceLabel, setSourceLabel] = useState<string | null>(null);
   const [tabResult, setTabResult] = useState<TabResult | null>(null);
   const [chordResult, setChordResult] = useState<ChordResult | null>(null);
@@ -74,6 +91,16 @@ export default function TranscribePage({
     phase: string;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    checkTranscribeHealth().then((ok) => {
+      if (active) setServiceOk(ok);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Lien YouTube : identifiant trouve par la recherche, sinon champ de la
   // chanson, sinon identifiant memorise localement sur cet appareil.
@@ -273,6 +300,7 @@ export default function TranscribePage({
           const hd = await h.json();
           if (hd.ok) {
             setError(null);
+            setServiceOk(true);
             return;
           }
         } catch {
@@ -332,9 +360,13 @@ export default function TranscribePage({
           </div>
           <button
             onClick={handleLaunch}
-            disabled={launching}
-            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors disabled:opacity-50"
-            title="Lancer le service local (start-transcribe.bat)"
+            disabled={launching || serviceOk}
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title={
+              serviceOk
+                ? "Service de transcription en ligne"
+                : "Lancer le service local (start-transcribe.bat)"
+            }
           >
             {launching ? "Lancement…" : "Démarrer le service"}
           </button>
