@@ -210,6 +210,26 @@ export default function TranscribePage({
             data2?.error ?? data2?.detail ?? "Accords non détectés (tablature disponible)."
           );
         }
+
+        // Persistance automatique : la transcription generee est appliquee et
+        // sauvegardee immediatement, sans attendre le clic manuel « Appliquer ».
+        if (data1.tab && song) {
+          setSavedTab(true);
+          await upsert({ ...song, transcribedTab: data1.tab });
+        }
+        if (res2.ok && data2.chords && song) {
+          setSavedChords(true);
+          const header = data2.key ? `# Tonalite : ${data2.key}\n` : "";
+          const lrc = data2.chords
+            .map(
+              (c: { start: number; chord: string }) =>
+                `[${Math.floor(c.start / 60).toString().padStart(2, "0")}:${(c.start % 60)
+                  .toFixed(2)
+                  .padStart(5, "0")}] ${c.chord}`
+            )
+            .join("\n");
+          await upsert({ ...song, transcribedChords: header + lrc });
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur reseau");
       } finally {
