@@ -54,6 +54,7 @@ interface ConductorProps {
   /**.décalage manuel tablature + paroles / stems, en millisecondes. */
   syncLatency?: number;
   /**.notifié à chaque réglage de la latence de synchro. */
+  transcription?: { content: string; diagrams: SavedChordShape[]; bpm: number } | null;
   onClose: () => void;
 }
 
@@ -153,9 +154,16 @@ export default function Conductor({
   bandOffset: externalBandOffset,
   syncLatency: externalSyncLatency,
   songId,
+  transcription,
   onClose,
 }: ConductorProps) {
-  const events = useMemo(() => renderSequence(diagrams, bpm), [diagrams, bpm]);
+  // Lecture : une transcription fournie contourne la grille courante (accords
+  // transcrits générés depuis `transcribedChords`). Sans transcription, c'est
+  // la grille de l'éditeur qui fait foi.
+  const playContent = transcription?.content ?? content;
+  const playDiagrams = transcription?.diagrams ?? diagrams;
+  const playBpm = transcription?.bpm ?? bpm;
+  const events = useMemo(() => renderSequence(playDiagrams, playBpm), [playDiagrams, playBpm]);
   // Tablature animée du morceau, dérivée de la grille : elle remplace l'ancien
   // panneau Riff/Harmonique du Chef. Le moteur ne possède pas d'horloge, elle
   // lui est fournie via gridMsRef plus bas. Les répétitions (et fins alternatives)
@@ -163,15 +171,15 @@ export default function Conductor({
   // passage possède ses propres mesures, la tablature ainsi construite couvre
   // toute la durée jouée et le suivi via gridMsRef la ramène sur le bon passage.
   const tabSong = useMemo(() => {
-    if (diagrams.length === 0) return null;
+    if (playDiagrams.length === 0) return null;
     const bars: PlayerBar[] = [];
     const measures: PlayerMeasure[] = [];
     const tracks: PlayerTrack[] = [];
-    const tempo: TempoPoint[] = [{ beat: 0, bpm }];
+    const tempo: TempoPoint[] = [{ beat: 0, bpm: playBpm }];
     const buildPass = (shapes: SavedChordShape[]) => {
       const result = fromChords(shapes, {
         title: "",
-        bpm,
+        bpm: playBpm,
         timeSignature,
         tuning,
       });
@@ -181,7 +189,7 @@ export default function Conductor({
       measures.push(...track.measures);
       tracks.push(track);
     };
-    for (const shapes of repeatPasses(diagrams)) {
+    for (const shapes of repeatPasses(playDiagrams)) {
       buildPass(shapes);
     }
     if (bars.length === 0 || tracks.length === 0) return null;
@@ -194,12 +202,12 @@ export default function Conductor({
       tracks: [{ meta: tracks[0].meta, measures }],
     };
     return song;
-  }, [diagrams, bpm, timeSignature, tuning]);
+  }, [playDiagrams, playBpm, timeSignature, tuning]);
   const measureInfo = useMemo(
     () => measureInfoFromSignature(timeSignature),
     [timeSignature]
   );
-  const lyricSections = useMemo(() => extractLyrics(content), [content]);
+  const lyricSections = useMemo(() => extractLyrics(playContent), [playContent]);
   const officialLines = useMemo(
     () => extractOfficialLyrics(officialSynced, officialPlain),
     [officialSynced, officialPlain]
@@ -379,7 +387,7 @@ export default function Conductor({
   const playsGrid = !usesAudio || gridOnly;
   // Compte rendu des renvois de la partition : sections et nombre de passages.
   const repeatSummary = useMemo(() => {
-    const ends = diagrams.filter(
+    const ends = playDiagrams.filter(
       (d) => d.bar && (d.barKind === "endRepeat" || d.barKind === "bothRepeat")
     );
     const byCount = new Map<number, number>();
@@ -392,7 +400,7 @@ export default function Conductor({
       .map(([n, count]) => `${count}×${n}`)
       .join(" ");
     return { count: ends.length, detail };
-  }, [diagrams]);
+  }, [playDiagrams]);
   const totalSequenceMs = useMemo(
     () => events.reduce((a, e) => a + e.duration, 0) * 1000,
     [events]
@@ -1004,15 +1012,15 @@ export default function Conductor({
 
   // Temps réellement joués (répétitions et fins alternatives comprises) :
   // c'est la durée lue de la grille, pas la somme brute des formes.
-  const totalBeat = events.reduce((a, e) => a + e.duration, 0) * (bpm / 60);
+  const totalBeat = events.reduce((a, e) => a + e.duration, 0) * (playBpm / 60);
   const cur = bandEvents[index];
   const curBeats = cur ? beatsForShape(cur.shape) : 0;
   const curNv = cur ? noteValueInfo(curBeats) : null;
-  const curMeasureIdx = cur ? measureForBeat((cur.start * bpm) / 60, measureInfo) : -1;
+  const curMeasureIdx = cur ? measureForBeat((cur.start * playBpm) / 60, measureInfo) : -1;
   const mStart = curMeasureIdx * measureInfo.beatsPerMeasure;
   const mEnd = mStart + measureInfo.beatsPerMeasure;
   const measureIdxs = bandEvents.reduce<number[]>((acc, ev, i) => {
-    const s = (ev.start * bpm) / 60;
+    const s = (ev.start * playBpm) / 60;
     const e = s + beatsForShape(ev.shape);
     if (s < mEnd - 1e-6 && e > mStart + 1e-6) acc.push(i);
     return acc;
@@ -1070,10 +1078,10 @@ export default function Conductor({
       riffRuns.map((r) => {
         const shapes = bandEvents.slice(r.start, r.end + 1).map((e) => e.shape);
         const first = bandEvents[r.start];
-        const originTick = Math.round(((first.start * bpm) / 60) * 480);
-        return diagramsToTabWithPositions(shapes, { bpm, originTick });
+        const originTick = Math.round(((first.start * playBpm) / 60) * 480);
+        return diagramsToTabWithPositions(shapes, { bpm: playBpm, originTick });
       }),
-    [riffRuns, bandEvents, bpm]
+    [riffRuns, bandEvents, playBpm]
   );
   // Interprétation harmonique de chaque passage de riff : pour chaque mesure de
   // la tablature, on rassemble les classes de hauteur de toutes les notes de la
@@ -1163,7 +1171,7 @@ export default function Conductor({
             Studio
           </h2>
           <span className="text-[11px] text-zinc-500 font-mono">
-            {playsGrid ? `${bpm} BPM · grille` : `${bpm} BPM · audio`} ·{" "}
+            {playsGrid ? `${playBpm} BPM · grille` : `${playBpm} BPM · audio`} ·{" "}
             {totalBeat.toFixed(2)} temps · {dur2.toFixed(1)} s
             {repeatSummary.count > 0 ? (
               <span className="text-amber-400/90">
@@ -1323,9 +1331,9 @@ export default function Conductor({
               )}
               <div className="flex flex-col items-center gap-0.5">
                 <span className="text-[11px] font-mono text-zinc-400 bg-zinc-800/60 border border-zinc-700/60 rounded-full px-2.5 py-0.5">
-                  Mesure {measureForBeat((cur.start * bpm) / 60, measureInfo) + 1}
+                  Mesure {measureForBeat((cur.start * playBpm) / 60, measureInfo) + 1}
                   {" · temps "}
-                  {Math.max(1, Math.round(beatInMeasure((cur.start * bpm) / 60, measureInfo)))}
+                  {Math.max(1, Math.round(beatInMeasure((cur.start * playBpm) / 60, measureInfo)))}
                   <span className="text-zinc-600">/{measureInfo.top}</span>
                   <span className="text-zinc-600"> · {measureInfo.top}/{measureInfo.bottom}</span>
                 </span>
@@ -1363,7 +1371,7 @@ export default function Conductor({
                   ((mEv.notes.length === 0 || mEv.notes[0] === 0) &&
                     !(mEv.mutedNotes && mEv.mutedNotes.length > 0));
                 const mDrums = mEv.shape.drumHits ?? 0;
-                const mDir = mSilence ? null : strumDirection(mEv.start / (60 / bpm), mBeats);
+                const mDir = mSilence ? null : strumDirection(mEv.start / (60 / playBpm), mBeats);
                 const isActive = evIdx === index;
                 const base =
                   "text-[11px] font-mono font-bold border rounded-full px-2.5 py-0.5 transition-colors";
@@ -1487,7 +1495,7 @@ export default function Conductor({
                   className="w-screen max-w-[calc(100vw-10px)] overflow-x-auto"
                 >
                   <TabStaffView
-                    bpm={bpm}
+                    bpm={playBpm}
                     tab={riffTabs[runOfIndex[index]].tab}
                     showMutes={false}
                     highlight={activeRiffHighlight}
