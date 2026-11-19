@@ -71,7 +71,27 @@ export function saveAudioStem(
   );
 }
 
-export function loadAudioStems(songId: string): Promise<AudioStemBlobs | null> {
+export async function loadAudioStems(songId: string): Promise<AudioStemBlobs | null> {
+  // 1. Essai disque persistant (survit au vidage du navigateur).
+  try {
+    const [nvRes, vRes] = await Promise.all([
+      fetch(`/api/stems/persisted?songId=${encodeURIComponent(songId)}&stem=noVocals`, { cache: "no-store" }),
+      fetch(`/api/stems/persisted?songId=${encodeURIComponent(songId)}&stem=vocals`, { cache: "no-store" }),
+    ]);
+    if (nvRes.ok && vRes.ok) {
+      const noVocals = await nvRes.blob();
+      const vocals = await vRes.blob();
+      if (noVocals && vocals) {
+        // Cache local pour les lectures suivantes (mode hors-ligne).
+        void saveAudioStem(songId, "noVocals", noVocals).catch(() => {});
+        void saveAudioStem(songId, "vocals", vocals).catch(() => {});
+        return { noVocals, vocals };
+      }
+    }
+  } catch {
+    // Service indisponible : repli IndexedDB.
+  }
+  // 2. Repli IndexedDB (cache local).
   return getDB().then(
     (db) =>
       new Promise((resolve, reject) => {

@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AudioWaveform, Check, Loader2, Pause, Play, Square, Trash2 } from "lucide-react";
 import { saveStem, loadStems, deleteStems } from "@/lib/stems-db";
+import { loadPersistedStemsIndex, persistedStemsFor } from "@/lib/persisted-stems";
 
 const STEMS = [
   { id: "vocals", label: "Voix", color: "bg-violet-500" },
@@ -61,25 +62,61 @@ export default function StemsMixer({ songId }: { songId: string }) {
   }, [busy]);
 
   useEffect(() => {
-    void loadStems(songId).then((records) => {
-      if (records.length === 0) return;
+    let annule = false;
+    void (async () => {
+      // 1. Cache IndexedDB (lecture immediate).
+      const records = await loadStems(songId).catch(() => []);
+      const blobs = new Map<string, Blob>(records.map((r) => [r.stem, r.blob]));
+      // 2. Disque H : on ne rapatrie que les pistes manquantes apres un
+      //    vidage du navigateur (ou une rafale faite sur un autre onglet).
+      const persisted = await loadPersistedStemsIndex(true)
+        .then(() => persistedStemsFor(songId))
+        .catch(() => new Set<string>());
+      for (const { id: stem } of STEMS) {
+        if (blobs.has(stem) || !persisted.has(stem)) continue;
+        try {
+          const res = await fetch(
+            `/api/stems/persisted?songId=${encodeURIComponent(songId)}&stem=${encodeURIComponent(stem)}`,
+            { cache: "no-store" }
+          );
+          if (!res.ok) continue;
+          const blob = await res.blob();
+          if (annule) return;
+          blobs.set(stem, blob);
+          await saveStem({
+            id: `${songId}::${stem}`,
+            songId,
+            stem,
+            blob,
+            fileName: `${stem}.wav`,
+            createdAt: Date.now(),
+          }).catch(() => {});
+        } catch {
+          // Service arrete : on garde ce qui est deja en cache.
+        }
+      }
+      if (annule || blobs.size === 0) return;
       const urls: Record<StemId, string | null> = {
         vocals: null, drums: null, bass: null, guitar: null, piano: null, other: null,
       };
       const st: Record<StemId, StemStatus> = {
         vocals: "idle", drums: "idle", bass: "idle", guitar: "idle", piano: "idle", other: "idle",
       };
-      for (const rec of records) {
-        const url = URL.createObjectURL(rec.blob);
-        urls[rec.stem as StemId] = url;
-        st[rec.stem as StemId] = "ready";
+      for (const [stem, blob] of blobs) {
+        if (!(stem in urls)) continue;
+        const url = URL.createObjectURL(blob);
+        urls[stem as StemId] = url;
+        st[stem as StemId] = "ready";
         const audioEl = new Audio(url);
         audioEl.preload = "auto";
-        audioObjsRef.current[rec.stem as StemId] = audioEl;
+        audioObjsRef.current[stem as StemId] = audioEl;
       }
       setStemUrls(urls);
       setStatus(st);
-    }).catch(() => {});
+    })();
+    return () => {
+      annule = true;
+    };
   }, [songId]);
 
   useEffect(() => {
@@ -123,7 +160,7 @@ export default function StemsMixer({ songId }: { songId: string }) {
         try {
           const form = new FormData();
           form.set("file", blob, file.name);
-          const res = await fetch(`/api/stems?stem=${stem.id}`, {
+          const res = await fetch(`/api/stems?stem=${stem.id}&song_id=${encodeURIComponent(songId)}`, {
             method: "POST",
             body: form,
             signal: AbortSignal.timeout(600_000),
@@ -211,7 +248,7 @@ export default function StemsMixer({ songId }: { songId: string }) {
         Upload un fichier audio — séparation en 6 pistes synchronisées.
       </p>
       <p className="text-[10px] text-zinc-600">
-        Formats supportés : WAV, MP3, FLAC, OGG, M4A, AAC — max 200 Mo
+        Formats supportés : WAV, MP3, FLAC, OGG, M4A, AAC — max 500 Mo
       </p>
 
       <input

@@ -7,8 +7,19 @@ export const runtime = "nodejs";
 export async function GET(req: NextRequest) {
   const songId = req.nextUrl.searchParams.get("songId")?.trim() ?? "";
   const stem = req.nextUrl.searchParams.get("stem")?.trim() ?? "";
+  // Sans songId : inventaire complet du disque (utilise par la rafale pour ne
+  // pas re-extraire les chansons deja presence sur H:).
   if (!songId) {
-    return NextResponse.json({ error: "songId requis" }, { status: 400 });
+    try {
+      const res = await fetch(`${STEMS_SERVICE}/stems`, { cache: "no-store", signal: AbortSignal.timeout(30_000) });
+      if (!res.ok) {
+        return NextResponse.json({ error: "inventaire indisponible" }, { status: res.status });
+      }
+      return NextResponse.json(await res.json().catch(() => ({ songs: [] })));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "erreur inconnue";
+      return NextResponse.json({ error: `service stems injoignable (${STEMS_SERVICE}) — ${msg}` }, { status: 502 });
+    }
   }
   // Liste des stems disponibles si aucun stem precis n'est demande.
   const url = stem

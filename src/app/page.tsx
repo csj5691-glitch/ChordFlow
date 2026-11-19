@@ -25,6 +25,7 @@ import { loadHomeScroll, saveHomeScroll } from "@/lib/home-scroll-store";
 import { saveYouTubeId, loadYouTubeId } from "@/lib/youtube-store";
 import { saveAudioStem, hasAudioStems } from "@/lib/audio-store";
 import { hasStems } from "@/lib/stems-db";
+import { loadPersistedStemsIndex, persistedStemsFor } from "@/lib/persisted-stems";
 import {
   findDuplicateGroups,
   mergeSongGroup,
@@ -576,6 +577,7 @@ export default function Home() {
         }
         if (await hasAudioStems(s.id)) continue;
         if (await hasStems(s.id)) continue;
+        if ((await persistedStemsFor(s.id)).size > 0) continue;
         missing++;
         if (!/\(cover by gz2h\)/i.test(`${s.title} ${s.artist}`)) missingHorsCover++;
       }
@@ -605,6 +607,7 @@ export default function Home() {
     for (const s of withYoutube) {
       if (await hasAudioStems(s.id)) continue;
       if (await hasStems(s.id)) continue;
+      if ((await persistedStemsFor(s.id)).size > 0) continue;
       targets.push(s);
     }
     if (targets.length === 0) {
@@ -675,7 +678,7 @@ export default function Home() {
             const res = await fetch("/api/yt-stems", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ videoId, stem, progressToken: token }),
+              body: JSON.stringify({ videoId, stem, progressToken: token, songId: s.id }),
             });
             if (!res.ok) {
               const data = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -722,6 +725,7 @@ export default function Home() {
           );
           setBulkRunning(false);
           setBulkProgress(null);
+          await loadPersistedStemsIndex(true);
           setStemsGap(await computeStemsGap(customSongs));
           return;
         }
@@ -740,6 +744,7 @@ export default function Home() {
     );
     setBulkRunning(false);
     setBulkProgress(null);
+    await loadPersistedStemsIndex(true);
     setStemsGap(await computeStemsGap(customSongs));
   }, [customSongs, computeStemsGap]);
 

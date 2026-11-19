@@ -17,7 +17,7 @@ import soundfile as sf
 import uvicorn
 from fastapi import FastAPI, File, HTTPException, UploadFile, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, FileResponse
 from starlette.concurrency import run_in_threadpool
 
 app = FastAPI(title="ChordFlow Stems Service")
@@ -50,6 +50,20 @@ CACHE_ROOT = Path(tempfile.gettempdir()) / "chordflow-stems-cache"
 CACHE_TTL = 1800  # 30 minutes
 CACHE_MAX = 4
 
+# Stockage persistant sur disque (survit au vidage du navigateur). Surcharge
+# possible via STEMS_PERSIST_ROOT. Repli sur un dossier temporaire si le disque
+# configure n'est pas accessible (ex. H: absent).
+_persist_env = os.environ.get("STEMS_PERSIST_ROOT", r"H:\chordflow-stems")
+PERSIST_ROOT = Path(_persist_env)
+try:
+    PERSIST_ROOT.mkdir(parents=True, exist_ok=True)
+    _probe = PERSIST_ROOT / ".probe"
+    _probe.write_text("ok", encoding="utf-8")
+    _probe.unlink(missing_ok=True)
+except OSError:
+    PERSIST_ROOT = Path(tempfile.gettempdir()) / "chordflow-stems-persist"
+    PERSIST_ROOT.mkdir(parents=True, exist_ok=True)
+
 # Journal persistant (survit aux redémarrages) et chansons en échec conservées
 # pour analyse. Fichiers : <TEMP>\chordflow-stems-logs\service.log et \failed\.
 LOG_ROOT = Path(tempfile.gettempdir()) / "chordflow-stems-logs"
@@ -70,19 +84,71 @@ def _journal(msg: str) -> None:
 # réellement présent. Sans cuDNN, le premier noyau Conv échoue
 # (« LoadLibrary failed for cudnn64_9.dll ») : on le détecte au démarrage pour
 # aller directement en CPU au lieu de gaspiller un essai GPU à chaque lancement.
-def _cudnn_available() -> bool:
+#
+# Il faut aussi cuBLAS 12 : cuDNN seul ne suffit pas (échec en cours de
+# séparation sur « Could not locate cublasLt64_12.dll »). Sur cette machine les
+# deux vivent hors du PATH (cuDNN dans Program Files, cuBLAS 12 installe via
+# pip dans %USERPROFILE%\cuda-libs). On ajoute leurs dossiers ici ; le
+# processus enfant (worker.py) herite du PATH modifie.
+_DLL_HANDLES: list = []
+
+
+def _candidats_dll_cuda() -> list[Path]:
+    dirs: list[Path] = []
+    env = os.environ.get("STEMS_CUDA_DLL_DIRS", "")
+    for part in env.split(os.pathsep):
+        if part.strip():
+            dirs.append(Path(part.strip()))
+    home = Path.home()
+    # cuBLAS installe par pip (nvidia-cublas-cu12) dans un dossier dedie.
+    for pattern in (
+        "cuda-libs/nvidia/cublas/bin",
+        "cuda-libs/nvidia/cudnn/bin",
+        "cuda-libs/nvidia/cuda_runtime/bin",
+    ):
+        candidate = home / pattern
+        if candidate.is_dir():
+            dirs.append(candidate)
+    # cuDNN 9 installe par l'installeur NVIDIA (version dans le chemin).
+    prog = Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+    for version in sorted((prog / "NVIDIA" / "CUDNN").glob("v9*"), reverse=True):
+        for sub in version.glob("bin/*/x64"):
+            if sub.is_dir():
+                dirs.append(sub)
+    return dirs
+
+
+def _ajouter_dll_cuda() -> None:
+    for d in _candidats_dll_cuda():
+        try:
+            _DLL_HANDLES.append(os.add_dll_directory(str(d)))
+        except (AttributeError, OSError):
+            pass
+        chemin = os.environ.get("PATH", "")
+        if str(d) not in chemin.split(os.pathsep):
+            os.environ["PATH"] = str(d) + os.pathsep + chemin
+
+
+def _dll_chargeable(nom: str) -> bool:
     if os.name != "nt":
         return True
     try:
         import ctypes
 
-        ctypes.WinDLL("cudnn64_9.dll")
+        ctypes.WinDLL(nom)
         return True
     except OSError:
         return False
 
 
-_use_cuda = _cudnn_available()
+_ajouter_dll_cuda()
+_use_cuda = _dll_chargeable("cudnn64_9.dll") and _dll_chargeable("cublasLt64_12.dll")
+
+# Un pic memoire CUDA (navigateur, autre appli GPU) ne doit pas condamner toute
+# la rafale au CPU : on compte les echecs consecutifs et on ne desactive le GPU
+# qu'apres _CUDA_FAIL_MAX, chaque chanson repartant sur CUDA entre-temps.
+_cuda_fails = 0
+_CUDA_FAIL_MAX = 3
 
 
 def _hf_model_cached() -> bool:
@@ -337,14 +403,27 @@ def _run_demucs(src: str, out_dir: str, providers: str, token: str | None) -> tu
 
 
 def _separate_with_fallback(src: str, out_dir: str, token: str | None = None) -> None:
-    """Essaie CUDA puis retombe sur le CPU (cuDNN absent ou GPU indisponible)."""
-    global _use_cuda
+    """Essaie CUDA puis retombe sur le CPU pour la chanson en cours.
+
+    Un echec CUDA isole (souvent un pic memoire : navigateur, autre appli)
+    ne doit pas condamner toute la rafale au CPU : on retente le GPU sur la
+    chanson suivante, et on ne le desactive qu'apres _CUDA_FAIL_MAX echecs
+    consecutifs (cuDNN/cuBLAS vraiment absents, GPU indisponible...).
+    """
+    global _use_cuda, _cuda_fails
     if _use_cuda:
         code, tail = _run_demucs(src, out_dir, "cuda", token)
         if code == 0:
+            _cuda_fails = 0
             return
-        _use_cuda = False
-        print(f"[stems] CUDA/CuDNN indisponible ({tail[:300]}) — passage en CPU", flush=True)
+        _cuda_fails += 1
+        print(
+            f"[stems] echec CUDA ({_cuda_fails}/{_CUDA_FAIL_MAX}) : {tail[:300]} — CPU pour cette chanson",
+            flush=True,
+        )
+        if _cuda_fails >= _CUDA_FAIL_MAX:
+            _use_cuda = False
+            print("[stems] CUDA desactive apres plusieurs echecs — passage en CPU", flush=True)
         for f in Path(out_dir).glob("*"):
             if f.is_file():
                 try:
@@ -354,6 +433,32 @@ def _separate_with_fallback(src: str, out_dir: str, token: str | None = None) ->
     code, tail = _run_demucs(src, out_dir, "cpu", token)
     if code != 0:
         raise RuntimeError(tail or f"code {code}")
+
+
+def _check_song_id(song_id: str) -> None:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", song_id or ""):
+        raise HTTPException(400, "song_id invalide")
+
+
+def _persist_stems(song_id: str, stems_dir: Path) -> None:
+    """Copie les stems vers le stockage persistant sur disque (survit au vidage
+    du navigateur). Les pistes manquantes sont ajoutées aux passages suivants :
+    la rafale ne demande souvent qu'une seule piste à la fois."""
+    _check_song_id(song_id)
+    try:
+        target = PERSIST_ROOT / song_id / "stems"
+        target.mkdir(parents=True, exist_ok=True)
+        copied = 0
+        for wav in stems_dir.glob("*.wav"):
+            dest = target / wav.name
+            if dest.is_file() and dest.stat().st_size == wav.stat().st_size:
+                continue
+            shutil.copy2(wav, dest)
+            copied += 1
+        if copied:
+            _journal(f"persist {song_id}: {copied} piste(s) -> {target}")
+    except OSError as e:
+        _journal(f"persist failed {song_id}: {e}")
 
 
 def _write_no_vocals(stems_dir: Path) -> Path:
@@ -424,14 +529,23 @@ def _device_info():
 
 
 @app.post("/reset")
-def reset_memory():
+def reset_memory(cuda: bool = Query(False)):
     """Libère les sessions ONNX et force le ramasse-miettes.
 
     Appelé par le client entre deux chansons d'une rafale : sans ça, la
     mémoire du service montait jusqu'à faire échouer la séparation suivante.
+
+    `?cuda=1` (garde-fou, après libération mémoire) réactive aussi CUDA si les
+    DLL sont chargeables : sinon `_use_cuda` restait bloqué à False jusqu'au
+    redémarrage du process, et toute la suite tournait 3x plus lentement.
     """
+    global _use_cuda, _cuda_fails
     _release_memory(drop_sessions=True)
-    return {"ok": True}
+    if cuda:
+        _use_cuda = _dll_chargeable("cudnn64_9.dll") and _dll_chargeable("cublasLt64_12.dll")
+        _cuda_fails = 0
+        print(f"[stems] reset cuda -> _use_cuda={_use_cuda}", flush=True)
+    return {"ok": True, "useCuda": _use_cuda}
 
 
 @app.get("/health")
@@ -451,6 +565,7 @@ async def separate_audio(
     file: UploadFile = File(...),
     stem: str = Query("vocals"),
     progress_token: str = Query(None),
+    song_id: str = Query(None),
 ):
     if stem not in ALL_STEMS:
         raise HTTPException(402, f"stem must be one of {ALL_STEMS}")
@@ -466,8 +581,8 @@ async def separate_audio(
     data = await file.read()
     if not data:
         raise HTTPException(400, "empty file")
-    if len(data) > 200 * 1024 * 1024:
-        raise HTTPException(413, "file too large (max 200MB)")
+    if len(data) > 500 * 1024 * 1024:
+        raise HTTPException(413, "file too large (max 500MB)")
 
     key = hashlib.sha256(data).hexdigest()
     entry = CACHE_ROOT / key
@@ -529,6 +644,15 @@ async def separate_audio(
                 raise HTTPException(500, "no output generated")
             stem_path = candidates[0]
 
+    # Persistance sur disque : survit au vidage du navigateur. On persiste
+    # des que song_id est fourni, en évitant de recopier si deja present.
+    if song_id:
+        try:
+            _write_no_vocals(stems_dir)
+        except Exception:
+            pass
+        _persist_stems(song_id, stems_dir)
+
     audio = stem_path.read_bytes()
     _mark_progress(progress_token, state="done", percent=100, line="séparation terminée")
 
@@ -548,6 +672,50 @@ def progress(token: str = Query(...)):
         **entry,
         "elapsed": round(max(0, time.time() - entry.get("started", time.time())), 1),
     }
+
+
+@app.get("/stems")
+def list_persisted_songs():
+    """Inventaire disque : évite de relancer la rafale sur des chansons déjà
+    extraites, même après un vidage du navigateur."""
+    songs = []
+    for entry in PERSIST_ROOT.iterdir():
+        if not entry.is_dir():
+            continue
+        names = sorted(p.stem for p in (entry / "stems").glob("*.wav"))
+        if names:
+            songs.append({"song_id": entry.name, "stems": names})
+    return {"songs": songs}
+
+
+@app.get("/stems/{song_id}")
+def list_persisted_stems(song_id: str):
+    _check_song_id(song_id)
+    stems_dir = PERSIST_ROOT / song_id / "stems"
+    if not stems_dir.is_dir():
+        raise HTTPException(404, "no persisted stems")
+    names = [p.stem for p in stems_dir.glob("*.wav")]
+    return {"song_id": song_id, "stems": names}
+
+
+@app.get("/stems/{song_id}/{stem}")
+def get_persisted_stem(song_id: str, stem: str):
+    _check_song_id(song_id)
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", stem or ""):
+        raise HTTPException(400, "stem invalide")
+    path = PERSIST_ROOT / song_id / "stems" / f"{stem}.wav"
+    if not path.is_file():
+        raise HTTPException(404, "stem not found")
+    return FileResponse(path, media_type="audio/wav", filename=f"{stem}.wav")
+
+
+@app.delete("/stems/{song_id}")
+def delete_persisted_stems(song_id: str):
+    _check_song_id(song_id)
+    target = PERSIST_ROOT / song_id
+    if target.exists():
+        shutil.rmtree(target, ignore_errors=True)
+    return {"ok": True}
 
 
 if __name__ == "__main__":
@@ -571,7 +739,7 @@ if __name__ == "__main__":
         f"[stems] demarrage sur le port {port} — modele {MODEL} — "
         f"device {info['device']} — providers {', '.join(info['providers'])} "
         f"(onnxruntime {info['ortVersion'] or '?'}); "
-        "si CUDA est annonce mais absent (cuDNN), le service bascule seul sur le CPU.",
+        "si CUDA est annonce mais absent (cuDNN/cuBLAS), le service bascule seul sur le CPU.",
         flush=True,
     )
     _journal(f"demarrage port {port} modele {MODEL} device {info['device']}")

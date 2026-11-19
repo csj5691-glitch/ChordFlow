@@ -17,7 +17,7 @@ const STEM_CHOICES = ["vocals", "noVocals", "drums", "bass", "guitar", "piano", 
 const STEM_FALLBACK: Record<string, string> = { guitar: "other", piano: "other" };
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 900;
 
 const wavCache = new Map<string, Buffer>();
 const WAV_CACHE_MAX = 2;
@@ -112,11 +112,13 @@ export async function POST(req: NextRequest) {
   let videoId = "";
   let stem = "vocals";
   let progressToken = "";
+  let songId = "";
   try {
     const body = await req.json();
     if (typeof body?.videoId === "string") videoId = body.videoId.trim();
     if (typeof body?.stem === "string") stem = body.stem.trim();
     if (typeof body?.progressToken === "string") progressToken = body.progressToken.trim();
+    if (typeof body?.songId === "string") songId = body.songId.trim();
   } catch {
     return NextResponse.json({ error: "corps invalide" }, { status: 400 });
   }
@@ -129,6 +131,11 @@ export async function POST(req: NextRequest) {
       { error: `stem invalide (choix: ${STEM_CHOICES.join(", ")})` },
       { status: 400 }
     );
+  }
+  // L'id chanson sert a persister les WAV sur H: (survit au vidage du
+  // navigateur). On le valide ici aussi : c'est une cle de dossier cote service.
+  if (songId && !/^[A-Za-z0-9_-]{1,128}$/.test(songId)) {
+    return NextResponse.json({ error: "songId invalide" }, { status: 400 });
   }
 
   let wav = wavCache.get(videoId);
@@ -231,6 +238,7 @@ export async function POST(req: NextRequest) {
     progressToken && /^[A-Za-z0-9_-]{8,64}$/.test(progressToken)
       ? `&progress_token=${encodeURIComponent(progressToken)}`
       : "";
+  const songIdQuery = songId ? `&song_id=${encodeURIComponent(songId)}` : "";
 
   // Attendre que le service Demucs soit prêt avant de lancer la séparation.
   if (progressToken) {
@@ -256,9 +264,14 @@ export async function POST(req: NextRequest) {
 
   for (const candidate of candidates) {
     const upstream = new FormData();
-    upstream.set("file", new File([new Uint8Array(wav)], "youtube.wav", { type: "audio/wav" }));
+    // Buffer est deja une vue Uint8Array : on en fabrique une vue SANS copie
+    // (offset/longueur respectes) au lieu de dupliquer le WAV (~50 Mo). Meme en
+    // cache, ces copies sortent du tas V8 et sont mal reclaimees par le serveur
+    // dev -> fuite jusqu'a 37 Go.
+    const wavView = new Uint8Array(wav.buffer as ArrayBuffer, wav.byteOffset, wav.byteLength);
+    upstream.set("file", new File([wavView], "youtube.wav", { type: "audio/wav" }));
     try {
-      res = await fetch(`${STEMS_SERVICE}/separate?stem=${encodeURIComponent(candidate)}${tokenQuery}`, {
+      res = await fetch(`${STEMS_SERVICE}/separate?stem=${encodeURIComponent(candidate)}${tokenQuery}${songIdQuery}`, {
         method: "POST",
         body: upstream,
         // Séparation Demucs CPU : mesurée à ~3,7x le temps réel (45 s d'audio
@@ -294,8 +307,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const audio = Buffer.from(await res.arrayBuffer());
-  return new NextResponse(audio, {
+  // On transmet le flux du service stems directement au navigateur. L'ancien
+  // Buffer.from(await res.arrayBuffer()) materialisait ~50 Mo de plus par piste
+  // (copie du WAV) et participait a la fuite memoire du serveur dev. En flux,
+  // le WAV n'est jamais entierement en memoire cote Next.
+  return new NextResponse(res.body, {
     status: 200,
     headers: {
       "Content-Type": "audio/wav",

@@ -8,10 +8,20 @@ REM Si un service ecoute deja sur le port, le script se termine sans boucle.
 
 cd /d "%~dp0"
 set STEMS_PORT=8765
+REM Interpreteur epingle : les dependances (numpy, torch, demucs) sont dans
+REM Python 3.13. Sans ce chemin absolu, "python" peut resoudre vers le 3.11
+REM installe pour AudioSep, qui n'a aucune de ces dependances.
+set "PYTHON=C:\Users\cs-je\AppData\Local\Programs\Python\Python313\python.exe"
+if not exist "%PYTHON%" (
+  echo [stems] Python introuvable : %PYTHON%
+  pause
+  exit /b 1
+)
 
 :run
-echo [stems] demarrage du service sur le port %STEMS_PORT% (modele htdemucs, 4 pistes)...
-python services\stems\server.py
+set STEMS_MODEL=htdemucs_6s
+echo [stems] demarrage du service sur le port %STEMS_PORT% (modele htdemucs_6s, 6 pistes)...
+"%PYTHON%" services\stems\server.py
 set CODE=%ERRORLEVEL%
 if "%CODE%"=="0" (
   echo.

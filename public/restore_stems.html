@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>ChordFlow - Restauration des stems (tout-en-un)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #111; color: #eee; max-width: 720px; margin: 40px auto; padding: 0 20px; }
+    h1 { color: #f59e0b; }
+    label { display: block; margin: 12px 0 4px; font-weight: 600; }
+    input[type=text], input[type=file] { width: 100%; padding: 8px; background: #222; color: #eee; border: 1px solid #444; border-radius: 6px; }
+    button { margin-top: 16px; padding: 10px 20px; background: #f59e0b; color: #000; font-weight: 700; border: none; border-radius: 8px; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #log { margin-top: 20px; font-family: monospace; font-size: 13px; background: #000; padding: 12px; border-radius: 8px; white-space: pre-wrap; min-height: 60px; }
+    .row { display: flex; gap: 8px; align-items: center; }
+    .row input { flex: 1; }
+  </style>
+</head>
+<body>
+  <h1>ChordFlow — Restauration des stems</h1>
+  <p>Tout se fait dans le navigateur : selectionnez les 6 fichiers WAV (vocals, drums, bass, guitar, piano, other), le script melange les 5 stems non-vocaux en <code>noVocals.wav</code>, puis ecrit le tout dans l'IndexedDB <code>chordflow-audio</code>.</p>
+
+  <label for="songId">Id de la chanson</label>
+  <input type="text" id="songId" value="custom-1793831979460-shls4" />
+
+  <label for="vocals">vocals.wav</label>
+  <input type="file" id="vocals" accept="audio/wav,audio/*" />
+
+  <label for="drums">drums.wav</label>
+  <input type="file" id="drums" accept="audio/wav,audio/*" />
+
+  <label for="bass">bass.wav</label>
+  <input type="file" id="bass" accept="audio/wav,audio/*" />
+
+  <label for="guitar">guitar.wav</label>
+  <input type="file" id="guitar" accept="audio/wav,audio/*" />
+
+  <label for="piano">piano.wav</label>
+  <input type="file" id="piano" accept="audio/wav,audio/*" />
+
+  <label for="other">other.wav</label>
+  <input type="file" id="other" accept="audio/wav,audio/*" />
+
+  <button id="restore" disabled>Melanger et restaurer dans IndexedDB</button>
+
+  <div id="log">En attente des 6 fichiers…</div>
+
+  <script>
+    const log = (msg) => { const el = document.getElementById("log"); el.textContent += msg + "\n"; el.scrollTop = el.scrollHeight; };
+    const ids = ["vocals","drums","bass","guitar","piano","other"];
+    const inputs = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
+    const btn = document.getElementById("restore");
+
+    function updateBtn() {
+      btn.disabled = !ids.every(id => inputs[id].files.length > 0);
+    }
+    ids.forEach(id => inputs[id].addEventListener("change", updateBtn));
+
+    function writeString(view, offset, str) {
+      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    }
+
+    function encodeWAV(audioBuffer) {
+      const numChannels = audioBuffer.numberOfChannels;
+      const sampleRate = audioBuffer.sampleRate;
+      const samples = audioBuffer.length;
+      const bytesPerSample = 2; // 16-bit PCM
+      const blockAlign = numChannels * bytesPerSample;
+      const byteRate = sampleRate * blockAlign;
+      const dataSize = samples * blockAlign;
+      const buffer = new ArrayBuffer(44 + dataSize);
+      const view = new DataView(buffer);
+      writeString(view, 0, "RIFF");
+      view.setUint32(4, 36 + dataSize, true);
+      writeString(view, 8, "WAVE");
+      writeString(view, 12, "fmt ");
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true); // PCM
+      view.setUint16(22, numChannels, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, byteRate, true);
+      view.setUint16(32, blockAlign, true);
+      view.setUint16(34, 16, true);
+      writeString(view, 36, "data");
+      view.setUint32(40, dataSize, true);
+      let offset = 44;
+      for (let i = 0; i < samples; i++) {
+        for (let ch = 0; ch < numChannels; ch++) {
+          const s = Math.max(-1, Math.min(1, audioBuffer.getChannelData(ch)[i]));
+          view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+          offset += 2;
+        }
+      }
+      return new Blob([buffer], { type: "audio/wav" });
+    }
+
+    async function decodeFile(file, ctx) {
+      const arr = await file.arrayBuffer();
+      return await ctx.decodeAudioData(arr);
+    }
+
+    btn.addEventListener("click", async () => {
+      const songId = document.getElementById("songId").value.trim();
+      if (!songId) { log("Id de chanson vide."); return; }
+      btn.disabled = true;
+      log("Demarrage…");
+
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      let decoded = {};
+      for (const id of ids) {
+        log("Decodage " + id + ".wav…");
+        try {
+          decoded[id] = await decodeFile(inputs[id].files[0], ctx);
+        } catch (e) {
+          log("ERREUR decodage " + id + " : " + e.message);
+          btn.disabled = false;
+          return;
+        }
+      }
+
+      // Mix des 5 stems non-vocaux -> noVocals (somme, protection clipping).
+      const vocalsBuf = decoded.vocals;
+      const nonVocalIds = ["drums","bass","guitar","piano","other"];
+      const maxLen = Math.max(...nonVocalIds.map(id => decoded[id].length));
+      const numChannels = Math.max(...nonVocalIds.map(id => decoded[id].numberOfChannels));
+      const sampleRate = decoded[nonVocalIds[0]].sampleRate;
+      const noVocalsBuf = ctx.createBuffer(numChannels, maxLen, sampleRate);
+      let peak = 0;
+      for (let ch = 0; ch < numChannels; ch++) {
+        const out = noVocalsBuf.getChannelData(ch);
+        for (const id of nonVocalIds) {
+          const buf = decoded[id];
+          const data = buf.numberOfChannels > ch ? buf.getChannelData(ch) : buf.getChannelData(0);
+          for (let i = 0; i < buf.length; i++) {
+            out[i] += data[i];
+          }
+        }
+        for (let i = 0; i < maxLen; i++) {
+          if (Math.abs(out[i]) > peak) peak = Math.abs(out[i]);
+        }
+      }
+      if (peak > 0.99) {
+        for (let ch = 0; ch < numChannels; ch++) {
+          const out = noVocalsBuf.getChannelData(ch);
+          for (let i = 0; i < maxLen; i++) out[i] = out[i] / peak * 0.99;
+        }
+        log("Normalisation noVocals (pic " + peak.toFixed(3) + " -> 0.99)");
+      } else {
+        log("Pic noVocals " + peak.toFixed(3) + ", pas de normalisation");
+      }
+
+      log("Encodage WAV…");
+      const noVocalsBlob = encodeWAV(noVocalsBuf);
+      const vocalsBlob = encodeWAV(vocalsBuf);
+      log("noVocals.wav : " + (noVocalsBlob.size / 1024 / 1024).toFixed(1) + " Mo");
+      log("vocals.wav : " + (vocalsBlob.size / 1024 / 1024).toFixed(1) + " Mo");
+
+      log("Ouverture IndexedDB chordflow-audio…");
+      let db;
+      try {
+        db = await new Promise((resolve, reject) => {
+          const req = indexedDB.open("chordflow-audio", 1);
+          req.onupgradeneeded = () => {
+            const d = req.result;
+            if (!d.objectStoreNames.contains("stems")) d.createObjectStore("stems");
+          };
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      } catch (e) {
+        log("ERREUR ouverture DB : " + e.message);
+        btn.disabled = false;
+        return;
+      }
+
+      try {
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction("stems", "readwrite");
+          const store = tx.objectStore("stems");
+          store.put({ noVocals: noVocalsBlob, vocals: vocalsBlob }, songId);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+        log("OK : stems enregistres sous la cle '" + songId + "'.");
+        log("Rechargez l'app ChordFlow pour voir les stems.");
+      } catch (e) {
+        log("ERREUR ecriture : " + e.message);
+      } finally {
+        db.close();
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

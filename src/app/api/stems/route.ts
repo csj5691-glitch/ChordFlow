@@ -32,7 +32,7 @@ const STEM_FALLBACK: Record<string, string> = { guitar: "other", piano: "other" 
 const SEPARATION_TIMEOUT_MS = 1_800_000;
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 900;
 
 export async function POST(req: NextRequest) {
   const form = await req.formData().catch(() => null);
@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
     req.nextUrl.searchParams.get("stem") ??
     (form.get("stem") as string | null) ??
     "vocals";
+  const songId = req.nextUrl.searchParams.get("song_id")?.trim() ?? "";
   if (!STEM_CHOICES.includes(stem as (typeof STEM_CHOICES)[number])) {
     return NextResponse.json(
       { error: `stem invalide (choix: ${STEM_CHOICES.join(", ")})` },
@@ -87,7 +88,8 @@ export async function POST(req: NextRequest) {
     const body = new FormData();
     body.set("file", file, file.name || "audio.mp3");
     try {
-      res = await fetch(`${STEMS_SERVICE}/separate?stem=${encodeURIComponent(candidate)}${tokenQuery}`, {
+      const url = `${STEMS_SERVICE}/separate?stem=${encodeURIComponent(candidate)}${tokenQuery}${songId ? `&song_id=${encodeURIComponent(songId)}` : ""}`;
+      res = await fetch(url, {
         method: "POST",
         body,
         signal: AbortSignal.timeout(SEPARATION_TIMEOUT_MS),
