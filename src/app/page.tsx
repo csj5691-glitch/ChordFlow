@@ -19,12 +19,12 @@ import {
 } from "@/lib/repertoire-sort";
 import { SongTab } from "@/lib/types";
 import { songHasYoutube, songHasSpotify, usePersistedUploads } from "@/lib/song-sources";
-import { Plus, Trash2, Pencil, ArrowUpAZ, ArrowDownAZ, ListFilter, ArrowUp, ListMusic, Search, Mic2, Combine } from "lucide-react";
+import { Plus, Trash2, Pencil, ArrowUpAZ, ArrowDownAZ, ListFilter, ArrowUp, ListMusic, Search, Mic2, Combine, Music2 } from "lucide-react";
 import { SourceBadges, GuitarProLogo } from "@/components/SourceBadges";
 import { loadHomeScroll, saveHomeScroll } from "@/lib/home-scroll-store";
 import { saveYouTubeId, loadYouTubeId } from "@/lib/youtube-store";
 import { saveAudioStem, hasAudioStems } from "@/lib/audio-store";
-import { hasStems } from "@/lib/stems-db";
+import { hasStems, saveStem, loadStems } from "@/lib/stems-db";
 import { loadPersistedStemsIndex, persistedStemsFor } from "@/lib/persisted-stems";
 import {
   findDuplicateGroups,
@@ -32,6 +32,20 @@ import {
   migrateSongExtras,
 } from "@/lib/duplicate-songs";
 import { authorize, getValidToken, isLoggedIn, clearToken, loadToken } from "@/lib/spotify-auth";
+
+// Envoie une alerte sur le téléphone via ntfy (sans abonnement).
+const NTFY_TOPIC = "chordflow-alerts-fdc021e03bc7";
+function sendMobileAlert(title: string, message: string, priority: "min" | "low" | "default" | "high" | "urgent" = "default") {
+  try {
+    void fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
+      method: "POST",
+      headers: { Title: title, Priority: priority, Tags: "warning" },
+      body: message,
+    }).catch(() => {});
+  } catch {
+    /* ignore */
+  }
+}
 
 function SearchResults({
   repertoire,
@@ -217,6 +231,28 @@ export default function Home() {
   // Chansons à qui il manque des stems (calculé une fois le répertoire chargé).
   const [stemsGap, setStemsGap] = useState<{ missing: number; missingHorsCover: number; noYoutube: number } | null>(null);
   const stemsCountedRef = useRef(false);
+  // Pistes sélectionnées pour l'extraction multi-pistes en rafale.
+  const MULTI_STEM_IDS = ["vocals", "drums", "bass", "guitar", "piano", "other"] as const;
+  type MultiStemId = (typeof MULTI_STEM_IDS)[number];
+  const MULTI_STEM_LABELS: Record<MultiStemId, string> = {
+    vocals: "Voix",
+    drums: "Batterie",
+    bass: "Basse",
+    guitar: "Guitare",
+    piano: "Piano",
+    other: "Autres",
+  };
+  const MULTI_STEM_COLORS: Record<MultiStemId, string> = {
+    vocals: "bg-violet-500",
+    drums: "bg-amber-500",
+    bass: "bg-emerald-500",
+    guitar: "bg-sky-500",
+    piano: "bg-purple-400",
+    other: "bg-zinc-400",
+  };
+  const [selectedMultiStems, setSelectedMultiStems] = useState<Set<MultiStemId>>(new Set(MULTI_STEM_IDS));
+  const [multiStemsGap, setMultiStemsGap] = useState<number | null>(null);
+  const multiStemsCountedRef = useRef(false);
 
   useEffect(() => {
     const onScroll = () => {
@@ -518,8 +554,10 @@ export default function Home() {
     let found = 0;
     let failed = 0;
     let lastError = "";
+    const failedItems: string[] = [];
     for (let i = 0; i < targets.length; i++) {
       const s = targets[i];
+      const label = [s.artist, s.title].filter(Boolean).join(" - ").trim() || s.title || s.id;
       setBulkProgress({ current: i + 1, total: targets.length, label: `YouTube : ${s.title}` });
       try {
         const res = await fetch("/api/yt-search", {
@@ -529,6 +567,7 @@ export default function Home() {
         });
         if (!res.ok) {
           failed++;
+          failedItems.push(label);
           const data = (await res.json().catch(() => null)) as { error?: string } | null;
           lastError = data?.error ?? `HTTP ${res.status}`;
         } else {
@@ -539,11 +578,13 @@ export default function Home() {
             found++;
           } else {
             failed++;
+            failedItems.push(label);
             lastError = "aucune vidéo trouvée";
           }
         }
       } catch (e) {
         failed++;
+        failedItems.push(label);
         lastError = e instanceof Error ? e.message : String(e);
       }
       // Petite pause pour ne pas déclencher le blocage anti-robot de YouTube.
@@ -551,11 +592,13 @@ export default function Home() {
         await new Promise((r) => window.setTimeout(r, 600));
       }
     }
-    const detail = failed > 0 && lastError ? ` Dernière erreur : ${lastError.slice(0, 160)}` : "";
+    const detail = failed > 0 && lastError ? `\nDernière erreur : ${lastError.slice(0, 160)}` : "";
+    const failedList = failedItems.length > 0 ? `\nÉchecs : ${failedItems.join(" ; ")}` : "";
     setBulkStatus(
       `YouTube : ${found} lien(s) trouvé(s) sur ${targets.length}` +
         (failed > 0 ? ` (${failed} échec(s)).` : ".") +
-        detail
+        detail +
+        failedList
     );
     setBulkRunning(false);
     setBulkProgress(null);
@@ -593,6 +636,60 @@ export default function Home() {
     stemsCountedRef.current = true;
     void computeStemsGap(customSongs).then(setStemsGap);
   }, [loaded, customSongs, computeStemsGap]);
+
+  // Charge la sélection de pistes depuis localStorage.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("chordflow-bulk-multi-stems");
+      if (raw) {
+        const arr = JSON.parse(raw) as string[];
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setSelectedMultiStems(new Set(arr.filter((x) => MULTI_STEM_IDS.includes(x as MultiStemId)) as MultiStemId[]));
+      }
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persiste la sélection.
+  useEffect(() => {
+    try {
+      localStorage.setItem("chordflow-bulk-multi-stems", JSON.stringify([...selectedMultiStems]));
+    } catch {
+      /* ignore */
+    }
+  }, [selectedMultiStems]);
+
+  // Compte les chansons YouTube manquant au moins une piste sélectionnée.
+  const computeMultiStemsGap = useCallback(async () => {
+    if (selectedMultiStems.size === 0) return 0;
+    const selected = [...selectedMultiStems];
+    let missing = 0;
+    for (const s of customSongs) {
+      const videoId = s.youtubeId || loadYouTubeId(s.id);
+      if (!videoId) continue;
+      const isGz2hCover = /\(cover by gz2h\)/i.test(`${s.title} ${s.artist}`);
+      if (isGz2hCover) continue;
+      const records = await loadStems(s.id).catch(() => []);
+      const present = new Set(records.map((r) => r.stem));
+      const persisted = await persistedStemsFor(s.id);
+      const hasAll = selected.every((st) => present.has(st) || persisted.has(st));
+      if (!hasAll) missing++;
+    }
+    return missing;
+  }, [customSongs, selectedMultiStems]);
+
+  useEffect(() => {
+    if (!loaded || customSongs.length === 0) return;
+    multiStemsCountedRef.current = false;
+    const run = async () => {
+      multiStemsCountedRef.current = true;
+      const m = await computeMultiStemsGap();
+      setMultiStemsGap(m);
+    };
+    void run();
+  }, [loaded, customSongs, selectedMultiStems, computeMultiStemsGap]);
 
   const handleBulkStems = useCallback(async () => {
     // 1. Calcul frais des chansons sans stems (le répertoire a pu changer).
@@ -642,6 +739,7 @@ export default function Home() {
           "Service stems injoignable — lance start-stems.bat puis réessaie (localhost uniquement)."
         );
         setBulkStatus(null);
+        sendMobileAlert("ChordFlow — Service stems injoignable", "Le service stems (port 8765) ne répond pas. Lance start-stems.bat.", "high");
         return;
       }
     } catch {
@@ -649,6 +747,7 @@ export default function Home() {
         "Service stems injoignable — lance start-stems.bat puis réessaie (localhost uniquement)."
       );
       setBulkStatus(null);
+      sendMobileAlert("ChordFlow — Service stems injoignable", "Le service stems (port 8765) ne répond pas. Lance start-stems.bat.", "high");
       return;
     }
 
@@ -725,6 +824,7 @@ export default function Home() {
           );
           setBulkRunning(false);
           setBulkProgress(null);
+          sendMobileAlert("ChordFlow — Extraction stems arrêtée", `Arrêt après 3 échecs consécutifs. ${done}/${targets.length} chanson(s) traitée(s). Cause : ${lastError.slice(0, 160)}`, "high");
           await loadPersistedStemsIndex(true);
           setStemsGap(await computeStemsGap(customSongs));
           return;
@@ -744,9 +844,225 @@ export default function Home() {
     );
     setBulkRunning(false);
     setBulkProgress(null);
+    sendMobileAlert(
+      "ChordFlow — Extraction stems terminée",
+      `Stems : ${done}/${targets.length} chanson(s) traitée(s)` + (failed > 0 ? ` (${failed} échec(s)). Dernière erreur : ${lastError.slice(0, 160)}` : "."),
+      failed > 0 ? "high" : "low"
+    );
     await loadPersistedStemsIndex(true);
     setStemsGap(await computeStemsGap(customSongs));
   }, [customSongs, computeStemsGap]);
+
+  const handleBulkMultiStems = useCallback(async () => {
+    if (selectedMultiStems.size === 0) {
+      setBulkError("Sélectionne au moins une piste à extraire.");
+      return;
+    }
+    setBulkError(null);
+    const selected = [...selectedMultiStems] as MultiStemId[];
+    // 1. Calcul des chansons YouTube manquant au moins une piste sélectionnée.
+    setBulkStatus("Calcul des chansons sans pistes…");
+    const withYoutube = customSongs.filter((s) => !!(s.youtubeId || loadYouTubeId(s.id)));
+    const isGz2hCover = (s: SongTab) => /\(cover by gz2h\)/i.test(`${s.title} ${s.artist}`);
+    const targets: { song: SongTab; missing: MultiStemId[] }[] = [];
+    for (const s of withYoutube) {
+      if (isGz2hCover(s)) continue;
+      const records = await loadStems(s.id).catch(() => []);
+      const present = new Set(records.map((r) => r.stem));
+      const persisted = await persistedStemsFor(s.id);
+      const missing = selected.filter((st) => !present.has(st) && !persisted.has(st));
+      if (missing.length > 0) targets.push({ song: s, missing });
+    }
+    if (targets.length === 0) {
+      setBulkStatus(
+        withYoutube.length === 0
+          ? "Aucune chanson avec lien YouTube."
+          : `Toutes les ${withYoutube.length} chanson(s) ont déjà les pistes sélectionnées.`
+      );
+      return;
+    }
+    const totalStems = targets.reduce((acc, t) => acc + t.missing.length, 0);
+    if (
+      !window.confirm(
+        `Extraire ${totalStems} piste(s) (${selected.join(", ")}) pour ${targets.length} chanson(s) ?\n` +
+          `Le service Demucs tourne une fois par chanson puis lit les pistes en cache.\n` +
+          `Temps estimé : ~2-4 min par chanson. Laisse tourner.`
+      )
+    ) {
+      setBulkStatus(null);
+      return;
+    }
+    // 2. Santé du service.
+    try {
+      const health = await fetch("/api/stems-health", { cache: "no-store" });
+      const data = (await health.json().catch(() => null)) as { ok?: boolean } | null;
+      if (!health.ok || !data?.ok) {
+        setBulkError("Service stems injoignable — lance start-stems.bat puis réessaie.");
+        setBulkStatus(null);
+        sendMobileAlert("ChordFlow — Service stems injoignable", "Le service stems (port 8765) ne répond pas. Lance start-stems.bat.", "high");
+        return;
+      }
+    } catch {
+      setBulkError("Service stems injoignable — lance start-stems.bat puis réessaie.");
+      setBulkStatus(null);
+      sendMobileAlert("ChordFlow — Service stems injoignable", "Le service stems (port 8765) ne répond pas. Lance start-stems.bat.", "high");
+      return;
+    }
+
+    setBulkRunning(true);
+    setBulkStatus(null);
+    let doneSongs = 0;
+    let doneStems = 0;
+    let failedStems = 0;
+    let lastError = "";
+    let consecutiveFails = 0;
+    const totalSongs = targets.length;
+
+    for (let i = 0; i < targets.length; i++) {
+      const { song, missing } = targets[i];
+      const videoId = (song.youtubeId || loadYouTubeId(song.id)) as string;
+      // Pause coopérative : si le garde-fou mémoire recycle le serveur dev, on
+      // attend ici (entre deux chansons) plutôt que d'être coupé en pleine
+      // séparation. Un échec réseau = « toujours en pause » (serveur qui
+      // redémarre), pour ne pas repartir trop tôt.
+      for (let pauseTries = 0; pauseTries < 120; pauseTries++) {
+        let enPause = false;
+        try {
+          const g = (await fetch("/api/guard-pause", { cache: "no-store" }).then((r) =>
+            r.json()
+          )) as { pause?: boolean };
+          enPause = g?.pause === true;
+        } catch {
+          enPause = true;
+        }
+        if (!enPause) break;
+        setBulkProgress({
+          current: doneStems + 1,
+          total: totalStems,
+          label: `Pause mémoire : le serveur dev redémarre, reprise automatique… (${doneStems}/${totalStems} faits)`,
+        });
+        await new Promise((r) => window.setTimeout(r, 4000));
+      }
+      for (let j = 0; j < missing.length; j++) {
+        const stem = missing[j];
+        setBulkProgress({
+          current: doneStems + 1,
+          total: totalStems,
+          label: `Pistes ${doneSongs + 1}/${totalSongs} · ${song.title} — ${stem}`,
+        });
+        const token = crypto.randomUUID();
+        let songError: string | null = "non lancé";
+        // Le garde-fou peut recycler le serveur dev entre deux chansons : la
+        // requête en cours échoue alors en « fetch failed » (ou 502/503/504).
+        // On attend le redémarrage (~5-15 s) puis on retente. Le service stems
+        // garde le résultat en cache, donc la reprise ne resépare pas.
+        const retryDelays = [8_000, 15_000, 25_000, 40_000];
+        for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+          let ok = true;
+          let err = "";
+          let coupureServeur = false;
+          try {
+            const res = await fetch("/api/yt-stems", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ videoId, stem, progressToken: token, songId: song.id }),
+              cache: "no-store",
+            });
+            if (!res.ok) {
+              const data = (await res.json().catch(() => null)) as { error?: string } | null;
+              err = data?.error ?? `HTTP ${res.status}`;
+              ok = false;
+              coupureServeur = res.status === 502 || res.status === 503 || res.status === 504;
+            } else {
+              const blob = await res.blob();
+              await saveStem({
+                id: `${song.id}::${stem}`,
+                songId: song.id,
+                stem,
+                blob,
+                fileName: `${stem}.wav`,
+                createdAt: Date.now(),
+              });
+            }
+          } catch (e) {
+            err = e instanceof Error ? e.message : String(e);
+            ok = false;
+            // « fetch failed » / ECONNREFUSED : le serveur dev redémarre.
+            coupureServeur = true;
+          }
+          if (ok) {
+            songError = null;
+            break;
+          }
+          songError = err || "échec inconnu";
+          // Vidéo supprimée/privée : inutile de retenter 5 fois (~90 s perdues).
+          if (/unavailable|private video|supprimée|not available|n'est pas disponible/i.test(songError)) break;
+          if (attempt < retryDelays.length) {
+            setBulkProgress({
+              current: doneStems + 1,
+              total: totalStems,
+              label:
+                `Pistes ${doneSongs + 1}/${totalSongs} · ${song.title} — ${stem} — ` +
+                (coupureServeur
+                  ? "serveur en cours de redémarrage"
+                  : "mémoire libérée, nouvelle tentative") +
+                ` (${attempt + 1}/${retryDelays.length})…`,
+            });
+            // Inutile si le serveur est encore arrêté (le fetch échouera et le
+            // service se réinitialise de lui-même au démarrage).
+            await fetch("/api/stems-reset", { method: "POST" }).catch(() => null);
+            await new Promise((r) => window.setTimeout(r, retryDelays[attempt]));
+          }
+        }
+        const videoMorte = /unavailable|private video|supprimée|not available|n'est pas disponible/i.test(songError ?? "");
+        if (songError === null) {
+          doneStems++;
+          consecutiveFails = 0;
+        } else if (videoMorte) {
+          // Échec définitif (vidéo retirée de YouTube) : on la saute et on
+          // remet le compteur à zéro, sinon 3 vidéos mortes arrêteraient la
+          // rafale entière.
+          failedStems++;
+          lastError = songError;
+          consecutiveFails = 0;
+        } else {
+          failedStems++;
+          lastError = songError;
+          consecutiveFails++;
+          if (consecutiveFails >= 3) {
+            setBulkStatus(
+              `Pistes : arrêt après 3 échecs consécutifs — ${doneStems} piste(s) traitée(s) sur ${totalStems}.` +
+                (lastError ? ` Dernière erreur : ${lastError.slice(0, 160)}` : "")
+            );
+            setBulkRunning(false);
+            setBulkProgress(null);
+            sendMobileAlert("ChordFlow — Extraction pistes arrêtée", `Arrêt après 3 échecs consécutifs. ${doneStems}/${totalStems} piste(s) traitée(s). Cause : ${lastError.slice(0, 160)}`, "high");
+            await loadPersistedStemsIndex(true);
+            setMultiStemsGap(await computeMultiStemsGap());
+            return;
+          }
+        }
+        await fetch("/api/stems-reset", { method: "POST" }).catch(() => null);
+        await new Promise((r) => window.setTimeout(r, 500));
+      }
+      doneSongs++;
+      await new Promise((r) => window.setTimeout(r, 1000));
+    }
+
+    setBulkStatus(
+      `Pistes : ${doneStems} piste(s) traitée(s) sur ${totalStems}` +
+        (failedStems > 0 ? ` (${failedStems} échec(s)). Dernière erreur : ${lastError.slice(0, 160)}` : ".")
+    );
+    setBulkRunning(false);
+    setBulkProgress(null);
+    sendMobileAlert(
+      "ChordFlow — Extraction pistes terminée",
+      `Pistes : ${doneStems}/${totalStems} piste(s) traitée(s)` + (failedStems > 0 ? ` (${failedStems} échec(s)). Dernière erreur : ${lastError.slice(0, 160)}` : "."),
+      failedStems > 0 ? "high" : "low"
+    );
+    await loadPersistedStemsIndex(true);
+    setMultiStemsGap(await computeMultiStemsGap());
+  }, [customSongs, selectedMultiStems, computeMultiStemsGap]);
 
   return (
     <div className="flex flex-col items-center min-h-screen">
@@ -950,6 +1266,47 @@ export default function Home() {
                 ? "Extraction des stems…"
                 : `Extraire stems en rafale${stemsGap ? ` (${stemsGap.missingHorsCover})` : ""}`}
             </button>
+            {/* Sélection de pistes pour l'extraction multi-pistes */}
+            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+              <span className="text-xs text-zinc-400 mr-1">Pistes :</span>
+              {MULTI_STEM_IDS.map((sid) => {
+                const active = selectedMultiStems.has(sid);
+                return (
+                  <button
+                    key={sid}
+                    type="button"
+                    disabled={bulkRunning}
+                    onClick={() => {
+                      setSelectedMultiStems((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(sid)) next.delete(sid);
+                        else next.add(sid);
+                        return next;
+                      });
+                    }}
+                    className={`text-xs px-2.5 py-1 rounded-full border transition-colors disabled:opacity-50 ${
+                      active
+                        ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                        : "bg-zinc-800/40 text-zinc-500 border-zinc-700/40"
+                    }`}
+                  >
+                    {MULTI_STEM_LABELS[sid]}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={handleBulkMultiStems}
+              disabled={bulkRunning || mergeRunning || selectedMultiStems.size === 0}
+              title={`Extraire ${multiStemsGap ?? "?"} chanson(s) manquant au moins une des pistes sélectionnées`}
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-sky-500/20 text-sky-300 border border-sky-500/30 rounded-full hover:bg-sky-500/30 transition-colors disabled:opacity-50"
+            >
+              <Music2 className="w-3.5 h-3.5" />
+              {bulkProgress?.label?.startsWith("Pistes")
+                ? "Extraction des pistes…"
+                : `Extraire pistes en rafale${multiStemsGap !== null ? ` (${multiStemsGap})` : ""}`}
+            </button>
           </div>
           {bulkProgress && (
             <div className="flex flex-col gap-1.5">
@@ -969,11 +1326,28 @@ export default function Home() {
               </div>
             </div>
           )}
-          {bulkStatus && (
-            <p className="text-xs text-emerald-400">{bulkStatus}</p>
-          )}
-          {bulkError && (
-            <p className="text-xs text-red-400">{bulkError}</p>
+          {(bulkStatus || bulkError) && (
+            <div className="flex items-start gap-2">
+              <div className="flex-1 min-w-0">
+                {bulkStatus && (
+                  <p className="text-xs text-emerald-400 whitespace-pre-line">{bulkStatus}</p>
+                )}
+                {bulkError && (
+                  <p className="text-xs text-red-400 whitespace-pre-line">{bulkError}</p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setBulkStatus(null);
+                  setBulkError(null);
+                }}
+                className="shrink-0 text-[11px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-500 transition-colors"
+                title="Effacer le statut de la rafale"
+              >
+                Réinitialiser
+              </button>
+            </div>
           )}
           <p className="text-[11px] text-zinc-600">
             ⚠️ L&apos;extraction des stems tourne en CPU (~9 min par chanson de 4 min). Lance-la sur un sous-ensemble ou laisse tourner.

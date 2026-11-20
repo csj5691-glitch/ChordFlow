@@ -9,12 +9,14 @@ import {
   useState,
   type SyntheticEvent,
 } from "react";
+import { loadStems } from "@/lib/stems-db";
+import { loadPersistedStemsIndex, persistedStemsFor } from "@/lib/persisted-stems";
 import { ChevronLeft, ChevronRight, Music, Pause, Square, Play, RotateCcw, X } from "lucide-react";
 import { renderSequence, beatsForShape, legatoStringName, measureInfoFromSignature, measureForBeat, beatInMeasure, repeatPasses, sectionRepeats, type SynthEvent } from "@/lib/chord-synth";
 import { playGmEvent } from "@/lib/gm-voice";
 import { soundingNotes } from "@/lib/articulation";
 import { parseChordContent } from "@/lib/chord-parser";
-import { decodeHtmlEntities } from "@/lib/ug-scraper";
+import { decodeHtmlEntities } from "@/lib/html-entities";
 import { loadStemShift, saveStemShift } from "@/lib/line-offsets";
 import { loadGridVolume, saveGridVolume } from "@/lib/grid-volume";
 import type { SavedChordShape, SongTab } from "@/lib/types";
@@ -136,6 +138,16 @@ function strumDirection(startBeat: number, beats: number): "D" | "U" {
 // rend visible immédiatement. À mettre à jour à chaque déploiement.
 const BUILD_TAG = "tab-repetitions";
 
+const MIX_STEMS = [
+  { id: "drums", label: "Batterie" },
+  { id: "bass", label: "Basse" },
+  { id: "guitar", label: "Guitare" },
+  { id: "piano", label: "Piano" },
+  { id: "other", label: "Autres" },
+] as const;
+
+type MixStemId = (typeof MIX_STEMS)[number]["id"];
+
 export default function Conductor({
   diagrams,
   bpm,
@@ -226,7 +238,31 @@ export default function Conductor({
   // pas dans le Chef (boutons -/+). On garde le reglage local avec sa valeur
   // de depart pour l'abandonner des que la prop change, sans effet de synchro
   // (un setState dans un effet provoquait un rendu en cascade).
-  const [instVolume, setInstVolume] = useState(1);
+  const [mixStemUrls, setMixStemUrls] = useState<Partial<Record<MixStemId, string>>>({});
+  const [mixStemVolumes, setMixStemVolumes] = useState<Record<MixStemId, number>>({
+    drums: 1,
+    bass: 1,
+    guitar: 1,
+    piano: 1,
+    other: 1,
+  });
+  const mixStemVolRefs = useRef<Record<MixStemId, number>>({
+    drums: 1,
+    bass: 1,
+    guitar: 1,
+    piano: 1,
+    other: 1,
+  });
+  const mixStemAudioRefs = useRef<Partial<Record<MixStemId, HTMLAudioElement>>>({});
+  const changeMixStemVolume = (id: MixStemId, v: number) => {
+    setMixStemVolumes((prev) => ({ ...prev, [id]: v }));
+    mixStemVolRefs.current[id] = v;
+    const el = mixStemAudioRefs.current[id];
+    if (el) el.volume = v;
+    const gain = stemGainRefs.current[id];
+    if (gain) gain.gain.value = v;
+  };
+
   const [vocalsVolume, setVocalsVolume] = useState(0.9);
   // Volume de la grille synthétisée (sons MIDI). Réglage global et persistant.
   // Le Chef n'est monté qu'à l'ouverture, côté client : lire le stockage dans
@@ -272,7 +308,7 @@ export default function Conductor({
   // stems (silence de tête avant la musique) est compensé au démarrage, pour
   // que les accords, les paroles et les stems partent ensemble. La valeur
   // calculée est déduite au rendu (voir plus bas) et servie à la lecture via
-  // le ref — pas le curseur, et aucune action de l'utilisateur requise.
+  // le ref - pas le curseur, et aucune action de l'utilisateur requise.
   const stemShiftRef = useRef(songId ? loadStemShift(songId) : 0);
   const [savedStemShift] = useState(() => (songId ? loadStemShift(songId) : 0));
   const playTokenRef = useRef(0);
@@ -295,13 +331,6 @@ export default function Conductor({
   const gridMsRef = useRef(0);
   // Bande affichée : la séquence de diagrammes d'accords de la partition.
   const bandEvents = events;
-  const instVolRef = useRef(instVolume);
-  const changeInstVolume = (v: number) => {
-    setInstVolume(v);
-    instVolRef.current = v;
-    if (instRef.current) instRef.current.volume = v;
-    if (stemGainRefs.current.inst) stemGainRefs.current.inst.gain.value = v;
-  };
   const vocalsVolRef = useRef(vocalsVolume);
   const changeVocalsVolume = (v: number) => {
     setVocalsVolume(v);
@@ -324,23 +353,97 @@ export default function Conductor({
     }
   };
   const ctxRef = useRef<AudioContext | null>(null);
-  const instRef = useRef<HTMLAudioElement | null>(null);
   const vocalsRef = useRef<HTMLAudioElement | null>(null);
   const playRafRef = useRef<number | null>(null);
+
+  const mixStemUrlList = useMemo(
+    () => MIX_STEMS.map(({ id }) => mixStemUrls[id]).filter((u): u is string => Boolean(u)),
+    [mixStemUrls]
+  );
+  const hasAnyAudioStem = useMemo(
+    () => Boolean(vocalsUrl || mixStemUrlList.length > 0),
+    [vocalsUrl, mixStemUrlList]
+  );
+
+  // Chargement des stems 6 pistes (basse, guitare, batterie, piano, autres) pour le Studio.
+  const mixStemUrlsRef = useRef<Partial<Record<MixStemId, string>>>({});
+  useEffect(() => {
+    mixStemUrlsRef.current = mixStemUrls;
+  }, [mixStemUrls]);
+  useEffect(() => {
+    if (!songId) {
+      setMixStemUrls((prev) => {
+        for (const u of Object.values(prev)) if (u) URL.revokeObjectURL(u);
+        return {};
+      });
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const urls: Partial<Record<MixStemId, string>> = {};
+      try {
+        const cached = await loadStems(songId);
+        for (const rec of cached) {
+          if (MIX_STEMS.some((s) => s.id === rec.stem) && rec.blob) {
+            urls[rec.stem as MixStemId] = URL.createObjectURL(rec.blob);
+          }
+        }
+      } catch {
+        // cache local indisponible
+      }
+      try {
+        const idx = await loadPersistedStemsIndex(true);
+        const disk = new Set(idx.get(songId) ?? []);
+        for (const s of MIX_STEMS) {
+          if (urls[s.id] || !disk.has(s.id)) continue;
+          try {
+            const res = await fetch(
+              `/api/stems/persisted?songId=${encodeURIComponent(songId)}&stem=${s.id}`,
+              { cache: "no-store" }
+            );
+            if (res.ok) {
+              const blob = await res.blob();
+              urls[s.id] = URL.createObjectURL(blob);
+            }
+          } catch {
+            // stem disque indisponible
+          }
+        }
+      } catch {
+        // index/service indisponible
+      }
+      if (cancelled) {
+        for (const u of Object.values(urls)) if (u) URL.revokeObjectURL(u);
+        return;
+      }
+      setMixStemUrls((prev) => {
+        for (const u of Object.values(prev)) if (u) URL.revokeObjectURL(u);
+        return urls;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [songId]);
+  useEffect(() => {
+    return () => {
+      for (const u of Object.values(mixStemUrlsRef.current)) if (u) URL.revokeObjectURL(u);
+    };
+  }, []);
 
   const [stemStart, setStemStart] = useState<number | null>(null);
   // Vrai quand la détection du pré-roll est terminée (ou qu'il n'y a pas
   // d'audio) : l'autolecture attend ce signal pour démarrer avec le bon
   // alignement, au lieu de partir avant la fin de `detectFirstSound`.
-  const [stemProbeDone, setStemProbeDone] = useState(!(instrumentalUrl || vocalsUrl));
+  const [stemProbeDone, setStemProbeDone] = useState(!hasAnyAudioStem);
   const [stemDuration, setStemDuration] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const stemStartRef = useRef<number | null>(null);
   // Stems joués SUR l'horloge du contexte (échantillon-verrouillés avec les
   // accords) : plus de dérive possible entre la piste <audio> et les accords,
   // et plus de latence de démarrage du lecteur média.
-  const stemSourcesRef = useRef<{ inst?: AudioBufferSourceNode; vocals?: AudioBufferSourceNode }>({});
-  const stemGainRefs = useRef<{ inst?: GainNode; vocals?: GainNode }>({});
+  const stemSourcesRef = useRef<Partial<Record<string, AudioBufferSourceNode>>>({});
+  const stemGainRefs = useRef<Partial<Record<string, GainNode>>>({});
   // Lecture de la GRILLE synthétisée (répétitions comprises) : c'est elle qui
   // fait ENTENDRE les renvois. Elle prend le relais automatiquement quand aucun
   // stem n'est chargé ; avec des stems (enregistrement linéaire, sans renvois),
@@ -380,7 +483,7 @@ export default function Conductor({
     if (Number.isFinite(d) && d > 0) setStemDuration((prev) => prev ?? d);
     e.currentTarget.volume = volume;
   };
-  const usesAudio = useMemo(() => Boolean(instrumentalUrl || vocalsUrl), [instrumentalUrl, vocalsUrl]);
+  const usesAudio = useMemo(() => hasAnyAudioStem, [hasAnyAudioStem]);
   // Sons de la grille : sans stems, c'est la seule source audible ; avec des
   // stems, le mode « Grille » remplace l'enregistrement pour faire sonner les
   // répétitions de la partition.
@@ -431,23 +534,19 @@ export default function Conductor({
     }
     ctxRef.current = null;
     const srcs = stemSourcesRef.current;
-    if (srcs.inst) {
+    for (const src of Object.values(srcs)) {
+      if (!src) continue;
       try {
-        srcs.inst.stop();
-      } catch {
-        /* déjà arrêté */
-      }
-    }
-    if (srcs.vocals) {
-      try {
-        srcs.vocals.stop();
+        src.stop();
       } catch {
         /* déjà arrêté */
       }
     }
     stemSourcesRef.current = {};
     stemGainRefs.current = {};
-    if (instRef.current) instRef.current.pause();
+    for (const el of Object.values(mixStemAudioRefs.current)) {
+      if (el) el.pause();
+    }
     if (vocalsRef.current) vocalsRef.current.pause();
     setPlaying(false);
   }, []);
@@ -491,7 +590,7 @@ export default function Conductor({
 
   useEffect(() => {
     let cancelled = false;
-    const refUrl = instrumentalUrl ?? vocalsUrl;
+    const refUrl = vocalsUrl ?? mixStemUrlList[0] ?? null;
     void Promise.resolve().then(() => {
       if (!cancelled) {
         setStemDuration(null);
@@ -522,7 +621,7 @@ export default function Conductor({
     return () => {
       cancelled = true;
     };
-  }, [instrumentalUrl, vocalsUrl]);
+  }, [vocalsUrl, mixStemUrlList]);
 
   // Calcul automatique de l'alignement : onset stems (pré-roll détecté
   // ci-dessus). On ne fait aucun setState depuis l'effet : la valeur affichée
@@ -538,7 +637,7 @@ export default function Conductor({
     if (preRoll === null) return;
     stemShiftRef.current = Math.round(Math.max(0, Math.min(10, preRoll)) * 10) / 10;
     if (songId && stemShiftRef.current > 0) saveStemShift(songId, stemShiftRef.current);
-  }, [songId, instrumentalUrl, vocalsUrl, stemStart]);
+  }, [songId, vocalsUrl, mixStemUrlList, stemStart]);
 
   /**`.fromSec` permet la reprise après pause et le saut vers un diagramme. */
   const play = useCallback(async (fromSec = 0) => {
@@ -561,14 +660,13 @@ export default function Conductor({
     setLyricIndex(-1);
     setElapsedMs(seek * 1000);
 
-    const pickPrimary = (): HTMLAudioElement | null => {
-      if (instRef.current) return instRef.current;
-      if (vocalsRef.current) return vocalsRef.current;
-      return null;
-    };
-    const pickVocals = (): HTMLAudioElement | null => vocalsRef.current;
-    const primary = pickPrimary();
-    const firstVocals = pickVocals();
+    const allStemEls = [
+      ...MIX_STEMS.map((s) => mixStemAudioRefs.current[s.id]).filter(
+        (el): el is HTMLAudioElement => Boolean(el)
+      ),
+      ...(vocalsRef.current ? [vocalsRef.current] : []),
+    ];
+    const primary = allStemEls[0] ?? null;
 
     // Deux sources possibles : les stems (enregistrement importé, linéaire) ou
     // la GRILLE synthétisée (respecte les répétitions et les fins alternatives).
@@ -605,7 +703,7 @@ export default function Conductor({
       const canSound = ctx.state === "running";
       if (!canSound) {
         console.warn(
-          `[Chef] contexte audio "${ctx.state}" — lecture visuelle seulement : cliquez sur Jouer pour activer le son`
+          `[Chef] contexte audio "${ctx.state}" - lecture visuelle seulement : cliquez sur Jouer pour activer le son`
         );
       }
       ctxRef.current = ctx;
@@ -630,26 +728,38 @@ export default function Conductor({
       if (canSound && usesAudio && !grid) {
         let stemsOnCtx = false;
         const shift = stemShiftRef.current;
-        const [instBuf, vocBuf] = await Promise.all([
-          instrumentalUrl ? decodeStemBuffer(ctxSafe, instrumentalUrl) : Promise.resolve(null),
-          vocalsUrl ? decodeStemBuffer(ctxSafe, vocalsUrl) : Promise.resolve(null),
-        ]);
-        if (instBuf || vocBuf) {
+        const stemEntries: { key: string; url: string; volume: number }[] = [
+          ...MIX_STEMS.map((st) => ({
+            key: st.id,
+            url: mixStemUrls[st.id] ?? "",
+            volume: mixStemVolRefs.current[st.id] ?? 1,
+          })).filter((e) => e.url),
+          ...(vocalsUrl ? [{ key: "vocals", url: vocalsUrl, volume: vocalsVolRef.current }] : []),
+        ];
+        const decoded = await Promise.all(
+          stemEntries.map(async (e) => ({
+            ...e,
+            buf: await decodeStemBuffer(ctxSafe, e.url),
+          }))
+        );
+        const ready = decoded.filter((d) => d.buf);
+        if (ready.length > 0) {
           t0 = ctxSafe.currentTime + 0.15 - seek;
           t0Ref.current = t0;
           // Étalonnage tempo : la grille s'étire sur la durée RÉELLE de la
           // musique (durée du stem décodée à l'échantillon, moins le silence de
           // tête déjà compensé), pas sur le BPM stocké qui peut diverger de la
-          // piste enregistrée (imports GP, versions, tempo libre…).
+          // piste enregistrée (imports GP, versions, tempo libre.).
           const gridSec = totalMs / 1000;
-          const audioSec = (instBuf?.duration ?? vocBuf?.duration ?? 0) - Math.max(0, shift);
+          const refBuf = ready[0].buf!;
+          const audioSec = refBuf.duration - Math.max(0, shift);
           tempoRatioRef.current =
             audioSec > 2 && gridSec > 2 && Math.abs(gridSec - audioSec) > 1.5
               ? gridSec / audioSec
               : 1;
         }
         const startStem = (
-          kind: "inst" | "vocals",
+          kind: string,
           buf: AudioBuffer | null,
           volume: number
         ) => {
@@ -669,15 +779,14 @@ export default function Conductor({
             setStemDuration((prev) => prev ?? buf.duration);
           }
         };
-        startStem("inst", instBuf, instVolRef.current);
-        startStem("vocals", vocBuf, vocalsVolRef.current);
+        for (const d of ready) {
+          startStem(d.key, d.buf, d.volume);
+        }
         // Repli <audio> (décodage impossible) : même saut de pré-roll.
-        if (!stemsOnCtx && primary) {
-          primary.currentTime = Math.max(0, seek + shift);
-          void primary.play().catch(() => {});
-          if (firstVocals !== null && firstVocals !== primary) {
-            firstVocals.currentTime = Math.max(0, seek + shift);
-            void firstVocals.play().catch(() => {});
+        if (!stemsOnCtx && allStemEls.length > 0) {
+          for (const el of allStemEls) {
+            el.currentTime = Math.max(0, seek + shift);
+            void el.play().catch(() => {});
           }
         }
       }
@@ -699,7 +808,7 @@ export default function Conductor({
         tempoRatioRef.current = 1;
         gridPlayingRef.current = true;
         const bus = ctxSafe.createGain();
-        bus.gain.value = gridVolRef.current;
+        bus.gain.value = gridVolRef.current > 0 ? gridVolRef.current : 0.6;
         // Chaîne douce : on coupe les graves qui font « boum » sur des
         // haut-parleurs d'ordinateur, on adoucit les aigus, puis un limiteur
         // retient les pics quand un accord plaque six cordes d'un coup.
@@ -764,7 +873,7 @@ export default function Conductor({
       const t =
         ctx &&
         ctx.state === "running" &&
-        (stemSourcesRef.current.inst || stemSourcesRef.current.vocals || gridPlayingRef.current)
+        (Object.values(stemSourcesRef.current).some(Boolean) || gridPlayingRef.current)
           ? (ctx.currentTime - t0) * 1000
           : performance.now() - startedAt;
       // Horloge d'affichage : on retire la latence de sortie de l'appareil (et
@@ -795,7 +904,7 @@ export default function Conductor({
       // lisent cette ref en continu : l'ajustement est actif immediatement,
       // sans redemarrer la lecture.
       if (
-        (stemSourcesRef.current.inst || stemSourcesRef.current.vocals) &&
+        Object.values(stemSourcesRef.current).some(Boolean) &&
         !gridOnlyRef.current &&
         t - seekMs > 1000
       ) {
@@ -887,7 +996,7 @@ export default function Conductor({
     bandEvents,
     usesAudio,
     program,
-    instrumentalUrl,
+    mixStemUrls,
     vocalsUrl,
     decodeStemBuffer,
   ]);
@@ -1221,12 +1330,12 @@ export default function Conductor({
               }`}
               title={
                 gridOnly
-                  ? "Revenir à l'enregistrement (stems)"
-                  : "Écouter la grille synthétisée : les répétitions et les fins alternatives sont jouées"
+                  ? "Basculer vers le son audio (stems)"
+                  : "Basculer vers le son MIDI (grille synthétisée)"
               }
             >
               <Music className="w-3.5 h-3.5" />
-              {gridOnly ? "Audio (stems)" : "Grille (répétitions)"}
+              {gridOnly ? "MIDI" : "Audio"}
             </button>
           )}
           <button
@@ -1524,24 +1633,30 @@ export default function Conductor({
           </div>
         </div>
         <div className="flex flex-col gap-1.5 text-xs text-zinc-400">
-          {instrumentalUrl && (
-            <div className="flex items-center gap-2">
-              <span className="text-zinc-500 w-20">Instrumental</span>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={instVolume}
-                onChange={(e) => changeInstVolume(parseFloat(e.target.value))}
-                className="w-32 h-1 accent-amber-500 cursor-pointer"
-                title="Volume du stem instrumental — à équilibrer avec les diagrammes joués"
-              />
-              <span className="text-[10px] text-zinc-500 font-mono w-9">
-                {Math.round(instVolume * 100)}%
-              </span>
-            </div>
-          )}
+          {MIX_STEMS.map((s) => {
+            const url = mixStemUrls[s.id];
+            const vol = mixStemVolumes[s.id] ?? 1;
+            const available = Boolean(url);
+            return (
+              <div key={s.id} className={`flex items-center gap-2 ${available ? "" : "opacity-40"}`}>
+                <span className="text-zinc-500 w-20">{s.label}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={vol}
+                  disabled={!available}
+                  onChange={(e) => changeMixStemVolume(s.id, parseFloat(e.target.value))}
+                  className="w-32 h-1 accent-amber-500 cursor-pointer disabled:cursor-not-allowed"
+                  title={available ? `Volume de la stem ${s.label.toLowerCase()}` : `Stem ${s.label.toLowerCase()} non disponible`}
+                />
+                <span className="text-[10px] text-zinc-500 font-mono w-9">
+                  {available ? `${Math.round(vol * 100)}%` : "-"}
+                </span>
+              </div>
+            );
+          })}
           {vocalsUrl && (
             <div className="flex items-center gap-2">
               <span className="text-zinc-500 w-20">Chant</span>
@@ -1553,40 +1668,32 @@ export default function Conductor({
                 value={vocalsVolume}
                 onChange={(e) => changeVocalsVolume(parseFloat(e.target.value))}
                 className="w-32 h-1 accent-amber-500 cursor-pointer"
-                title="Volume du stem vocal"
+                title="Volume de la stem vocale"
               />
               <span className="text-[10px] text-zinc-500 font-mono w-9">
                 {Math.round(vocalsVolume * 100)}%
               </span>
             </div>
           )}
-          <div className="flex items-center gap-2">
-            <span className="text-zinc-500 w-20">Grille</span>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={gridVolume}
-              onChange={(e) => changeGridVolume(parseFloat(e.target.value))}
-              className="w-32 h-1 accent-amber-500 cursor-pointer"
-              title="Volume des sons MIDI de la grille synthétisée"
-            />
-            <span className="text-[10px] text-zinc-500 font-mono w-9">
-              {Math.round(gridVolume * 100)}%
-            </span>
-          </div>
         </div>
       </div>
-      {instrumentalUrl && (
-        <audio
-          ref={instRef}
-          src={instrumentalUrl}
-          preload="auto"
-          className="hidden"
-          onLoadedMetadata={(e) => onStemMeta(e, instVolume)}
-        />
-      )}
+      {MIX_STEMS.map((s) => {
+        const url = mixStemUrls[s.id];
+        if (!url) return null;
+        return (
+          <audio
+            key={s.id}
+            ref={(el) => {
+              if (el) mixStemAudioRefs.current[s.id] = el;
+              else delete mixStemAudioRefs.current[s.id];
+            }}
+            src={url}
+            preload="auto"
+            className="hidden"
+            onLoadedMetadata={(e) => onStemMeta(e, mixStemVolRefs.current[s.id] ?? 1)}
+          />
+        );
+      })}
       {vocalsUrl && (
         <audio
           ref={vocalsRef}
