@@ -1242,12 +1242,16 @@ export default function Home() {
             <button
               type="button"
               onClick={handleBulkYoutube}
-              disabled={bulkRunning}
-              title={`Rechercher les liens YouTube des ${youtubeTargets.length} chanson(s) du répertoire qui n'en ont pas`}
+              disabled={bulkRunning || !loaded}
+              title={
+                loaded
+                  ? `Rechercher les liens YouTube des ${youtubeTargets.length} chanson(s) du répertoire qui n'en ont pas`
+                  : "Chargement du répertoire..."
+              }
               className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-red-600/20 text-red-300 border border-red-500/30 rounded-full hover:bg-red-600/30 transition-colors disabled:opacity-50"
             >
               <Search className="w-3.5 h-3.5" />
-              Rechercher YouTube en rafale ({youtubeTargets.length})
+              Rechercher YouTube en rafale ({loaded ? youtubeTargets.length : "…"})
             </button>
             <button
               type="button"
